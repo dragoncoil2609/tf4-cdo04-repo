@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lộ trình Triển khai CDO TF4 - Foresight Lens</title>
+<style>
+/* =============================================================
+   DEFAULT DESIGN SYSTEM — tokens.css (Warm Amber / Navy)
+   ============================================================= */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  /* ── Accent (cam ấm) ── */
+  --accent:        #fe7624;
+  --accent-strong: #f59120;
+  --accent-soft:   #fbae42;
+  --accent-tint:   #fff2e6;
+
+  /* ── Ink (navy cấu trúc) ── */
+  --ink:    #1e293b;
+  --ink-2:  #24338a;
+
+  /* ── Trạng thái ngữ nghĩa ── */
+  --info:    #2563eb;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger:  #dc2626;
+
+  /* ── Bảng phân loại ── */
+  --cat-1: #fe7624;  --cat-2: #2563eb;  --cat-3: #16a34a;
+  --cat-4: #9333ea;  --cat-5: #db2777;  --cat-6: #0891b2;
+
+  /* ── Văn bản ── */
+  --text-primary:   #1a1a1a;
+  --text-secondary: #4d4e4e;
+  --text-muted:     #6b7280;
+
+  /* ── Bề mặt ── */
+  --surface-page: #fafafa;
+  --surface-card: #ffffff;
+  --surface-code: #0f172a;
+  --surface-tint: #fff7ec;
+  --surface-warm: #f0eeed;
+  --border:       #d8dee3;
+  --border-light: #ebebeb;
+
+  /* ── Typography ── */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', monospace;
+  --title: clamp(2rem, 5vw, 4rem);
+  --h2:    clamp(1.3rem, 2.5vw, 2rem);
+  --h3:    clamp(1.05rem, 1.8vw, 1.4rem);
+  --body:  clamp(0.85rem, 1.1vw, 1rem);
+  --small: clamp(0.75rem, 0.9vw, 0.85rem);
+  --mono:  clamp(0.7rem, 0.85vw, 0.8rem);
+
+  /* ── Không gian ── */
+  --gap-section: clamp(2rem, 4vw, 3rem);
+  --gap-content: clamp(0.75rem, 1.5vw, 1.5rem);
+  --gap-element: clamp(0.4rem, 0.8vw, 0.8rem);
+  --pad-block:   clamp(1rem, 3vw, 3rem);
+  --pad-inline:  clamp(1rem, 2.5vw, 3rem);
+
+  /* ── Hình khối ── */
+  --radius-sm: 8px;  --radius-md: 12px;  --radius-lg: 16px;
+  --radius-xl: 24px;  --radius-pill: 80px;
+
+  /* ── Đổ bóng ── */
+  --shadow-card: 0 4px 12px rgba(29,29,29,0.04);
+  --shadow-lg:   0 12px 28px rgba(30,41,59,0.08);
+
+  /* ── Gradient ── */
+  --gradient-accent: linear-gradient(135deg, #ffc078 0%, #ff8800 100%);
+  --gradient-text:   linear-gradient(135deg, #fe7624 0%, #d97706 100%);
+  --gradient-hero:   radial-gradient(ellipse at 85% 10%, #fcd55433 0%, transparent 55%),
+                     radial-gradient(ellipse at 10% 90%, #fe762411 0%, transparent 60%);
+  --gradient-cool:   linear-gradient(135deg, #2563eb 0%, #1e293b 100%);
+
+  /* ── Chuyển động ── */
+  --ease:       cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast:   0.3s;
+  --dur-normal: 0.5s;
+  --dur-slow:   0.8s;
+
+  /* ── Scrim ── */
+  --scrim: linear-gradient(180deg,
+            color-mix(in srgb, var(--ink) 20%, transparent),
+            color-mix(in srgb, var(--ink) 60%, transparent));
+}
+
+/* =============================================================
+   ENGINE.CSS — cấu trúc + component + animation
+   ============================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  margin: 0; font-family: var(--font-sans); color: var(--text-primary);
+  background: var(--surface-page); -webkit-font-smoothing: antialiased;
+  word-break: keep-all; overflow-wrap: break-word; line-height: 1.5;
+}
+img { display: block; max-width: 100%; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.gradient-text {
+  background: var(--gradient-text); -webkit-background-clip: text;
+  background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+/* layout */
+.layout { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.doc-nav {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  border-right: 1px solid var(--border); padding: 24px 0; background: var(--surface-card);
+}
+.doc-nav .nav-logo { padding: 0 20px 16px; border-bottom: 1px solid var(--border-light); }
+.doc-nav .nav-logo h1 { font-size: 1.1rem; margin: 0; color: var(--ink); font-weight: 800; }
+.doc-nav .nav-logo p { font-size: var(--small); color: var(--text-muted); margin: 4px 0 0; }
+.doc-nav .nav-group { padding: 18px 20px 6px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 700; }
+.doc-nav a { display: block; padding: 8px 20px; font-size: 13px; color: var(--text-secondary); border-left: 3px solid transparent; transition: all .15s; }
+.doc-nav a:hover, .doc-nav a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-tint); font-weight: 600; text-decoration: none; }
+.doc-main { padding: 40px 56px; max-width: 1000px; margin: 0 auto; width: 100%; }
+.doc-main section { margin-bottom: 56px; scroll-margin-top: 40px; }
+
+/* components */
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: var(--small); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); padding: 6px 14px; background: var(--accent-tint); border-radius: var(--radius-pill); align-self: flex-start; }
+.eyebrow .dot, .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.section-header h2 { margin: 0; font-size: var(--h2); color: var(--ink); }
+.section-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 18px; flex-shrink: 0; background: var(--accent-tint); }
+
+/* cards */
+.card { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: clamp(.85rem,1.4vw,1.4rem); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: clamp(.3rem,.8vw,.7rem); min-width: 0; }
+.card-title { font-weight: 700; font-size: var(--body); color: var(--ink); }
+.card-desc { font-size: var(--small); color: var(--text-secondary); line-height: 1.55; }
+.card-val { font-size: var(--h3); font-weight: 800; color: var(--accent); }
+.card-accent { border-color: var(--accent-strong); background: linear-gradient(180deg, var(--surface-card) 0%, var(--surface-tint) 100%); }
+.card-dark { background: var(--ink); border-color: var(--ink); color: #fff; }
+.card-dark .card-title { color: #fff; }
+.card-dark .card-body { color: var(--border); font-size: var(--body); line-height: 1.5; }
+
+/* badges */
+.badge { display: inline-block; padding: 3px 10px; border-radius: var(--radius-sm); font-size: var(--small); font-weight: 700; letter-spacing: .04em; background: var(--accent-tint); color: var(--accent-strong); }
+.badge-info    { background: color-mix(in srgb, var(--info) 15%, transparent);    color: var(--info); }
+.badge-success { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.badge-warning { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+.badge-danger  { background: color-mix(in srgb, var(--danger) 15%, transparent);  color: var(--danger); }
+
+/* code block */
+.code-block { background: var(--surface-code); border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); border-radius: var(--radius-sm); padding: 16px 18px; font-family: var(--font-mono); font-size: var(--mono); color: #e2e8f0; line-height: 1.65; overflow-x: auto; white-space: pre; margin: 16px 0; }
+.code-block .cmt { color: var(--text-muted); }
+.code-block .kw  { color: var(--accent); }
+.code-block .str { color: var(--success); }
+.code-block .fn  { color: var(--info); }
+.code-block .val { color: var(--cat-5); }
+.code-block .out { color: var(--text-muted); }
+code { font-family: var(--font-mono); font-size: .85em; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 2px 6px; border-radius: 4px; color: var(--text-primary); }
+
+/* callouts */
+.callout { border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 20px; font-size: var(--body); border-left: 4px solid var(--accent); background: var(--accent-tint); }
+.callout p { margin: 0; line-height: 1.6; }
+.callout-info    { border-color: var(--info);    background: color-mix(in srgb, var(--info) 8%, transparent); }
+.callout-success { border-color: var(--success); background: color-mix(in srgb, var(--success) 8%, transparent); }
+.callout-warning { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); }
+.callout-danger  { border-color: var(--danger);  background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: var(--small); margin: 20px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+th { text-align: left; padding: 12px 14px; background: var(--ink); color: var(--accent); font-weight: 700; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text-secondary); vertical-align: top; line-height: 1.6; }
+tr:hover td { background: var(--accent-tint); }
+
+/* flow */
+.flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 20px 0; }
+.flow-step { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; font-size: var(--small); color: var(--text-primary); display: flex; flex-direction: column; gap: 4px; min-width: 180px; flex: 1; }
+.flow-step .flow-num { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+.flow-step .flow-title { font-weight: 700; color: var(--ink); }
+.flow-step .flow-body { font-size: var(--small); color: var(--text-muted); line-height: 1.4; }
+.flow-arrow { color: var(--accent); font-size: 1.2rem; padding: 0 12px; align-self: center; flex-shrink: 0; }
+
+/* stepper */
+.stepper { display: flex; flex-direction: column; margin: 20px 0; }
+.step-item { display: flex; gap: 16px; }
+.step-line { display: flex; flex-direction: column; align-items: center; width: 32px; flex-shrink: 0; }
+.step-dot { width: 28px; height: 28px; border-radius: 50%; background: var(--gradient-accent); color: #fff; font-size: .75rem; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
+.step-connector { width: 2px; flex: 1; min-height: 24px; background: var(--border); margin: 4px 0; }
+.step-content { padding-bottom: 24px; flex: 1; }
+.step-title { font-weight: 700; font-size: 0.95rem; color: var(--ink); margin-bottom: 4px; }
+.step-desc { font-size: var(--small); color: var(--text-secondary); line-height: 1.55; }
+
+/* definition rows */
+.def-list { display: flex; flex-direction: column; gap: .5rem; margin: 20px 0; }
+.def-list .def-row { display: grid; grid-template-columns: 200px 1fr; gap: 1rem; padding: .8rem 0; border-bottom: 1px solid var(--border-light); }
+.def-list .def-term { font-weight: 700; color: var(--accent); font-size: var(--small); }
+.def-list .def-desc { color: var(--text-secondary); font-size: var(--small); line-height: 1.5; }
+
+/* stats */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: clamp(.75rem,1.2vw,1.25rem); margin: 20px 0; }
+.stat { display: flex; flex-direction: column; gap: .25rem; background: var(--surface-card); border: 1px solid var(--border); padding: 16px; border-radius: var(--radius-md); }
+.stat .big-num { font-size: clamp(1.8rem,3.5vw,2.5rem); font-weight: 800; background: var(--gradient-text); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
+.stat .stat-label { font-weight: 700; color: var(--ink); font-size: var(--small); }
+.stat .stat-body { font-size: var(--small); color: var(--text-muted); line-height: 1.45; }
+
+/* Grid systems */
+.grid { display: grid; gap: clamp(.75rem,1.2vw,1.25rem); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem,2vw,2rem); align-items: stretch; margin: 20px 0; }
+.two-col > *, .grid > * { min-width: 0; min-height: 0; }
+
+/* Animations */
+.reveal { opacity: 0; transform: translateY(14px); }
+.reveal.in { opacity: 1; transform: none; transition: opacity var(--dur-normal) var(--ease), transform var(--dur-normal) var(--ease); }
+.stagger > * { opacity: 0; transform: translateY(14px); }
+.stagger.in > * { opacity: 1; transform: none; transition: opacity var(--dur-normal) var(--ease), transform var(--dur-normal) var(--ease); transition-delay: calc(var(--i, 0) * 80ms); }
+svg [data-animate="draw"] { stroke-dasharray: var(--len, 1000); stroke-dashoffset: var(--len, 1000); }
+svg.in [data-animate="draw"] { animation: eng-draw var(--dur-slow) var(--ease) forwards; }
+@keyframes eng-draw { to { stroke-dashoffset: 0; } }
+svg [data-animate="grow"] { transform: scaleY(0); transform-origin: bottom; transform-box: fill-box; }
+svg.in [data-animate="grow"] { animation: eng-grow var(--dur-normal) var(--ease) forwards; }
+@keyframes eng-grow { to { transform: scaleY(1); } }
+svg [data-animate="pulse"].in { animation: eng-pulse 2.4s ease-in-out infinite; }
+@keyframes eng-pulse { 0%,100%{opacity:.85} 50%{opacity:1} }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .doc-nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  .doc-main { padding: 24px; }
+  .def-list .def-row { grid-template-columns: 1fr; gap: 4px; }
+}
+@media (max-width: 767px) {
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .two-col { grid-template-columns: 1fr; }
+  .flow { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); align-self: center; margin: 8px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .2s !important; }
+  html { scroll-behavior: auto; }
+  .reveal, .stagger > *, svg [data-animate] { opacity: 1 !important; transform: none !important; animation: none !important; stroke-dashoffset: 0 !important; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="doc-nav">
+    <div class="nav-logo">
+      <h1>Foresight Lens</h1>
+      <p>Lộ trình Triển khai CDO (TF4)</p>
+    </div>
+    <div class="nav-group">Các giai đoạn roadmap</div>
+    <a href="#s1" class="active">01 · Khảo sát & Yêu cầu</a>
+    <a href="#s2">02 · Đàm phán Hợp đồng</a>
+    <a href="#s3">03 · Triển khai IaC</a>
+    <a href="#s4">04 · Tích hợp AI Engine</a>
+    <a href="#s5">05 · Chạy thử Scenarios</a>
+    <a href="#s6">06 · Đóng băng & Pitching</a>
+  </nav>
+
+  <main class="doc-main">
+    <!-- OVERALL ROADMAP SVG DIAGRAM -->
+    <div class="card reveal" style="margin-bottom: 40px; padding: 24px; background: var(--surface-card); border-color: var(--border);">
+      <div class="card-title" style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.25rem;">🗺️</span> Sơ đồ Lộ trình Tổng thể CDO TF4
+      </div>
+      <div class="media-contain" style="border: none; background: transparent; padding: 0; min-height: 250px;">
+        <svg viewBox="0 0 1000 240" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow: visible;">
+          <defs>
+            <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="var(--accent)" />
+              <stop offset="100%" stop-color="var(--accent-strong)" />
+            </linearGradient>
+            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.1" />
+            </filter>
+          </defs>
+
+          <!-- Connecting Wavy Path -->
+          <path d="M 80,120 C 165,40  165,200 250,120 C 335,40  335,200 420,120 C 505,40  505,200 590,120 C 675,40  675,200 760,120 C 845,40  845,200 930,120" 
+                fill="none" stroke="url(#accent-grad)" stroke-width="5" stroke-linecap="round" data-animate="draw" />
+
+          <!-- Nodes & Labels -->
+          <!-- Node 1: Khảo sát & Yêu cầu -->
+          <g>
+            <circle cx="80" cy="120" r="18" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="4" filter="url(#shadow)" data-animate="pulse" />
+            <text x="80" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="800" fill="var(--ink)">1</text>
+            <text x="80" y="165" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="700" fill="var(--ink)">01. Khảo sát & Yêu cầu</text>
+            <text x="80" y="182" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-weight="600" fill="var(--text-muted)">W11 T2 - T3</text>
+          </g>
+
+          <!-- Node 2: Đàm phán Hợp đồng -->
+          <g>
+            <circle cx="250" cy="120" r="18" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="4" filter="url(#shadow)" data-animate="pulse" />
+            <text x="250" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="800" fill="var(--ink)">2</text>
+            <text x="250" y="75" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="700" fill="var(--ink)">02. Đàm phán Hợp đồng</text>
+            <text x="250" y="58" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-weight="600" fill="var(--text-muted)">W11 T4 - T5</text>
+          </g>
+
+          <!-- Node 3: Triển khai IaC Base -->
+          <g>
+            <circle cx="420" cy="120" r="18" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="4" filter="url(#shadow)" data-animate="pulse" />
+            <text x="420" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="800" fill="var(--ink)">3</text>
+            <text x="420" y="165" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="700" fill="var(--ink)">03. Triển khai IaC Base</text>
+            <text x="420" y="182" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-weight="600" fill="var(--text-muted)">W11 T5 - T6</text>
+          </g>
+
+          <!-- Node 4: Tích hợp AI Engine -->
+          <g>
+            <circle cx="590" cy="120" r="18" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="4" filter="url(#shadow)" data-animate="pulse" />
+            <text x="590" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="800" fill="var(--ink)">4</text>
+            <text x="590" y="75" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="700" fill="var(--ink)">04. Tích hợp AI Engine</text>
+            <text x="590" y="58" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-weight="600" fill="var(--text-muted)">W12 T2 - T3</text>
+          </g>
+
+          <!-- Node 5: Chạy thử Scenarios -->
+          <g>
+            <circle cx="760" cy="120" r="18" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="4" filter="url(#shadow)" data-animate="pulse" />
+            <text x="760" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="800" fill="var(--ink)">5</text>
+            <text x="760" y="165" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="700" fill="var(--ink)">05. Chạy thử Scenarios</text>
+            <text x="760" y="182" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-weight="600" fill="var(--text-muted)">W12 T3 - T4</text>
+          </g>
+
+          <!-- Node 6: Đóng băng & Pitching -->
+          <g>
+            <circle cx="930" cy="120" r="18" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="4" filter="url(#shadow)" data-animate="pulse" />
+            <text x="930" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="800" fill="var(--ink)">6</text>
+            <text x="930" y="75" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="700" fill="var(--ink)">06. Đóng băng & Pitching</text>
+            <text x="930" y="58" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-weight="600" fill="var(--text-muted)">W12 T5</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- SECTION 1 -->
+    <section id="s1" class="reveal">
+      <div class="section-header">
+        <div class="section-icon">🔍</div>
+        <h2>01 · Khảo sát & Làm rõ Yêu cầu (W11 T2 - T3)</h2>
+      </div>
+      
+      <p>Giai đoạn đầu tiên tập trung hoàn toàn vào việc tìm hiểu nghiệp vụ và bối cảnh hoạt động của hệ thống fintech. Để tránh việc xây dựng sai lệch kiến trúc hoặc hiểu lầm mong muốn của khách hàng, các nhóm CDO thuộc Task Force 4 cần làm rõ các câu hỏi load-bearing và thiết lập một phạm vi công việc thống nhất.</p>
+
+      <div class="def-list">
+        <div class="def-row">
+          <span class="def-term">Telemetry Contract</span>
+          <span class="def-desc">Hợp đồng xác định định dạng và tần suất dữ liệu giám sát dạng time-series từ hạ tầng CDO truyền sang AI Engine phục vụ học máy.</span>
+        </div>
+        <div class="def-row">
+          <span class="def-term">AI API Contract</span>
+          <span class="def-desc">Hợp đồng quy định cách thức giao tiếp và các schema request/response giữa ứng dụng giám sát của CDO và AI Engine.</span>
+        </div>
+        <div class="def-row">
+          <span class="def-term">Deployment Contract</span>
+          <span class="def-desc">Thỏa thuận về môi trường lưu trữ, cấu hình mạng, bảo mật IAM SigV4 và các chỉ số tự động co giãn (auto-scaling) cho AI Engine.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-warning">
+        <p><strong>Gotcha quan trọng:</strong> Tuyệt đối không tự ý suy đoán yêu cầu nghiệp vụ của Client mà không có tài liệu Debrief được Mentor xác nhận trước EOD thứ Hai W11. Rework trong giai đoạn sau có thể làm mất tới 30% quỹ thời gian của toàn dự án.</p>
+      </div>
+
+      <p>Kết thúc giai đoạn này, các nhóm CDO phải hoàn thành và cam kết file tài liệu phân tích ban đầu <code>01_requirements_analysis.md</code> trong repository của nhóm mình.</p>
+    </section>
+
+    <!-- SECTION 2 -->
+    <section id="s2" class="reveal">
+      <div class="section-header">
+        <div class="section-icon">🤝</div>
+        <h2>02 · Đàm phán Hợp đồng & Thiết kế (W11 T4 - T5)</h2>
+      </div>
+
+      <p>Mục tiêu cốt lõi của giai đoạn này là đồng bộ hóa giao tiếp giữa nhóm phát triển AI Engine và nhóm hạ tầng Cloud/DevOps (CDO). Việc thiết lập các giao diện kết nối (interfaces) cụ thể sẽ giúp hai bên phát triển song song trong tuần thứ 12 mà không sợ xung đột.</p>
+
+      <div class="flow">
+        <div class="flow-step">
+          <span class="flow-num">Bước 1</span>
+          <span class="flow-title">Draft Contracts (T4)</span>
+          <span class="flow-body">AI công bố bản draft Telemetry, AI API và Deployment contract lên repository chung để CDO tiến hành đánh giá phản biện.</span>
+        </div>
+        <div class="flow-arrow">➡️</div>
+        <div class="flow-step">
+          <span class="flow-num">Bước 2</span>
+          <span class="flow-title">Co-design (T5 Sáng)</span>
+          <span class="flow-body">CDO thảo luận và push-back các ràng buộc bất hợp lý (ví dụ: yêu cầu traffic 50k events/s vượt quá khả năng lưu trữ giá rẻ).</span>
+        </div>
+        <div class="flow-arrow">➡️</div>
+        <div class="flow-step">
+          <span class="flow-num">Bước 3</span>
+          <span class="flow-title">Freeze & Skeleton (T5 Chiều)</span>
+          <span class="flow-body">Khóa và ký kết 3 contracts với sự chứng kiến của Mentor. AI Engine deploy skeleton dummy endpoint để CDO gọi test.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <p><strong>Lời khuyên:</strong> Dummy skeleton do nhóm AI triển khai chiều thứ Năm sẽ trả về một cấu trúc JSON tĩnh chuẩn hợp đồng. Điều này cho phép nhóm CDO kiểm thử API routing và tích hợp code path mà không cần đợi logic suy luận của AI Engine hoàn chỉnh.</p>
+      </div>
+
+      <p>Sau khi ký kết và đóng băng giao diện hợp đồng vào chiều thứ Năm W11, mọi thay đổi giao tiếp sẽ chỉ được thực thi thông qua quy trình curveball của Mentor.</p>
+    </section>
+
+    <!-- SECTION 3 -->
+    <section id="s3" class="reveal">
+      <div class="section-header">
+        <div class="section-icon">🏗️</div>
+        <h2>03 · Triển khai IaC & Base Infra (W11 T5 - T6)</h2>
+      </div>
+
+      <p>Khi các giao diện kết nối kỹ thuật đã được khóa chặt, nhóm CDO bước vào triển khai hạ tầng nền tảng bằng các công cụ hạ tầng dạng code (IaC) như Terraform.</p>
+
+      <div class="stepper">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Dựng Base Networking & Security</div>
+            <div class="step-desc">Triển khai VPC bảo mật với các Private Subnets cho cơ sở dữ liệu và AI Engine. Cấu hình Security Groups chỉ cho phép kết nối nội bộ từ các nền tảng CDO trong cùng một Task Force.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Thiết lập Storage TSDB Phân tích</div>
+            <div class="step-desc">Khởi tạo và cấu hình cơ sở dữ liệu time-series (Prometheus/AWS Timestream/InfluxDB) có khả năng ghi nhận và xử lý peak volume 50k events/s với retention tối thiểu 90 ngày.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Deploy Compute Target & Mock API Integration</div>
+            <div class="step-desc">Cấu hình ECS Fargate Service/Lambda làm compute target. Viết script kiểm thử định kỳ gọi lên skeleton endpoint của AI và lưu trữ audit log thô.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-warning">
+        <p><strong>Gotcha quan trọng:</strong> Toàn bộ hạ tầng cơ bản và tài liệu kiến trúc (bao gồm <code>02_infra_design.md</code>, <code>03_security_design.md</code>, <code>04_deployment_design.md</code> và <code>08_adrs.md</code>) phải hoạt động trơn tru và đẩy lên repository trước EOD thứ Sáu W11.</p>
+      </div>
+
+      <p>Giai đoạn này tạo đòn bẩy cho nhóm CDO chuẩn bị sẵn sàng nhận các cập nhật logic suy luận AI Engine thực thụ trong tuần kế tiếp.</p>
+    </section>
+
+    <!-- SECTION 4 -->
+    <section id="s4" class="reveal">
+      <div class="section-header">
+        <div class="section-icon">🔗</div>
+        <h2>04 · Tích hợp AI Engine & Triển khai Dự phòng (W12 T2 - T3)</h2>
+      </div>
+
+      <p>Đầu tuần 12 đánh dấu sự chuyển giao từ môi trường giả lập sang kết nối E2E thực tế. CDO sẽ tích hợp logic phát hiện bất thường thực sự của AI Engine và cấu hình hệ thống dự phòng thảm họa.</p>
+
+      <div class="two-col">
+        <div class="card card-accent">
+          <span class="card-title">Tích hợp AI Engine Thật</span>
+          <span class="card-desc">Cấu hình kết nối HTTPS đến endpoint thật <code>POST /v1/predict</code> của AI. Triển khai cơ chế xác thực IAM SigV4 bảo mật và tagging <code>tenant_id</code> để phân luồng người dùng (multi-tenant isolation). Cấu hình overlay cảnh báo dự báo lên Grafana để hiển thị trực quan.</span>
+        </div>
+        <div class="card">
+          <span class="card-title">Cơ chế Fail-open Fallback</span>
+          <span class="card-desc">Giám sát sức khỏe API của AI Engine. Nếu endpoint phản hồi chậm (p99 latency > 500ms) hoặc sập hoàn toàn (trả về mã HTTP 503), hệ thống tự động fallback chuyển sang kích hoạt các ngưỡng tĩnh (static threshold alerts) trên CloudWatch/DataDog.</span>
+        </div>
+      </div>
+
+      <div class="callout callout-danger">
+        <p><strong>Gotcha quan trọng:</strong> Phiên kiểm thử tích hợp (integration session) diễn ra vào chiều thứ Ba W12. Nếu hạ tầng CDO không thể gọi endpoint thật và không có cơ chế fallback hoạt động, nhóm CDO sẽ bị đánh giá thấp về độ tin cậy vận hành.</p>
+      </div>
+
+      <p>Cơ chế fail-open fallback giúp Foresight Lens bảo vệ tối đa độ sẵn sàng SLO 99.9% của fintech ngay cả khi AI Engine gặp sự cố hoạt động.</p>
+    </section>
+
+    <!-- SECTION 5 -->
+    <section id="s5" class="reveal">
+      <div class="section-header">
+        <div class="section-icon">📈</div>
+        <h2>05 · Kiểm thử Scenarios & Đo lường (W12 T3 - T4)</h2>
+      </div>
+
+      <p>Để chứng minh giải pháp Foresight Lens thực sự phát hiện được các sự cố capacity silent trước khi chúng xảy ra, nhóm CDO phải chạy kịch bản tải thực tế trên ít nhất 3 dịch vụ tier-1 giả lập.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Kịch bản Test (Scenario)</th>
+            <th>Hành vi giả lập thực tế</th>
+            <th>Mục tiêu kỹ thuật (KPIs)</th>
+            <th>Điểm đánh đổi (Drawback)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Gradual Drift</strong></td>
+            <td>Tải CPU và Memory của service tăng rất chậm qua thời gian.</td>
+            <td>Cảnh báo sớm SLO breach trước ít nhất 15 phút. Chạy test window dài 2 giờ.</td>
+            <td>Đòi hỏi tài nguyên AWS hoạt động liên tục trong thời gian dài kiểm thử.</td>
+          </tr>
+          <tr>
+            <td><strong>Sudden Spike</strong></td>
+            <td>Traffic tăng vọt 3.2x trong thời gian ngắn (mô phỏng Black Friday).</td>
+            <td>Xác nhận cơ chế tự động co giãn ECS Fargate Task (từ 2 lên tối đa 10 replicas).</td>
+            <td>Hạ tầng scale-up có độ trễ nhất định, có thể gây sụt giảm SLO ngắn hạn trước khi ổn định.</td>
+          </tr>
+          <tr>
+            <td><strong>Slow Leak</strong></td>
+            <td>Tải DB connection Aurora tăng âm thầm trong 90 phút.</td>
+            <td>Catch drift thành công >= 80% trên các kịch bản test.</td>
+            <td>Yêu cầu dữ liệu baseline sạch, nếu baseline quá biến động dễ bị miss drift.</td>
+          </tr>
+          <tr>
+            <td><strong>Noisy Baseline</strong></td>
+            <td>Traffic biến động mạnh bất thường nhưng không có lỗi cạn tài nguyên.</td>
+            <td>Đo lường False Positive rate <= 12% để tránh gây alert fatigue cho SRE team.</td>
+            <td>Việc tăng độ tin cậy mô hình tránh báo giả có thể làm tăng nhẹ tỷ lệ bỏ lỡ (False Negative).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-info">
+        <p><strong>Mẹo nhỏ:</strong> Sử dụng công cụ load test chuyên dụng như k6 hoặc Locust để giả lập lưu lượng và rò rỉ kết nối một cách tự động và đồng bộ, giúp dữ liệu đo lường sạch và có tính lặp lại tốt.</p>
+      </div>
+
+      <p>Kết quả kiểm thử hiệu năng này cần được ghi nhận cụ thể vào file báo cáo <code>07_test_eval_report.md</code> để trình Panel đánh giá.</p>
+    </section>
+
+    <!-- SECTION 6 -->
+    <section id="s6" class="reveal">
+      <div class="section-header">
+        <div class="section-icon">🚨</div>
+        <h2>06 · Quản lý Chi phí, Đóng băng & Pitching (W12 T4 - T5)</h2>
+      </div>
+
+      <p>Giai đoạn cuối cùng đòi hỏi việc quản lý chặt chẽ ngân sách AWS và chuẩn bị toàn diện cho buổi thuyết trình bảo vệ giải pháp onsite.</p>
+
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="big-num" data-animate="count" data-to="200">$200</div>
+          <div class="stat-label">AWS Budget / Tháng</div>
+          <div class="stat-body">Ngân sách trần quy định cho toàn bộ tài nguyên CDO. Cần thiết lập ngắt tự động (Circuit Breaker) khi vượt ngưỡng.</div>
+        </div>
+        <div class="stat">
+          <div class="big-num" data-animate="count" data-to="15">15</div>
+          <div class="stat-label">Phút Lead Time</div>
+          <div class="stat-body">Thời gian tối thiểu Foresight Lens phải đưa ra cảnh báo cạn kiệt tài nguyên trước khi SLO bị vi phạm.</div>
+        </div>
+        <div class="stat">
+          <div class="big-num" data-animate="count" data-to="12">12%</div>
+          <div class="stat-label">False Positive tối đa</div>
+          <div class="stat-body">Tỷ lệ cảnh báo giả tối đa chấp nhận để đảm bảo đội ngũ SRE không bị alert fatigue.</div>
+        </div>
+      </div>
+
+      <div class="callout callout-warning">
+        <p><strong>Gotcha quan trọng:</strong> 8:00 AM sáng thứ Năm W12 sẽ đóng băng toàn bộ code (Code Freeze) với git tag <code>final</code>. Sau thời gian này, chỉ có tài liệu Slides và script pitching được phép chỉnh sửa.</p>
+      </div>
+
+      <p>Để thuyết phục được hội đồng chấm thi, các nhóm CDO cần chứng minh sự vượt trội trong hạ tầng của mình qua câu chuyện "Differentiation Angle", đồng thời luyện tập phản biện cá nhân (Individual Defense) trước các câu hỏi curveball hóc búa từ Panel.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+/* =============================================================
+   PRESENTATION.JS
+   ============================================================= */
+(function () {
+  'use strict';
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function prepAnimations() {
+    document.querySelectorAll('.stagger').forEach(function (c) {
+      Array.prototype.forEach.call(c.children, function (ch, i) {
+        ch.style.setProperty('--i', i);
+      });
+    });
+    document.querySelectorAll('svg [data-animate="draw"]').forEach(function (p) {
+      try {
+        var L = p.getTotalLength();
+        p.style.setProperty('--len', L);
+      } catch (e) {}
+    });
+  }
+
+  function revealInside(scope) {
+    scope.querySelectorAll('.reveal, .stagger').forEach(function (el) {
+      el.classList.add('in');
+    });
+    scope.querySelectorAll('svg').forEach(function (el) {
+      el.classList.add('in');
+    });
+    runCounters(scope);
+  }
+
+  function runCounters(scope) {
+    scope.querySelectorAll('[data-animate="count"]').forEach(function (el) {
+      if (el.dataset.done) return;
+      el.dataset.done = '1';
+      var to = parseFloat(el.dataset.to || el.textContent) || 0;
+      if (reduce) { el.textContent = to; return; }
+      var dur = 900, t0 = null;
+      function tick(t) {
+        if (!t0) t0 = t;
+        var p = Math.min((t - t0) / dur, 1);
+        var v = to * (1 - Math.pow(1 - p, 3));
+        el.textContent = (to % 1 === 0) ? Math.round(v) : v.toFixed(1);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function setupDocReveal() {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('in');
+        runCounters(e.target);
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.15 });
+
+    document.querySelectorAll('.reveal, .stagger, svg').forEach(function (el) {
+      io.observe(el);
+    });
+  }
+
+  function setupDocSpy() {
+    var sections = document.querySelectorAll('.doc-main section[id]');
+    var links = document.querySelectorAll('.doc-nav a[href^="#"]');
+    if (!sections.length || !links.length) return;
+    var spy = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (l) {
+          l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id);
+        });
+      });
+    }, { rootMargin: '-20% 0px -60% 0px' });
+    sections.forEach(function (s) { spy.observe(s); });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    prepAnimations();
+    setupDocReveal();
+    setupDocSpy();
+  });
+})();
+</script>
+</body>
+</html>
