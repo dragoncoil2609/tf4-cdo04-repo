@@ -118,33 +118,565 @@ Các ADR dự kiến cho CDO-04:
 
 ---
 
-## ADR-002 - To be added
+## ADR-002 - Chọn Balanced Prediction Mode cho prediction cadence và lookback window
 
-- **Status**: Proposed
-- **Date**: 2026-MM-DD
-- **Context**: To be filled.
-- **Decision**: To be filled.
+- **Status**: Accepted
+- **Date**: 2026-06-23
+
+- **Context**:
+
+  TF4 Foresight Lens yêu cầu platform cảnh báo sớm trước SLO breach tối thiểu 15 phút, đồng thời false positive rate không vượt quá 12% và drift catch rate đạt ít nhất 80%. Nhóm CDO-04 cần chọn prediction operating mode phù hợp cho MVP capstone.
+
+  Nếu gọi AI prediction quá dày, platform có thể phát hiện rủi ro nhanh hơn nhưng sẽ làm tăng số lượng AI calls, Timestream queries, DynamoDB audit records, CloudWatch logs và nguy cơ false positive. Nếu gọi prediction quá thưa, platform tiết kiệm cost hơn nhưng có thể phát hiện gradual drift hoặc slow leak quá muộn.
+
+- **Decision**:
+
+  Nhóm CDO-04 chọn **Balanced Prediction Mode** làm default mode cho MVP.
+
+  Default operating mode:
+
+  | Item | Decision |
+  |---|---|
+  | Prediction cadence | Mỗi 5 phút |
+  | Lookback window | 1-2 giờ gần nhất |
+  | Lead time target | Tối thiểu >=15 phút, target 30 phút nếu có thể |
+  | Service scope | 3 service tier-1 |
+  | Metric scope | 3-5 leading metrics/service |
+  | Alert behavior | High risk gửi alert ngay, medium risk ghi annotation/shared channel, low risk chỉ ghi audit |
+  | Cost target | Giữ platform dưới khoảng $200/tháng |
+
+  Prediction Worker sẽ query telemetry gần nhất từ Timestream, build input window, gọi AI endpoint `POST /v1/predict`, ghi audit record vào DynamoDB và publish alert khi risk level là high.
+
 - **Consequence**:
-  - ✅ To be filled.
-  - ⚠️ To be filled.
+
+  - ✅ Balanced mode hỗ trợ hard requirement về cảnh báo sớm với lead time >=15 phút.
+  - ✅ Cadence mỗi 5 phút tạo đủ cơ hội để phát hiện gradual drift mà không tạo quá nhiều AI calls.
+  - ✅ Lookback window 1-2 giờ cung cấp đủ context time-series cho baseline/drift analysis.
+  - ✅ Cost dễ kiểm soát hơn high-sensitivity mode vì số lượng prediction jobs, Timestream queries và audit records ở mức vừa phải.
+  - ✅ Nguy cơ false positive thấp hơn mode 1 phút vì platform không phản ứng quá nhanh với các spike ngắn hoặc noisy baseline.
+  - ✅ Dễ giải thích và test trong capstone với 3 service và 4 scenario: gradual drift, sudden spike, slow leak, noisy baseline.
+  - ⚠️ Balanced mode có thể phát hiện một số sudden spike chậm hơn cadence 1 phút.
+  - ⚠️ Nếu service behavior biến động mạnh, cadence 5 phút vẫn có thể cần tune theo từng service.
+  - ⚠️ Team phải đảm bảo Timestream query luôn filter theo `tenant_id`, `service_id` và time window để tránh tăng query cost.
+  - ⚠️ Cadence cuối cùng có thể cần điều chỉnh sau khi AI contract và kết quả evaluation W12 rõ hơn.
+
 - **Alternatives considered**:
-  - To be filled.
+
+  - **High-sensitivity mode, prediction mỗi 1 phút**:
+
+    Rejected for MVP vì làm tăng AI calls, Timestream query volume, DynamoDB audit writes và CloudWatch logs. Mode này có thể phát hiện nhanh hơn nhưng dễ tăng false positive và cost, không phù hợp với budget $200/tháng và target FP <=12%.
+
+  - **Cost-saving mode, prediction mỗi 10 phút hoặc lâu hơn**:
+
+    Rejected as default vì có thể phát hiện gradual drift hoặc slow leak quá muộn. Với cadence 10 phút, platform có ít cơ hội hơn để cảnh báo SRE trước yêu cầu lead time tối thiểu 15 phút.
+
+  - **Static threshold only**:
+
+    Rejected as primary mode vì static threshold chỉ là fallback path, không phải prediction workflow chính. Client hiện tại đã gặp hạn chế với static threshold và alert fatigue.
+
+  - **Adaptive cadence ngay từ MVP**:
+
+    Rejected for MVP vì việc tự động thay đổi cadence theo risk level làm tăng độ phức tạp triển khai. Hướng này có thể xem là future improvement sau khi base workflow ổn định.
+---
+
+## ADR-003 - Chọn Fail-open Static Threshold Fallback khi AI endpoint unavailable
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-23
+
+* **Context**:
+
+  TF4 Foresight Lens yêu cầu platform có khả năng cảnh báo sớm bằng AI prediction, nhưng hệ thống không được phụ thuộc hoàn toàn vào AI endpoint. Trong quá trình vận hành, AI endpoint `POST /v1/predict` có thể timeout, unavailable, trả lỗi `5xx`, `429`, hoặc response sai schema.
+
+  Nếu CDO platform chỉ dựa vào AI endpoint, khi AI lỗi thì SRE sẽ mất hoàn toàn khả năng giám sát rủi ro capacity exhaustion. Điều này không phù hợp với yêu cầu của client vì các sự cố như RDS CPU tăng dần, SQS backlog tăng hoặc ALB connection spike vẫn cần được phát hiện ngay cả khi AI unavailable.
+
+  Vì vậy, nhóm CDO-04 cần một fallback strategy an toàn, đơn giản, có thể test được và có thể audit được.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn **Fail-open Static Threshold Fallback**.
+
+  Khi AI endpoint gặp lỗi, Prediction Worker sẽ không dừng monitoring. Thay vào đó, worker sẽ chuyển sang static threshold fallback theo từng service.
+
+  Các trigger kích hoạt fallback:
+
+  * AI endpoint timeout.
+  * AI endpoint trả lỗi `5xx`.
+  * AI endpoint trả `429` sau retry limit.
+  * AI endpoint unavailable.
+  * AI response sai schema hoặc thiếu field bắt buộc.
+  * AI response không parse được.
+
+  Fallback behavior theo từng service:
+
+  | Service           | Fallback metrics                                    | Example fallback condition                                    |
+  | ----------------- | --------------------------------------------------- | ------------------------------------------------------------- |
+  | `payment-gateway` | ALB latency, HTTP 5xx, active connection, RDS CPU   | p95 latency cao, 5xx tăng, RDS CPU vượt ngưỡng                |
+  | `ledger-service`  | RDS CPU, DB connection utilization, query latency   | DB CPU/connection tăng dần, query latency vượt baseline       |
+  | `kyc-worker`      | SQS queue depth, oldest message age, worker timeout | Queue depth tăng, oldest message age cao, worker timeout tăng |
+
+  Khi fallback được dùng, audit log phải ghi rõ:
+
+  ```text
+  prediction_source = static_threshold_fallback
+  fallback_reason = ai_timeout | ai_5xx | ai_429 | ai_unavailable | ai_invalid_response
+  ```
+
+  Alert được tạo từ fallback phải vẫn có đủ thông tin tối thiểu:
+
+  * `service_id`
+  * `risk_level`
+  * `root_cause`
+  * `recommendation`
+  * `prediction_source`
+  * `fallback_reason`
+  * `prediction_id`
+  * `timestream_query_reference`
+  * `cloudwatch_dashboard_url`
+
+  Ví dụ fallback alert:
+
+  ```text
+  Service: kyc-worker
+  Risk level: high
+  Prediction source: static_threshold_fallback
+  Fallback reason: ai_timeout
+  Root cause: SQS queue depth and oldest message age exceeded fallback threshold.
+  Recommendation: Increase kyc-worker concurrency from 20 to 40.
+  Evidence: Timestream query reference + CloudWatch dashboard URL
+  ```
+
+* **Consequence**:
+
+  * ✅ Platform không bị mất monitoring hoàn toàn khi AI endpoint lỗi.
+  * ✅ Đáp ứng yêu cầu fail-open/fallback để tránh ảnh hưởng uy tín khi AI không khả dụng.
+  * ✅ SRE vẫn nhận được warning dựa trên các metric quan trọng như RDS CPU, SQS backlog, ALB latency và HTTP 5xx.
+  * ✅ Fallback decision vẫn được audit trong DynamoDB, giúp truy vết rõ warning đến từ AI hay static threshold.
+  * ✅ Cách này đơn giản hơn so với việc build model dự phòng hoặc multi-AI endpoint trong MVP.
+  * ✅ Dễ test trong W12 bằng scenario “AI endpoint down”, “AI timeout” hoặc “AI invalid response”.
+  * ✅ Phù hợp với nguyên tắc predict + recommend, không auto-remediation.
+  * ⚠️ Static threshold fallback kém thông minh hơn AI prediction và có thể phát hiện drift muộn hơn.
+  * ⚠️ Static threshold có thể tạo false positive nếu threshold chưa được tune tốt.
+  * ⚠️ Cần định nghĩa threshold riêng cho từng service để tránh dùng một ngưỡng chung quá thô.
+  * ⚠️ Fallback không thay thế AI prediction, chỉ là safety path khi AI unavailable.
+  * ⚠️ Nếu threshold quá cao, fallback có thể bỏ sót gradual drift; nếu threshold quá thấp, fallback có thể gây alert fatigue.
+
+* **Alternatives considered**:
+
+  * **Fail-closed khi AI endpoint lỗi**:
+
+    Rejected vì nếu AI lỗi mà platform dừng prediction hoàn toàn thì SRE mất giám sát rủi ro capacity exhaustion. Điều này trái với mục tiêu early warning và không phù hợp với fintech/SRE context.
+
+  * **Retry indefinitely cho tới khi AI endpoint hồi phục**:
+
+    Rejected vì retry vô hạn có thể làm nghẽn worker, tăng queue backlog, tăng cost và vẫn không tạo được warning kịp thời. Retry chỉ nên có giới hạn, sau đó fallback.
+
+  * **Manual-only monitoring khi AI lỗi**:
+
+    Rejected vì quay lại phụ thuộc hoàn toàn vào người trực dashboard, trong khi client đã nói vấn đề hiện tại là không ai có thể watch dashboard 24/7.
+
+  * **Backup AI endpoint hoặc secondary model**:
+
+    Rejected for MVP vì làm tăng độ phức tạp triển khai, deployment contract, cost và testing scope. Có thể xem là production hardening trong tương lai.
+
+  * **Static threshold only cho toàn bộ platform**:
+
+    Rejected as primary mode vì static threshold chỉ là fallback. Client cần prediction workflow có baseline/drift awareness và actionable recommendation, không chỉ alert theo ngưỡng cứng.
+
+---
+## ADR-004 - Chọn Amazon Timestream làm telemetry store và metric evidence source
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-23
+
+* **Context**:
+
+  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 1-2 giờ gần nhất trước khi gọi AI endpoint `POST /v1/predict`.
+
+  Dữ liệu này không chỉ dùng để gọi AI, mà còn dùng làm **metric evidence** khi platform tạo warning. Khi SRE nhận được alert, họ cần biết warning dựa trên metric nào, trong time window nào và service nào đang có drift/capacity risk.
+
+  Nhóm CDO-04 cần chọn một storage phù hợp cho time-series metrics, có khả năng query hiệu quả theo service/time window và không biến CloudWatch Dashboard thành source of truth của prediction data.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn **Amazon Timestream** làm:
+
+  * primary telemetry store
+  * primary metric evidence source
+  * source of truth cho prediction input
+  * nơi Prediction Worker query dữ liệu time-series trước khi gọi AI
+
+  CloudWatch vẫn được sử dụng nhưng với vai trò khác:
+
+  * CloudWatch Logs cho application logs
+  * CloudWatch Metrics/Alarms cho operational monitoring
+  * CloudWatch Dashboard cho visualization evidence
+  * SNS integration cho alert routing
+
+  DynamoDB được dùng để lưu decision audit, không dùng để lưu raw time-series metrics.
+
+  Evidence model của platform:
+
+  | Evidence type          | Service chính        | Vai trò                                       |
+  | ---------------------- | -------------------- | --------------------------------------------- |
+  | Metric evidence        | Amazon Timestream    | Dữ liệu metric gốc dùng cho prediction        |
+  | Visualization evidence | CloudWatch Dashboard | Biểu đồ giúp SRE xem nhanh                    |
+  | Decision evidence      | DynamoDB Audit Log   | Audit record của prediction/fallback decision |
+
+  Timestream record nên có các dimension chính:
+
+  ```text
+  tenant_id
+  service_id
+  metric_type
+  env
+  region
+  service_tier
+  ```
+
+  Query bắt buộc filter theo:
+
+  ```text
+  tenant_id
+  service_id
+  metric_type
+  time window
+  ```
+
+  để tránh query quá rộng và kiểm soát cost.
+
+* **Consequence**:
+
+  * ✅ Timestream phù hợp với dữ liệu time-series và prediction workflow cần query theo time window.
+  * ✅ Prediction Worker có thể lấy input window 1-2 giờ gần nhất cho từng service trước khi gọi AI.
+  * ✅ Metric evidence rõ ràng hơn so với chỉ dùng dashboard screenshot.
+  * ✅ Hỗ trợ mô hình evidence 3 lớp: Timestream metric evidence, CloudWatch visualization evidence, DynamoDB decision evidence.
+  * ✅ Giúp tách rõ vai trò giữa telemetry store, dashboard và audit store.
+  * ✅ Phù hợp với yêu cầu không dùng raw S3 làm primary metric store.
+  * ✅ Có thể mở rộng cho 3 service demo và multi-tenant pattern bằng `tenant_id` + `service_id`.
+  * ⚠️ Timestream cần query discipline. Nếu query không filter theo service/time window, cost có thể tăng.
+  * ⚠️ Team cần định nghĩa schema metric rõ với AI team để tránh mismatch request payload.
+  * ⚠️ CloudWatch vẫn cần tồn tại cho logs, alarms và dashboard, nên platform phải vận hành cả hai lớp.
+  * ⚠️ Timestream query reference cần được map vào alert/audit để SRE truy vết evidence dễ hơn.
+
+* **Alternatives considered**:
+
+  * **CloudWatch Metrics as primary prediction store**:
+
+    Rejected as primary telemetry store vì CloudWatch phù hợp hơn cho operational monitoring, alarm, logs và dashboard. Prediction workflow cần query window theo `tenant_id`, `service_id`, `metric_type` và time range linh hoạt hơn. CloudWatch vẫn được giữ làm operational visibility layer.
+
+  * **Raw S3 storage only**:
+
+    Rejected vì raw S3 không phù hợp làm primary metric store cho prediction workflow cần query time-series nhanh theo service/time window. S3 có thể dùng cho archive hoặc evidence export, nhưng không dùng làm telemetry store chính trong MVP.
+
+  * **DynamoDB for time-series metrics**:
+
+    Rejected vì DynamoDB phù hợp hơn cho decision audit log và key-value/query pattern theo `prediction_id`, `tenant_id`, `service_id`, time. Nếu dùng DynamoDB để lưu raw time-series metrics, schema và query pattern sẽ phức tạp hơn cho baseline/drift analysis.
+
+  * **RDS/PostgreSQL for telemetry metrics**:
+
+    Rejected vì relational database không phải lựa chọn tối ưu cho high-volume time-series telemetry. RDS phù hợp cho transactional data hơn, trong khi bài này cần time-series query và retention pattern.
+
+  * **Prometheus/Grafana stack**:
+
+    Rejected for MVP vì cần vận hành thêm stack monitoring riêng. Client đã có dashboard/monitoring context, trong khi CDO cần tập trung vào AWS-native platform, AI integration, audit, fallback và cost guard. Grafana có thể là optional visualization layer nếu kịp.
+----
+## ADR-005 - Chọn ECS Fargate cho Telemetry API và Prediction Worker
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-23
+
+* **Context**:
+
+  CDO-04 cần triển khai hai workload chính cho platform: Telemetry Ingestion API và Prediction Worker. Telemetry API nhận telemetry từ các service demo, còn Prediction Worker xử lý job từ SQS, query Timestream, gọi AI endpoint `POST /v1/predict`, ghi audit log vào DynamoDB và publish alert khi risk level cao.
+
+  Ban đầu Lambda là một lựa chọn hợp lý cho MVP vì traffic capstone thấp. Tuy nhiên client production context đang sử dụng ECS Fargate, và CDO platform cần thể hiện rõ năng lực DevOps như container deployment, task role, health check, rollback, autoscaling và CloudWatch Logs.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn **ECS Fargate** làm compute platform cho:
+
+  * Telemetry Ingestion API
+  * Prediction Worker
+
+  Container image của các workload sẽ được lưu trong Amazon ECR. ECS task definition sẽ định nghĩa image, CPU/memory, environment variables, secrets, IAM task role và CloudWatch log group.
+
+  Rollback sẽ thực hiện bằng cách revert ECS service về task definition revision ổn định trước đó.
+
+* **Consequence**:
+
+  * ✅ Align với client production environment đang dùng ECS Fargate.
+  * ✅ Chuẩn hóa deployment bằng container workflow: Docker image, ECR, ECS task definition và ECS service.
+  * ✅ Dễ chứng minh DevOps/CDO evidence: health check, service status, task logs, task role, rollback và autoscaling.
+  * ✅ Phù hợp với cả API workload và worker workload.
+  * ✅ Runtime linh hoạt hơn Lambda nếu worker cần query Timestream, retry AI call, validate schema, fallback và ghi audit.
+  * ✅ Dễ liên kết với `04_deployment_design.md` về CI/CD, rollback và smoke test.
+  * ⚠️ Fixed cost cao hơn Lambda cho traffic thấp.
+  * ⚠️ Cần cấu hình thêm ALB, ECS service, task definition, networking và ECR.
+  * ⚠️ Cần quản lý image version và rollback strategy rõ ràng.
+  * ⚠️ Nếu không có cost guard, ECS always-on task có thể làm tăng monthly cost.
+
+* **Alternatives considered**:
+
+  * **Lambda + API Gateway**:
+
+    Rejected as default vì Lambda rẻ và đơn giản cho MVP traffic thấp, nhưng ít align hơn với client production context. Lambda cũng ít thể hiện container deployment, task role, ECS health check và rollback bằng task definition.
+
+  * **EKS**:
+
+    Rejected vì EKS quá nặng cho capstone MVP. EKS cần quản lý cluster, node/pod security, ingress, RBAC và GitOps phức tạp hơn, trong khi bài không yêu cầu Kubernetes.
+
+  * **EC2 self-managed containers**:
+
+    Rejected vì cần quản lý server, patching, scaling và deployment thủ công nhiều hơn. Fargate phù hợp hơn với mục tiêu managed, ít vận hành hạ tầng thấp.
+
+  * **Single monolithic service**:
+
+    Rejected vì Telemetry API và Prediction Worker có lifecycle khác nhau. API nhận request, worker xử lý job async. Tách workload giúp deploy, scale và debug rõ hơn.
 
 ---
 
-## ADR-003 - To be added
+## ADR-006 - Chọn EventBridge Scheduler + SQS + DLQ cho prediction orchestration
 
-- **Status**: Proposed
-- **Date**: 2026-MM-DD
-- **Context**: To be filled.
-- **Decision**: To be filled.
-- **Consequence**:
-  - ✅ To be filled.
-  - ⚠️ To be filled.
-- **Alternatives considered**:
-  - To be filled.
+* **Status**: Accepted
+
+* **Date**: 2026-06-23
+
+* **Context**:
+
+  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
+
+  Prediction job có thể lỗi do AI timeout, Timestream query lỗi, DynamoDB audit write lỗi hoặc worker deployment issue. Vì vậy orchestration cần có retry boundary, queue visibility và DLQ để debug job lỗi.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn:
+
+  * **EventBridge Scheduler** để trigger prediction theo cadence định kỳ.
+  * **SQS queue** để chứa prediction jobs.
+  * **DLQ** để lưu job lỗi sau khi vượt retry limit.
+  * **ECS Fargate Prediction Worker** để consume SQS message và xử lý prediction workflow.
+
+  Flow chính:
+
+  ```text
+  EventBridge Scheduler
+      -> SQS prediction queue
+      -> ECS Fargate Prediction Worker
+      -> Timestream query
+      -> AI POST /v1/predict
+      -> DynamoDB audit log
+      -> SNS/CloudWatch alert
+      -> DLQ if processing repeatedly fails
+  ```
+
+  SQS message tối thiểu nên có:
+
+  ```text
+  tenant_id
+  service_id
+  prediction_window_start
+  prediction_window_end
+  correlation_id
+  prediction_mode
+  ```
+
+* **Consequence**:
+
+  * ✅ Decouple scheduler và worker, giúp worker lỗi không làm mất lịch trigger.
+  * ✅ SQS giúp buffer prediction jobs nếu worker tạm thời chậm hoặc deploy lại.
+  * ✅ DLQ giúp debug job lỗi thay vì mất event âm thầm.
+  * ✅ Phù hợp với cadence mỗi 5 phút của Balanced Prediction Mode.
+  * ✅ Dễ kiểm soát retry, visibility timeout và failure handling.
+  * ✅ Dễ scale worker theo queue depth nếu cần.
+  * ⚠️ Kiến trúc phức tạp hơn direct cron gọi thẳng worker.
+  * ⚠️ Cần monitor SQS queue depth, oldest message age và DLQ depth.
+  * ⚠️ Cần idempotency để tránh duplicate prediction audit khi SQS redelivery.
+  * ⚠️ Cần định nghĩa retry limit hợp lý để không retry vô hạn khi AI endpoint lỗi.
+
+* **Alternatives considered**:
+
+  * **Direct cron inside worker**:
+
+    Rejected vì worker phải tự giữ lịch, khó scale nhiều worker và khó debug khi job bị miss. Nếu worker down, lịch prediction có thể bị mất.
+
+  * **EventBridge Scheduler gọi trực tiếp AI endpoint**:
+
+    Rejected vì CDO cần query Timestream, enrich payload, validate AI response, ghi audit log, fallback và alert. Gọi trực tiếp AI sẽ bỏ qua orchestration logic của CDO.
+
+  * **Step Functions**:
+
+    Rejected for MVP vì Step Functions mạnh cho workflow nhiều bước, nhưng tăng complexity và state management. EventBridge + SQS + Worker đủ cho prediction workflow hiện tại.
+
+  * **Kinesis streaming**:
+
+    Rejected vì bài này không cần real-time stream processing liên tục. Prediction cadence mỗi 5 phút phù hợp với scheduled batch/window-based processing hơn.
+
+  * **Manual trigger only**:
+
+    Rejected vì không đáp ứng yêu cầu 24/7 monitoring và early warning.
+## ADR-007 - Chọn DynamoDB làm prediction decision audit store
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-23
+
+* **Context**:
+
+  TF4 Foresight Lens yêu cầu mỗi prediction call phải được audit. Audit log cần ghi lại AI prediction hoặc fallback decision, bao gồm service nào được đánh giá, risk level, recommendation, confidence, evidence reference, model/baseline version và lý do fallback nếu có.
+
+  Audit log là **decision evidence**, khác với metric evidence. Metric evidence nằm ở Timestream, còn audit log cần query theo `prediction_id`, `tenant_id`, `service_id` và time để phục vụ review, debugging và demo evidence.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn **DynamoDB** làm prediction decision audit store.
+
+  DynamoDB audit record nên có các field chính:
+
+  ```text
+  prediction_id
+  timestamp
+  tenant_id
+  service_id
+  prediction_source
+  risk_level
+  confidence
+  root_cause
+  recommendation
+  timestream_query_reference
+  cloudwatch_dashboard_url
+  model_version
+  baseline_version
+  fallback_reason
+  correlation_id
+  ```
+
+  Suggested key pattern:
+
+  ```text
+  PK = TENANT#<tenant_id>#SERVICE#<service_id>
+  SK = TS#<timestamp>#PRED#<prediction_id>
+  ```
+
+  Optional GSI:
+
+  ```text
+  GSI1PK = PRED#<prediction_id>
+  GSI1SK = TS#<timestamp>
+  ```
+
+  Audit retention mặc định cho MVP: **90 ngày**.
+
+* **Consequence**:
+
+  * ✅ DynamoDB phù hợp với audit record dạng key-value/document.
+  * ✅ Query tốt theo tenant, service, timestamp và prediction_id.
+  * ✅ Dễ bật encryption at rest và TTL retention.
+  * ✅ Phù hợp với serverless/managed AWS-native platform.
+  * ✅ Tách rõ decision evidence khỏi metric evidence.
+  * ✅ Audit log không phụ thuộc CloudWatch Logs, tránh việc logs retention ngắn làm mất evidence.
+  * ✅ Dễ dùng trong demo: tìm prediction_id để chứng minh warning đã được ghi lại.
+  * ⚠️ Không phù hợp để lưu raw time-series metrics, nên Timestream vẫn cần tồn tại.
+  * ⚠️ Cần thiết kế partition key tránh hot partition nếu số service/tenant tăng.
+  * ⚠️ Cần đảm bảo worker ghi audit cả khi dùng AI và khi dùng fallback.
+  * ⚠️ Cần tránh lưu PII hoặc payload metric quá lớn trong audit record.
+
+* **Alternatives considered**:
+
+  * **CloudWatch Logs only**:
+
+    Rejected vì CloudWatch Logs phù hợp cho application logs, nhưng không tối ưu cho audit query theo prediction_id/service/time. Log retention cũng có thể ngắn hơn audit retention.
+
+  * **S3-only audit log**:
+
+    Rejected for MVP vì S3 phù hợp archive, nhưng query trực tiếp cho demo/debug kém tiện hơn DynamoDB. S3 có thể dùng làm long-term archive nếu cần.
+
+  * **RDS/PostgreSQL**:
+
+    Rejected vì audit record không cần relational query phức tạp. RDS tăng vận hành, connection management và cost so với DynamoDB.
+
+  * **Timestream audit table**:
+
+    Rejected vì Timestream nên dùng cho metric time-series evidence, không phải decision audit record. Tách store giúp rõ trách nhiệm và dễ defend hơn.
+
+  * **No dedicated audit store**:
+
+    Rejected vì TF4 yêu cầu audit every prediction call. Không có audit store riêng sẽ yếu về governance và evidence.
 
 ---
+
+## ADR-008 - Chọn 1 NAT Gateway + S3/DynamoDB Gateway Endpoints cho MVP networking
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-23
+
+* **Context**:
+
+  CDO platform chạy ECS Fargate task trong private subnet. Các task cần pull image từ ECR, ghi CloudWatch Logs, đọc secret, query Timestream, đọc/ghi SQS/DynamoDB và publish SNS. Có hai hướng chính: dùng NAT Gateway để private task đi ra AWS public service endpoints, hoặc tạo full VPC Interface Endpoints cho từng AWS service.
+
+  Với capstone MVP, traffic thấp vì chỉ demo 3 service, prediction cadence mỗi 5 phút và synthetic load chỉ bật trong test window. Vì vậy fixed cost của nhiều interface endpoints có thể cao hơn lợi ích tiết kiệm data processing.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn MVP networking strategy:
+
+  * 1 NAT Gateway cho private ECS task access ra các AWS service endpoints cần thiết.
+  * S3 Gateway Endpoint.
+  * DynamoDB Gateway Endpoint.
+  * Không tạo full Interface Endpoints trong Pack #1.
+  * ECR API/ECR Docker Interface Endpoints là production hardening option, không bắt buộc trong MVP vì ECS task có thể pull image qua NAT Gateway.
+
+  Production hardening option:
+
+  * ECR API Interface Endpoint
+  * ECR Docker Interface Endpoint
+  * CloudWatch Logs Interface Endpoint
+  * Secrets Manager Interface Endpoint
+  * KMS Interface Endpoint
+  * SQS Interface Endpoint
+  * SNS Interface Endpoint
+  * Timestream Interface Endpoint
+  * CloudWatch Monitoring Interface Endpoint nếu cần custom metrics private-only
+
+* **Consequence**:
+
+  * ✅ MVP networking đơn giản hơn và nhanh build hơn.
+  * ✅ Cost thấp hơn full interface endpoints trong traffic capstone thấp.
+  * ✅ S3 và DynamoDB Gateway Endpoints vẫn giúp giảm NAT data processing cho S3/DynamoDB traffic.
+  * ✅ ECS private task vẫn có thể pull image từ ECR qua NAT Gateway.
+  * ✅ Phù hợp budget khoảng $200/tháng.
+  * ✅ Dễ explain trade-off giữa cost, simplicity và production hardening.
+  * ⚠️ NAT Gateway là một dependency cho private task outbound traffic.
+  * ⚠️ Không phải private-only access tuyệt đối tới toàn bộ AWS services trong MVP.
+  * ⚠️ Nếu traffic AWS service tăng lớn, interface endpoints có thể kinh tế hơn.
+  * ⚠️ Production environment có thể cần interface endpoints để đáp ứng compliance/private-only requirement.
+
+* **Alternatives considered**:
+
+  * **Full Interface Endpoints from MVP**:
+
+    Rejected vì cần nhiều endpoints cho ECR, CloudWatch Logs, Secrets Manager, KMS, SQS, SNS, Timestream và CloudWatch Monitoring. Với 1-2 AZ, fixed hourly cost của nhiều endpoints có thể cao hơn 1 NAT Gateway trong capstone traffic thấp.
+
+  * **No NAT and no endpoints**:
+
+    Rejected vì ECS private task sẽ khó pull image từ ECR, ghi logs, đọc secrets và gọi AWS service APIs.
+
+  * **Public subnet ECS tasks**:
+
+    Rejected vì workload CDO nên chạy private subnet để giảm exposure. Public access nên đi qua ALB/API entry, không expose task trực tiếp.
+
+  * **2 NAT Gateways for high availability in MVP**:
+
+    Rejected for MVP vì tăng cost. Design có thể vẽ multi-AZ, nhưng MVP cost estimate dùng 1 NAT Gateway để cân bằng budget. Production có thể dùng NAT per AZ.
+
+  * **S3/DynamoDB traffic through NAT only**:
+
+    Rejected vì S3 Gateway Endpoint và DynamoDB Gateway Endpoint là lựa chọn tốt cho MVP, giúp giảm NAT data processing mà không cần full interface endpoint strategy.
+
 
 ## Related documents
 
