@@ -1,7 +1,7 @@
 # Cost Analysis - Task Force 4 · CDO 04
 
 <!-- Doc owner: Tạ Hoàng Huy (Huy)
-     Status: Refined (W11 T6 Pack #1) - v1.1
+     Status: Refined (W11 T6 Pack #1) - v1.2
      Word target: 1000-1500 từ -->
 
 > **Scope note**: Platform của nhóm không dùng LLM/Bedrock. AI Engine (Nhóm AI) chạy statistical ML.
@@ -143,13 +143,13 @@ Dưới đây là dự báo chi phí thực tế cho **2 tuần chạy thử ngh
 
 ## 6. Cost guardrails
 
-### 6.1 Ngưỡng cảnh báo chi phí (50/80/100 Policy)
+### 6.1 Ngưỡng cảnh báo chi phí (70/90/100 Policy)
 
 *Quy tắc cốt lõi*: **Không bao giờ tắt Audit Log (DynamoDB) và cơ chế Fail-open Fallback** ở bất kỳ ngưỡng chi phí nào để đảm bảo hệ thống không mất hoàn toàn giám sát.
 
-*   **Ngưỡng 50% ($100/tháng)**: Bắn cảnh báo qua SNS tới Email/Slack của Infra Owner. Rà soát tần suất gọi AI của Worker.
-*   **Ngưỡng 80% ($160/tháng)**: Review khẩn cấp. Tự động giảm log verbosity (chuyển từ `DEBUG` sang `WARN`) để giảm chi phí ghi log của CloudWatch. Giảm tần suất chạy kịch bản load test giả lập.
-*   **Ngưỡng 100% ($200/tháng)**: Kích hoạt **Circuit Breaker** – tạm dừng toàn bộ luồng chạy Synthetic Load Test (k6/Locust) và các prediction job không quan trọng. Chuyển hoàn toàn sang theo dõi bằng ngưỡng tĩnh.
+*   **Ngưỡng 70% ($140/tháng)**: Bắn cảnh báo qua SNS tới Email/Slack của Infra Owner. Rà soát tần suất gọi AI của Worker, đảm bảo không tự ý giảm cadence xuống dưới 5 phút/lần.
+*   **Ngưỡng 90% ($180/tháng)**: Review khẩn cấp. Tự động giảm log verbosity (chuyển từ `DEBUG` sang `WARN`) để giảm chi phí ghi log của CloudWatch. Rà soát lại Timestream query pattern, đảm bảo query bắt buộc phải filter theo `tenant_id`, `service_id` và time window. Giảm tần suất chạy kịch bản load test giả lập.
+*   **Ngưỡng 100% ($200/tháng)**: Kích hoạt **Circuit Breaker** – lập tức tạm dừng (pause) toàn bộ luồng chạy Synthetic Load Test (k6/Locust) và các prediction job không quan trọng. Chuyển hoàn toàn sang theo dõi bằng ngưỡng tĩnh (CloudWatch alarms) để duy trì giám sát tối thiểu.
 
 ### 6.2 Cấu hình Terraform Budgets
 
@@ -163,7 +163,7 @@ resource "aws_budgets_budget" "platform_budget" {
 
   notification {
     comparison_operator = "GREATER_THAN"
-    threshold           = 50
+    threshold           = 70
     threshold_type      = "PERCENTAGE"
     notification_type   = "ACTUAL"
     subscriber_sns_topic_arns = [aws_sns_topic.budget_alert.arn]
@@ -171,7 +171,15 @@ resource "aws_budgets_budget" "platform_budget" {
 
   notification {
     comparison_operator = "GREATER_THAN"
-    threshold           = 80
+    threshold           = 90
+    threshold_type      = "PERCENTAGE"
+    notification_type   = "ACTUAL"
+    subscriber_sns_topic_arns = [aws_sns_topic.budget_alert.arn]
+  }
+
+  notification {
+    comparison_operator = "GREATER_THAN"
+    threshold           = 100
     threshold_type      = "PERCENTAGE"
     notification_type   = "ACTUAL"
     subscriber_sns_topic_arns = [aws_sns_topic.budget_alert.arn]
