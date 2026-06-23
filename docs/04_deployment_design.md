@@ -216,6 +216,8 @@ Mô hình tự động hóa onboarding cho khách hàng mới (tenant):
 
 - [ ] Q1: Cơ chế rotate mật khẩu tự động của database trong Secrets Manager có cần đồng bộ tức thời với ứng dụng ECS Fargate để tránh gián đoạn kết nối không?
 - [ ] Q2: Có cần cấu hình CloudWatch Logs Subscription Filter giới hạn chặt chẽ hơn để giảm chi phí truyền dữ liệu qua Kinesis Firehose trong budget $200 không?
+- [ ] Q3: Liệu việc tích hợp Multi-region cho Disaster Recovery của AI Engine (nhắc đến trong Deployment Contract) có nằm trong phạm vi đánh giá của Capstone không hay chỉ chạy Single-region ap-southeast-1?
+- [ ] Q4: Mức Cost Cap (hạn mức chi phí) tối đa mỗi ngày của AI Engine là bao nhiêu để CDO thiết lập Circuit Breaker tự động ngắt tải?
 
 ## Related documents
 
