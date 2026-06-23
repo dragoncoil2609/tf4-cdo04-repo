@@ -43,17 +43,21 @@ infra/
 ### 2.1 Pipeline stages
 
 ```
-PR opened ──► Build ──► Test ──► Scan ──► Plan ──► Review ──► Merge ──► Apply ──► Smoke test
+PR opened ──► Doc Check ──► Lint & Validate ──► Build ──► Test ──► Scan ──► Plan ──► Review ──► Merge ──► Manual Approval ──► Apply ──► Smoke test
 ```
 
 | Stage | Tool | What it does | Quality gate |
 |---|---|---|---|
+| Doc Check | Markdown-lint / Script | Kiểm tra tính hoàn thiện và định dạng của tài liệu Markdown | Không có lỗi cú pháp Markdown hoặc link hỏng |
+| Lint & Validate | Terraform CLI | Chạy `terraform fmt -check` và `terraform validate` kiểm tra cú pháp IaC | Cú pháp đúng chuẩn declarative và định dạng đồng nhất |
 | Build | GitHub Actions | Compile mã nguồn, build Docker image cho Telemetry API & Worker | Build thành công không có lỗi cú pháp |
 | Test | Pytest | Chạy unit test & integration test cho worker và API | Coverage ≥ 80% |
-| Scan | Trivy + Gitleaks | Quét lỗ hổng bảo mật image Docker và quét secret leak trong code | 0 lỗi CRITICAL, 0 leak detected |
-| Plan | Terraform CLI | Chạy `terraform plan` để kiểm tra thay đổi hạ tầng trước khi merge | Plan review được phê duyệt |
-| Apply | Terraform CLI | Tự động chạy `terraform apply` để cập nhật hạ tầng sau khi merge | Apply thành công 100% tài nguyên |
-| Smoke | Custom Python script | Gọi thử endpoint kiểm tra sức khỏe hệ thống (healthcheck) | Trả về HTTP 200 OK |
+| Scan | Gitleaks + Trivy | Quét secret leak trong mã nguồn và quét lỗ hổng bảo mật image Docker | 0 leak detected, 0 lỗi CRITICAL |
+| Plan | Terraform CLI | Chạy `terraform plan` để kiểm tra thay đổi hạ tầng trước khi merge | Plan review được phê duyệt và hiển thị trên PR |
+| Review & Merge | GitHub PR | Rà soát chéo code và merge nhánh dựa trên Peer Review Matrix | Ít nhất 1 approval từ Reviewer được chỉ định |
+| Manual Approval | GitHub Environments | Tạm dừng chờ Tech Lead phê duyệt trước khi chạy deploy | Trạng thái: Approved (áp dụng bắt buộc với Production) |
+| Apply | Terraform CLI | Tự động chạy `terraform apply` để cập nhật hạ tầng sau khi merge | Apply thành công 100% tài nguyên hạ tầng |
+| Smoke | Custom Python script | Gọi thử endpoint kiểm tra sức khỏe hệ thống (healthcheck) sau khi deploy | Trả về HTTP 200 OK |
 
 ### 2.2 Branch strategy & Peer Review Matrix
 
