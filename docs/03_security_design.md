@@ -157,17 +157,30 @@ Trong capstone, VPC endpoints có thể triển khai theo mức độ ưu tiên 
 
 ## 4. IAM & Access Control
 
-### 4.1 Role model
+### 4.1 IAM role model
 
-| IAM role | Dùng bởi | Quyền tối thiểu |
+IAM của CDO-04 đi theo nguyên tắc **least privilege**: mỗi service chỉ được cấp đúng quyền cần cho nhiệm vụ của nó. Không dùng quyền broad kiểu `*:*`, không gắn `AdministratorAccess`, không dùng long-lived access key trong container.
+
+| Role | Used by | Permissions |
 |---|---|---|
-| `tf4-cdo04-ingest-task-role` | ECS `telemetry-ingest` | `timestream:WriteRecords` vào `foresight/metrics`, `cloudwatch:PutMetricData`, CloudWatch Logs write, optional `secretsmanager:GetSecretValue` nếu cần tenant token config. |
-| `tf4-cdo04-worker-task-role` | ECS `prediction-worker` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, CloudWatch Logs write. |
-| `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ ECR và ghi ECS logs vào CloudWatch. Không có quyền đọc/ghi application data. |
-| `tf4-cdo04-deploy-role` | CI/CD pipeline | Push ECR image, register task definition, update ECS service, chạy Terraform/CDK apply. Không dùng broad `AdministratorAccess`. |
-| `tf4-cdo04-readonly-review-role` | Mentor/reviewer | Read-only ECS, CloudWatch logs, Timestream query sample, DynamoDB audit read, S3 evidence read. |
+| `tf4-cdo04-ingest-task-role` | ECS `telemetry-ingest` | Ghi metric hợp lệ vào Timestream bằng `timestream:WriteRecords` trên DB/table `foresight/metrics`; ghi app logs vào CloudWatch Logs; optional đọc tenant config từ Secrets Manager nếu dùng ingest token. |
+| `tf4-cdo04-prediction-worker-role` | ECS `prediction-worker` | Consume prediction job từ SQS; query rolling window trong Timestream; đọc service policy từ DynamoDB; gọi AI endpoint bằng secret/token; ghi audit log vào DynamoDB; lưu evidence snapshot vào S3; publish high-risk alert qua SNS; ghi logs/metrics vào CloudWatch. |
+| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, ALB target group/listener rule, SQS/DLQ, Timestream table, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
+| `tf4-cdo04-readonly-reviewer-role` | Mentor/reviewer/Hoàng approve | Read-only để review evidence: ECS describe, CloudWatch logs read, SQS queue attributes read, Timestream sample query/read, DynamoDB audit read, S3 evidence read, SNS topic describe. Không có quyền write/delete. |
+| `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ private ECR và ghi container logs vào CloudWatch. Không có quyền đọc/ghi application data như Timestream, DynamoDB, S3 evidence hoặc SNS. |
 
-### 4.2 Permission boundaries
+### 4.2 Permission mapping theo checklist Task 18
+
+| Permission area | Role nhận quyền | Actions cần có | Resource scope |
+|---|---|---|---|
+| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ queue/table/bucket/topic/secret của CDO-04. |
+| Terraform deploy role | `tf4-cdo04-terraform-deploy-role` | Các quyền create/update/delete resource hạ tầng trong scope Terraform module | Resource có prefix/tag `tf4-cdo04` và environment capstone. |
+| Read-only reviewer role | `tf4-cdo04-readonly-reviewer-role` | `Describe*`, `Get*`, `List*`, `logs:StartQuery`, `logs:GetQueryResults`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:Query`, `s3:GetObject` | Read-only trên resource evidence/review của project. |
+| Query Timestream | `tf4-cdo04-prediction-worker-role`, `tf4-cdo04-readonly-reviewer-role` | `timestream:Select`, optional `timestream:DescribeTable` | Database `foresight`, table `metrics`. |
+| Write DynamoDB audit log | `tf4-cdo04-prediction-worker-role` | `dynamodb:PutItem`, optional `dynamodb:UpdateItem` nếu cần mark replay status | Table `foresight-audit-log` only. |
+| Publish SNS alert | `tf4-cdo04-prediction-worker-role` | `sns:Publish` | Topic `tf4-cdo04-high-risk-alerts` only. |
+
+### 4.3 Policy boundary và anti-patterns
 
 Task role phải scope theo resource cụ thể:
 
@@ -178,14 +191,69 @@ Task role phải scope theo resource cụ thể:
 - SNS topic: `tf4-cdo04-high-risk-alerts`.
 - Secrets: `tf4-cdo04/ai-endpoint-token`, `tf4-cdo04/slack-webhook`.
 
-Những thứ tránh dùng:
+Không dùng:
 
+- `Action: "*"` + `Resource: "*"`.
 - `AdministratorAccess`.
-- Wildcard data-plane permission như `s3:*` hoặc `dynamodb:*`.
+- Wildcard data-plane permission như `s3:*`, `dynamodb:*`, `sns:*`, `sqs:*`.
 - Long-lived AWS access key trong container.
 - Hardcode AI token hoặc webhook URL trong code.
 
-### 4.3 Service-to-service authorization
+Nếu buộc phải dùng wildcard ở một số AWS API không hỗ trợ resource-level permission, phải ghi rõ lý do trong ADR hoặc comment Terraform, và giới hạn bằng condition/tag/project prefix nếu có thể.
+
+### 4.4 Policy sketch
+
+Ví dụ policy intent cho `prediction-worker`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:ap-southeast-1:<account-id>:prediction-jobs"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "timestream:Select",
+        "timestream:DescribeTable"
+      ],
+      "Resource": "arn:aws:timestream:ap-southeast-1:<account-id>:database/foresight/table/metrics"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem"
+      ],
+      "Resource": "arn:aws:dynamodb:ap-southeast-1:<account-id>:table/foresight-audit-log"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:ap-southeast-1:<account-id>:tf4-cdo04-high-risk-alerts"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": [
+        "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/ai-endpoint-token-*",
+        "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/slack-webhook-*"
+      ]
+    }
+  ]
+}
+```
+
+Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terraform inject theo account/region/workspace.
+
+### 4.5 Service-to-service authorization
 
 Ingest path:
 
