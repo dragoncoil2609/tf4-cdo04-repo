@@ -150,6 +150,7 @@ Inbound được giới hạn theo nguyên tắc:
 | ECR API + ECR Docker | Interface endpoint | Pull private container images. |
 | SQS | Interface endpoint | Consume prediction jobs. |
 | SNS | Interface endpoint | Publish alert. |
+| AI model serving | PrivateLink/VPC Endpoint nếu AI expose được | Gọi nội bộ tới `POST /v1/predict`, giảm public egress và latency. |
 
 Trong capstone, VPC endpoints có thể triển khai theo mức độ ưu tiên và ngân sách. Nếu vẫn dùng NAT, security vẫn dựa vào IAM least privilege và việc ECS task không có public inbound.
 
@@ -173,7 +174,7 @@ IAM của CDO-04 đi theo nguyên tắc **least privilege**: mỗi service chỉ
 
 | Permission area | Role nhận quyền | Actions cần có | Resource scope |
 |---|---|---|---|
-| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ queue/table/bucket/topic/secret của CDO-04. |
+| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `kms:Decrypt`, `kms:GenerateDataKey`, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ queue/table/bucket/topic/secret/KMS key của CDO-04. |
 | Terraform deploy role | `tf4-cdo04-terraform-deploy-role` | Các quyền create/update/delete resource hạ tầng trong scope Terraform module | Resource có prefix/tag `tf4-cdo04` và environment capstone. |
 | Read-only reviewer role | `tf4-cdo04-readonly-reviewer-role` | `Describe*`, `Get*`, `List*`, `logs:StartQuery`, `logs:GetQueryResults`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:Query`, `s3:GetObject` | Read-only trên resource evidence/review của project. |
 | Query Timestream | `tf4-cdo04-prediction-worker-role`, `tf4-cdo04-readonly-reviewer-role` | `timestream:Select`, optional `timestream:DescribeTable` | Database `foresight`, table `metrics`. |
@@ -190,6 +191,7 @@ Task role phải scope theo resource cụ thể:
 - S3 bucket/prefix: `s3://tf4-cdo04-evidence/*`.
 - SNS topic: `tf4-cdo04-high-risk-alerts`.
 - Secrets: `tf4-cdo04/ai-endpoint-token`, `tf4-cdo04/slack-webhook`.
+- KMS key nếu dùng CMK: `arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*`.
 
 Không dùng:
 
@@ -246,6 +248,14 @@ Ví dụ policy intent cho `prediction-worker`:
         "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/ai-endpoint-token-*",
         "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/slack-webhook-*"
       ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*"
     }
   ]
 }
@@ -267,7 +277,8 @@ Prediction path:
 - EventBridge tạo scheduled jobs.
 - SQS giữ một job cho mỗi tenant/service/cycle.
 - `prediction-worker` consume job bằng ECS task role.
-- Worker gọi AI `POST /v1/predict` qua HTTPS, dùng token từ Secrets Manager hoặc IAM SigV4 nếu AI contract hỗ trợ.
+- Phương án ưu tiên: worker gọi AI `POST /v1/predict` qua private VPC path/VPC Endpoint nếu nhóm AI expose được, xác thực bằng bearer token lưu trong Secrets Manager.
+- Phương án thay thế: dùng IAM SigV4 nếu được chốt trong AI API Contract. Dù chọn token hay SigV4, endpoint vẫn phải dùng HTTPS và có timeout/fallback rõ ràng.
 
 ---
 
@@ -476,6 +487,7 @@ s3://tf4-cdo04-evidence/predictions/date=YYYY-MM-DD/service_id=<service>/predict
 - CI scan image bằng Trivy hoặc tool tương đương.
 - Critical vulnerabilities nên block release nếu kịp trong capstone.
 - Image tag chứa Git SHA để trace lại source commit.
+- ECR Lifecycle Policy phải được bật để kiểm soát chi phí lưu trữ: xóa image cũ hơn 14 ngày hoặc chỉ giữ tối đa 5-10 image gần nhất cho mỗi repository. Các tag release/final có thể được giữ bằng rule ưu tiên riêng nếu cần evidence.
 
 ### 9.2 Runtime controls
 
@@ -544,7 +556,7 @@ Các thay đổi security-sensitive cần review:
 ## 12. Open Questions
 
 - ALB nên giữ public cho demo dễ chạy, hay đưa producer vào VPC và đổi sang internal ALB?
-- AI endpoint sẽ dùng bearer token, IAM SigV4, hay private security group allowlist?
+- Auth AI endpoint: ưu tiên gọi nội bộ qua private VPC path/VPC Endpoint và xác thực bằng token lưu trong Secrets Manager; cần xác nhận cuối với AI team xem giữ bearer token hay chuyển sang IAM SigV4 trước khi freeze contract.
 - Evidence snapshot nên lưu cho mọi prediction hay chỉ high-risk prediction để kiểm soát S3 cost?
 - Grafana annotation sẽ gọi qua API, hay MVP dùng CloudWatch dashboard/evidence link?
 - AI sẽ trả chính xác field nào cho `model_version` và `baseline_version` trong `POST /v1/predict`?
