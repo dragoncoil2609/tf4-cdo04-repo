@@ -1,10 +1,7 @@
 # Test & Eval Report - Task force 4 · CDO Foresight Lens
 
-<!-- Doc owner: Nhóm CDO / QA 
-     Status: DRAFT v1.3 — Checkpoint W11 (24/06/2026) -> Chờ calibrate số liệu thực tế sau Sandbox Run W12
-     Word target: 1200 - 2000 từ
-     Scope: Hệ thống kịch bản kiểm thử tải giả lập (Synthetic Scenarios), thiết lập chốt chặn FinOps, phân tích hạ tầng AWS ECS Fargate, bóp nghẹt tần suất lấy mẫu (Sampling Rate Throttle) và cơ chế dọn dẹp chống nhiễm độc dữ liệu (Test Contamination).
-     Out of scope: Ứng dụng Kubernetes/K8s (Hệ thống chạy thuần Fargate), cấu hình chi tiết CI/CD pipeline code, và phân tích log ứng dụng chuyên sâu. -->
+<!-- Doc owner: Nhóm CDO / QA Lead
+     Status: DRAFT v1.3 - chờ review Tech Lead (anh An), số liệu thực tế sẽ điền sau khi chạy W12 -->
 
 > **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi chạy thực tế SC-01 → SC-04 trong Tuần 12 (xem mục 6 - Timeline). Tên service/ARN đồng bộ theo `02_infra_design.md` Baseline v1.0 (AWS ECS Fargate, region `ap-southeast-1`).
 
@@ -12,6 +9,7 @@
 
 ## 0. Synthetic Test Scenarios (TF4 - Scenario Design cho W12 Build)
 
+> **Lưu ý :** `ledger-service`, `payment-gateway`, `kyc-worker` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API và Prediction Worker.
 
 ### 0.1 Bảng tổng hợp 4 scenario
 
@@ -33,7 +31,7 @@
 **SC-02 - Sudden Spike (`payment-gateway`)**
 
 - **Expected Warning**: `CRITICAL_PAYMENT_SPIKE_DETECTED` - throughput tăng từ 200 → 4,500 RPS trong < 30s, 5xx error rate vượt ngưỡng, scale-out đang được trigger.
-- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu chi phí Task chạm ngưỡng Circuit Breaker (`[Target: $40 - TBD]`), tự động kích hoạt SNS Alert gọi Lambda hạ Desired Count. Khuyến nghị bật Rate Limiting ở mức `[Configurable: ~3,000 RPS]`."
+- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu chi phí Task chạm ngưỡng Circuit Breaker (`[Target: $40 - TBD]`), tự động kích hoạt SNS Alert thông báo Infra Owner/SRE để review và giảm ECS Desired Count hoặc tạm pause synthetic load test nếu được approve. Khuyến nghị bật Rate Limiting ở mức `[Configurable: ~3,000 RPS]`."
 - **Metrics cần tạo**: `payment_http_5xx_error_rate` (Rate), `http_req_duration` p99 (k6 built-in), `payment_gateway_running_task_count` (Gauge).
 
 **SC-03 - Slow Leak (`ledger-service`)**
@@ -80,15 +78,17 @@
 
 > **Draft — chưa có số liệu thực.** Bảng này định nghĩa KPI cần đo sau khi chạy W12; giá trị Measured sẽ điền sau W12 Day 5.
 
-| KPI | Định nghĩa | Target | Scenario liên quan | Measured | Pass/Fail |
-|---|---|---|---|---|---|
-| **Detection Lead Time** | Thời gian từ khi anomaly xuất hiện đến khi Warning được phát ra | ≤ 5 phút | SC-01, SC-04 | `<X phút>` | `<✓/✗>` |
-| **False Positive Rate (FP)** | % cảnh báo sai / tổng cảnh báo phát ra | ≤ 10% | SC-01, SC-02, SC-04 | `<X%>` | `<✓/✗>` |
-| **Anomaly Catch Rate** | % kịch bản lỗi được phát hiện đúng / tổng kịch bản inject | ≥ 90% | SC-01 → SC-04 | `<X%>` | `<✓/✗>` |
-| **Fallback Activation Rate** | % lần AI timeout dẫn tới Fallback Engine kích hoạt đúng | 100% khi AI timeout > 5,000ms | SC-04 | `<X%>` | `<✓/✗>` |
-| **Audit Decision Coverage** | % quyết định Fallback được ghi đầy đủ vào DynamoDB Audit log | 100% | SC-04 | `<X%>` | `<✓/✗>` |
+| KPI | Định nghĩa | Target | Stretch target | Scenario liên quan | Measured | Pass/Fail |
+|---|---|---|---|---|---|---|
+| **Detection Latency** | Thời gian từ khi anomaly xuất hiện đến khi Warning được phát ra | ≤ 5 phút | — | SC-01, SC-04 | `<X phút>` | `<✓/✗>` |
+| **SLO Breach Lead Time** | Khoảng thời gian hệ thống cảnh báo trước khi SLA thực sự bị vi phạm | ≥ 15 phút | — | SC-01 | `<X phút>` | `<✓/✗>` |
+| **False Positive Rate (FP)** | % cảnh báo sai / tổng cảnh báo phát ra | ≤ 12% | ≤ 10% | SC-01, SC-02, SC-04 | `<X%>` | `<✓/✗>` |
+| **Anomaly Catch Rate** | % kịch bản lỗi được phát hiện đúng / tổng kịch bản inject | ≥ 80% | ≥ 90% | SC-01 → SC-04 | `<X%>` | `<✓/✗>` |
+| **Fallback Activation Rate** | % lần AI timeout dẫn tới Fallback Engine kích hoạt đúng | 100% khi AI timeout > 5,000ms | — | SC-04 | `<X%>` | `<✓/✗>` |
+| **Audit Decision Coverage** | % quyết định Fallback được ghi đầy đủ vào DynamoDB Audit log | 100% | — | SC-04 | `<X%>` | `<✓/✗>` |
 
 
+## 3. Load test results
 
 ### 3.1 Test setup
 
