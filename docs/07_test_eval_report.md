@@ -1,13 +1,15 @@
 # Test & Eval Report - Task force 4 · CDO Foresight Lens
 
-<!-- Doc owner: Nhóm CDO-04 
-     Status: DRAFT v1.3 - chờ review Tech Lead , số liệu thực tế sẽ điền sau khi chạy W12 -->
+<!-- Doc owner: Nhóm CDO / QA Lead
+     Status: DRAFT v1.3 - chờ review Tech Lead (anh An), số liệu thực tế sẽ điền sau khi chạy W12 -->
 
-> **Lưu ý:** Bản này được định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test hệ thống (`v1.3-SKELETON`, chưa chạy thật). Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi chạy thực tế SC-01 → SC-04 trong Tuần 12 (xem mục 6 - Timeline). Tên service/ARN đồng bộ theo `02_infra_design.md` Baseline v1.0 (AWS ECS Fargate, region `ap-southeast-1`).
+> **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi chạy thực tế SC-01 → SC-04 trong Tuần 12 (xem mục 6 - Timeline). Tên service/ARN đồng bộ theo `02_infra_design.md` Baseline v1.0 (AWS ECS Fargate, region `ap-southeast-1`).
 
 ---
 
 ## 0. Synthetic Test Scenarios (TF4 - Scenario Design cho W12 Build)
+
+> **Lưu ý :** `ledger-service`, `payment-gateway`, `kyc-worker` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API và Prediction Worker.
 
 ### 0.1 Bảng tổng hợp 4 scenario
 
@@ -29,7 +31,7 @@
 **SC-02 - Sudden Spike (`payment-gateway`)**
 
 - **Expected Warning**: `CRITICAL_PAYMENT_SPIKE_DETECTED` - throughput tăng từ 200 → 4,500 RPS trong < 30s, 5xx error rate vượt ngưỡng, scale-out đang được trigger.
-- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu chi phí Task chạm ngưỡng Circuit Breaker (`[Target: $40 - TBD]`), tự động kích hoạt SNS Alert gọi Lambda hạ Desired Count. Khuyến nghị bật Rate Limiting ở mức `[Configurable: ~3,000 RPS]`."
+- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu chi phí Task chạm ngưỡng Circuit Breaker (`[Target: $40 - TBD]`), tự động kích hoạt SNS Alert thông báo Infra Owner/SRE để review và giảm ECS Desired Count hoặc tạm pause synthetic load test nếu được approve. Khuyến nghị bật Rate Limiting ở mức `[Configurable: ~3,000 RPS]`."
 - **Metrics cần tạo**: `payment_http_5xx_error_rate` (Rate), `http_req_duration` p99 (k6 built-in), `payment_gateway_running_task_count` (Gauge).
 
 **SC-03 - Slow Leak (`ledger-service`)**
@@ -53,7 +55,7 @@
 | Unit test | pytest / go test | `<X%>` - chưa có số liệu, cần bổ sung từ CI report |
 | Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger-service` → Amazon Timestream) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `kyc-worker` → AI/Fallback Engine → Amazon DynamoDB) |
 | E2E test | k6 (4 scenario script, xem §3.5) | SC-01 Gradual Drift, SC-02 Sudden Spike, SC-04 Noisy Baseline & AI Down |
-| Load test | k6 (`ramping-arrival-rate` executor) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target hệ thống 50,000 events/sec |
+| Load test | k6 (`ramping-arrival-rate` executor) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target synthetic 50,000 events/sec _(có thể scale down trong sandbox tùy ngân sách EC2)_ |
 | Chaos test | Manual + k6 injected fault | 4 kịch bản: Gradual Drift, Sudden Spike, Slow Leak (memory), AI Down/Fallback |
 
 ---
@@ -72,13 +74,25 @@
 - Các ngưỡng cost (Circuit Breaker $40 cho SC-02, Sampling Throttle $30 cho SC-03) hiện là `[Hypothesis/TBD]`, cần calibrate lại sau Sandbox Run W12 trước khi dùng làm SLO chính thức.
 - Nếu `ledger_p99_latency_ms` vượt 350ms liên tục ≥ 60s ở SC-01, root cause nghi vấn ưu tiên: Amazon Timestream write backpressure (ledger-service ghi metric vào Amazon Timestream) hoặc ECS Task CPU chạm ngưỡng 85%.
 
----
+### 2.2 TF4 KPI Mapping
+
+> **Draft — chưa có số liệu thực.** Bảng này định nghĩa KPI cần đo sau khi chạy W12; giá trị Measured sẽ điền sau W12 Day 5.
+
+| KPI | Định nghĩa | Target | Stretch target | Scenario liên quan | Measured | Pass/Fail |
+|---|---|---|---|---|---|---|
+| **Detection Latency** | Thời gian từ khi anomaly xuất hiện đến khi Warning được phát ra | ≤ 5 phút | — | SC-01, SC-04 | `<X phút>` | `<✓/✗>` |
+| **SLO Breach Lead Time** | Khoảng thời gian hệ thống cảnh báo trước khi SLA thực sự bị vi phạm | ≥ 15 phút | — | SC-01 | `<X phút>` | `<✓/✗>` |
+| **False Positive Rate (FP)** | % cảnh báo sai / tổng cảnh báo phát ra | ≤ 12% | ≤ 10% | SC-01, SC-02, SC-04 | `<X%>` | `<✓/✗>` |
+| **Anomaly Catch Rate** | % kịch bản lỗi được phát hiện đúng / tổng kịch bản inject | ≥ 80% | ≥ 90% | SC-01 → SC-04 | `<X%>` | `<✓/✗>` |
+| **Fallback Activation Rate** | % lần AI timeout dẫn tới Fallback Engine kích hoạt đúng | 100% khi AI timeout > 5,000ms | — | SC-04 | `<X%>` | `<✓/✗>` |
+| **Audit Decision Coverage** | % quyết định Fallback được ghi đầy đủ vào DynamoDB Audit log | 100% | — | SC-04 | `<X%>` | `<✓/✗>` |
+
 
 ## 3. Load test results
 
 ### 3.1 Test setup
 
-- **Load profile**: 4 kịch bản song song với peak target hệ thống 50,000 events/sec:
+- **Load profile** _(synthetic target — có thể scale down trong sandbox tùy ngân sách EC2)_: 4 kịch bản song song với peak thiết kế 50,000 events/sec:
   - SC-01 Gradual Drift: ramp 200 → 1,500 RPS trong 45 phút
   - SC-02 Sudden Spike: burst 200 → 4,500 RPS trong 30s, duy trì 5 phút
   - SC-03 Slow Leak: soak 800 RPS liên tục trong 2 tiếng
@@ -102,12 +116,12 @@
 
 ### 3.3 Bottleneck identified
 
-> **Lưu ý:** Các mục dưới đây là nghi vấn chưa xác nhận, cần chạy thật để verify.
+> **Lưu ý:** Đây là **hypothesis thiết kế** dựa trên kinh nghiệm và pattern kiến trúc, chưa phải kết quả đo thực tế. Cần verify sau khi chạy W12.
 
-- **SC-01**: Độ trễ ghi (Write Latency) của Amazon Timestream tăng cao dưới áp lực backpressure khi `ledger-service` ghi lượng dữ liệu lớn.
-- **SC-02**: Độ trễ mở rộng (Scale-out lag) của ECS Task tại lớp Internal ALB khi `payment-gateway` gặp tải burst.
-- **SC-03**: Hiện tượng rò rỉ bộ nhớ (Memory leak) tại `ledger-service` không được giải phóng sau các chu kỳ Garbage Collection — dẫn tới nguy cơ sập container OOM dự kiến sau ~4.2 tiếng.
-- **SC-04**: Lỗi timeout ứng dụng AI (>5,000ms) làm tắc nghẽn hàng đợi Amazon SQS, đẩy message xuống DLQ tại `kyc-worker`.
+- **SC-01 (hypothesis)**: Độ trễ ghi (Write Latency) của Amazon Timestream có thể tăng dưới áp lực backpressure khi `ledger-service` ghi lượng lớn — cần quan sát CloudWatch metric trong W12.
+- **SC-02 (hypothesis)**: ECS Task Scale-out lag tại lớp Internal ALB khi `payment-gateway` gặp tải burst — cần đo thực tế thời gian scale-out.
+- **SC-03 (hypothesis)**: `ledger-service` có thể có memory/thread leak không giải phóng sau GC — nguy cơ OOM ước tính ~4.2 tiếng, cần soak test thực tế xác nhận.
+- **SC-04 (hypothesis)**: AI timeout >5,000ms có thể làm tắc nghẽn SQS và đẩy message xuống DLQ — cần verify Fallback Engine kích hoạt đúng ngưỡng.
 
 ### 3.4 Infrastructure prerequisites (Đồng bộ Architecture Baseline v1.0)
 
@@ -192,10 +206,21 @@ export default function () {
 
 ### 3.6 Quy trình Reset & Khôi phục môi trường (Post-Test Cleanup)
 
-Để loại bỏ triệt để hiện tượng nhiễm độc dữ liệu kiểm thử (Test Contamination), quy trình dọn dẹp bắt buộc phải chạy tự động sau mỗi scenario:
+Để loại bỏ triệt để hiện tượng nhiễm độc dữ liệu kiểm thử (Test Contamination), quy trình dọn dẹp bắt buộc phải chạy tự động sau mỗi scenario. **Lưu ý:** Hệ thống chạy trên AWS ECS Fargate — không dùng kubectl; cleanup thực hiện qua AWS CLI / ECS API.
 
-- **Clear Memory Leak (SC-03):** Thực hiện lệnh `kubectl rollout restart deployment/ledger-service -n staging` nhằm đưa bộ nhớ RAM của cụm container về trạng thái sạch ban đầu.
-- **Purge Hàng đợi (SC-04):** Chạy lệnh `aws sqs purge-queue --queue-url $KYC_SQS_URL` và `aws sqs purge-queue --queue-url $KYC_DLQ_URL` nhằm xóa sạch tin nhắn tồn đọng trước khi chạy kịch bản tiếp theo.
+- **Clear Memory Leak (SC-03):** Force new deployment để ECS Fargate thay thế toàn bộ Task bằng instance sạch, đưa bộ nhớ về trạng thái ban đầu:
+  ```bash
+  aws ecs update-service \
+    --cluster foresight-staging \
+    --service ledger-service \
+    --force-new-deployment \
+    --region ap-southeast-1
+  ```
+- **Purge Hàng đợi (SC-04):** Xóa sạch tin nhắn tồn đọng trên SQS và DLQ trước khi chạy kịch bản tiếp theo:
+  ```bash
+  aws sqs purge-queue --queue-url $KYC_SQS_URL  --region ap-southeast-1
+  aws sqs purge-queue --queue-url $KYC_DLQ_URL  --region ap-southeast-1
+  ```
 
 ---
 
