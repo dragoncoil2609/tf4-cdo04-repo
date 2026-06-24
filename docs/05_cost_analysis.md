@@ -10,31 +10,33 @@
 
 ---
 
-## 1. Cost model per tenant (forecast)
+## 1. Cost model per monitored service unit (forecast)
 
-> **Định nghĩa "tenant" trong TF4**: một service được monitor (ví dụ `payment-gateway`) với per-service
-> baseline riêng biệt. Capstone demo với 3 tenant/service. Production scale = số service tier-1 được onboard.
+> **Định nghĩa "monitored service unit" trong TF4**: một service được monitor (ví dụ `payment-gateway`) với per-service
+> baseline riêng biệt. Capstone demo với 3 monitored service units. Production scale = số service tier-1 được onboard.
 
 ### 1.1 Shared fixed cost (platform-level, amortized)
 
-Chi phí này tồn tại độc lập với số lượng tenant và được chia đều cho toàn bộ hệ thống:
+Chi phí này tồn tại độc lập với số lượng monitored service unit và được chia đều cho toàn bộ hệ thống:
 
 | Component | AWS Service | Config | $/month (fixed) |
 |---|---|---|---|
 | Telemetry API | ECS Fargate | 0.25 vCPU · 0.5GB RAM · always-on | ~$9.01 |
-| Prediction Worker | ECS Fargate | 0.25 vCPU · 0.5GB RAM · event-driven | ~$5.00 |
+| Prediction Worker | ECS Fargate | 0.25 vCPU · 0.5GB RAM · event-driven (Giả định chạy demo/test window tổng thời gian thực tế khoảng 150 giờ/tháng) | ~$5.00 |
 | NAT Gateway | VPC | 1 NAT · ap-southeast-1 (Singapore) | ~$43.07 |
 | CloudWatch Dashboard | CloudWatch | 1 dashboard dùng chung | ~$3.00 |
 | EventBridge Scheduler | Scheduler | ~8,640 invocations/tháng/3 service | ~$0.01 |
 | **Total fixed** | | | **~$60.09/month** |
 
-> **Lưu ý NAT Gateway**: $43.07/tháng (tính theo đơn giá $0.059/giờ tại Singapore) là chi phí cố định lớn nhất, chiếm hơn 70% tổng chi phí cố định. Chúng ta bypass bằng VPC Endpoints (xem §3) để tối ưu hóa tối đa.
+> **Lưu ý về Prediction Worker**: Worker chạy dưới dạng ECS Fargate task được kích hoạt bởi EventBridge Scheduler qua SQS. Chi phí $5.00/tháng dựa trên giả định chạy theo event-driven (khoảng 150 giờ/tháng cho demo/test window). Nếu chạy always-on 24/7 trong Production thực tế, chi phí sẽ tăng lên tương đương Telemetry API (~$9.01/tháng).
 
-### 1.2 Variable cost per tenant (per service monitored)
+> **Lưu ý NAT Gateway**: $43.07/tháng (tính theo đơn giá $0.059/giờ tại Singapore) là chi phí cố định lớn nhất, chiếm hơn 70% tổng chi phí cố định. MVP sử dụng 1 NAT Gateway kết hợp với S3/DynamoDB Gateway Endpoints để giảm một phần chi phí NAT data processing, chứ không bypass hoàn toàn NAT Gateway.
 
-| Component | AWS Service | Unit cost | Tenant avg usage/month | $/tenant/month |
+### 1.2 Variable cost per monitored service unit (per service monitored)
+
+| Component | AWS Service | Unit cost | Avg usage/month | $/monitored-service-unit/month |
 |---|---|---|---|---|
-| Metric ingest | Amazon Timestream (write) | $0.62/million writes | ~259,200 writes (1 write/phút × 6 metric × 30 ngày) | ~$0.16 |
+| Metric ingest | Amazon Timestream (write) | $0.62/million writes | ~51,840 writes (1 write/5 phút × 6 metric × 30 ngày) | ~$0.03 |
 | Metric storage | Amazon Timestream (magnetic) | $0.0036/GB-month | ~0.5 GB | ~$0.002 |
 | Prediction query | Amazon Timestream (query) | $0.01/GB scanned | ~8 GB scanned (8,640 queries × ~1MB/query) | ~$0.08 |
 | Audit log write | DynamoDB (on-demand) | $1.25/million WCU | ~8,640 writes | ~$0.01 |
@@ -44,26 +46,38 @@ Chi phí này tồn tại độc lập với số lượng tenant và được c
 | SNS alert | SNS | Mức cơ bản | <1,000 notifications | ~$0.00 |
 | SQS (prediction queue) | SQS | $0.40/million requests | ~17,280 messages | ~$0.01 |
 | AI endpoint call | Data transfer internal | ~$0 (VPC-internal) | 8,640 calls | ~$0.00 |
-| **Total variable / tenant / month** | | | | **~$2.39** |
+| **Total variable / monitored-service-unit / month** | | | | **~$2.26** |
 
-### 1.3 Total per-tenant cost (platform amortized)
+### 1.3 Total per-monitored-service-unit cost (platform amortized)
 
-| Tenant count | Fixed cost/month | Variable/month | **Total/month** | **Per-tenant** |
+| Monitored service unit count | Fixed cost/month | Variable/month | **Total/month** | **Per-service-unit** |
 |---|---|---|---|---|
-| 3 (capstone demo) | $60.09 | $7.17 | **$67.26** | **$22.42** |
-| 10 | $60.09 | $23.90 | **$83.99** | **$8.40** |
-| 50 | $60.09 | $119.50 | **$179.59** | **$3.59** |
+| 3 (capstone demo) | $60.09 | $6.78 | **$66.87** | **$22.29** |
+| 10 | $60.09 | $22.60 | **$82.69** | **$8.27** |
+| 50 | $60.09 | $113.00 | **$173.09** | **$3.46** |
 
 ---
 
 ## 2. Cost at scale
 
-| Tenant count | Monthly total | Avg per-tenant | Ghi chú |
+### 2.1 Assumptions for scale estimate (Các giả định tính toán quy mô)
+Để đưa ra các dự báo chi phí dưới đây, nhóm CDO tuân thủ các giả định thực tế sau:
+- **Số lượng metrics**: Giới hạn ở mức 6 metrics/service.
+- **Cadence**: Tần suất lấy mẫu và gọi dự đoán là 5 phút/lần.
+- **Dung lượng log**: Thấp (low log volume, dưới 0.5 GB/service/tháng).
+- **Phạm vi giao diện**: Không triển khai toàn bộ các endpoint giao diện phức tạp (no full interface endpoints), chỉ tập trung vào telemetry ingestion API và prediction worker.
+- **Mô hình AI**: Không sử dụng mô hình LLM/Bedrock (chỉ chạy ML thống kê).
+
+### 2.2 Dự báo chi phí theo quy mô
+
+| Monitored service unit count | Monthly total | Avg per-service-unit | Ghi chú |
 |---|---|---|---|
-| 3 | ~$67 | ~$22.42 | Môi trường Capstone Demo — fixed cost chưa được phân bổ tối ưu |
-| 10 | ~$84 | ~$8.40 | Quy mô sản xuất nhỏ (Small Production) |
-| 50 | ~$180 | ~$3.59 | Quy mô mục tiêu (Production Target) — vẫn nằm dưới budget $200 |
-| 100 | ~$299 | ~$2.99 | Vượt budget $200 — cần chuyển sang NAT Instance hoặc mua Savings Plan |
+| 3 | ~$67 | ~$22.29 | Môi trường Capstone Demo — fixed cost chưa được phân bổ tối ưu |
+| 10 | ~$83 | ~$8.27 | Quy mô sản xuất nhỏ (Small Production) |
+| 50 | ~$173 | ~$3.46 | Quy mô mục tiêu (Production Target) — vẫn nằm dưới budget $200 |
+| 100 | ~$286 | ~$2.86 | Vượt budget $200 — cần cấu hình NAT Instance cho sandbox hoặc mua Savings Plan |
+
+*Per-service-unit cost giảm dần khi quy mô tăng vì fixed cost ($60.09) được phân bổ đều cho nhiều service unit hơn. Từ 50 service units trở lên, variable cost bắt đầu chiếm ưu thế.*
 
 ---
 
@@ -71,8 +85,8 @@ Chi phí này tồn tại độc lập với số lượng tenant và được c
 
 ### 3.1 Đã áp dụng trong thiết kế hạ tầng
 
-- [x] **VPC Gateway Endpoints cho S3 & DynamoDB**: Chuyển hướng lưu lượng truy cập nội bộ trực tiếp trên hạ tầng AWS, giảm thiểu data processing qua NAT Gateway, tiết kiệm ~$15-20/tháng.
-- [x] **Event-driven Prediction Worker**: Worker chỉ hoạt động khi có trigger từ EventBridge Scheduler, tránh lãng phí compute nhàn rỗi (idle Fargate tasks), tiết kiệm ~$10/tháng.
+- [x] **Gateway Endpoints cho S3 & DynamoDB**: MVP sử dụng 1 NAT Gateway kết hợp với S3/DynamoDB Gateway Endpoints để chuyển hướng một phần lưu lượng nội bộ trực tiếp trên hạ tầng AWS. Điều này giúp giảm thiểu một phần chi phí NAT data processing (mức tiết kiệm cụ thể sẽ được xác nhận sau khi có hóa đơn thực tế - actual bill ở Pack #2).
+- [x] **Event-driven Prediction Worker**: Worker chỉ hoạt động khi có trigger từ EventBridge Scheduler qua SQS, tránh lãng phí compute nhàn rỗi (idle Fargate tasks).
 - [x] **DynamoDB On-Demand Billing**: Không đặt trước dung lượng (provisioned capacity), chỉ trả phí dựa trên số lần ghi thực tế của Audit Log (cực kỳ rẻ cho tần suất 5 phút/lần).
 - [x] **Timestream Magnetic Tiering**: Cấu hình Memory store ngắn hạn (7 ngày) và tự động đẩy dữ liệu cũ sang Magnetic store giúp tối ưu chi phí lưu trữ chuỗi thời gian.
 - [x] **CloudWatch Log Retention (14 ngày)**: Giới hạn thời gian lưu trữ log thay vì lưu vô hạn để tránh phình chi phí lưu trữ CloudWatch Logs.
@@ -88,9 +102,9 @@ Chi phí này tồn tại độc lập với số lượng tenant và được c
 
 ## 4. Cost vs alternatives (cùng task force TF4)
 
-| Angle | $/tenant/month (50 tenant) | Trade-off chính |
+| Angle | $/monitored-service-unit/month (50 units) | Trade-off chính |
 |---|---|---|
-| **CDO 04 — TSDB-backed Control Plane** (nhóm này) | **~$3.59** | Dữ liệu Timestream tính phí minh bạch, rẻ ở quy mô nhỏ. Rủi ro chi phí nằm ở NAT Gateway cố định. |
+| **CDO 04 — TSDB-backed Control Plane** (nhóm này) | **~$3.46** | Dữ liệu Timestream tính phí minh bạch, rẻ ở quy mô nhỏ. Rủi ro chi phí nằm ở NAT Gateway cố định. |
 | **CDO khác — Lakehouse angle** (S3 + Athena) | ~$5.00 – $8.00 | S3 rẻ nhưng Athena tính phí theo dung lượng quét dữ liệu (data scan) của mỗi câu truy vấn. Khó kiểm soát chi phí nếu truy vấn nhiều và latency cao. |
 | **CDO khác — Managed Observability** (Prometheus/Grafana) | ~$6.00 – $10.00 | Tốn chi phí vận hành, cài đặt cấu hình VM (EC2) chạy Prometheus liên tục 24/7 và bản quyền Grafana Cloud. |
 
@@ -122,13 +136,13 @@ Dưới đây là dự báo chi phí thực tế cho **2 tuần chạy thử ngh
 | Khác | $0.50 | - | - |
 | **Total** | **$38.15** | **-** | **-** |
 
-### 5.2 Per-tenant actual (Pack #2 — fill in W12)
+### 5.2 Per-monitored-service-unit actual (Pack #2 — fill in W12)
 
-| Tenant test | Service | $/day forecast | Extrapolate $/month |
+| Monitored service unit test | Service | $/day forecast | Extrapolate $/month |
 |---|---|---|---|
-| Tenant-1 | `payment-gateway` | ~$0.70 | ~$21 |
-| Tenant-2 | `ledger-service` | ~$0.70 | ~$21 |
-| Tenant-3 | `kyc-worker` | ~$0.70 | ~$21 |
+| Unit-1 | `payment-gateway` | ~$0.70 | ~$21 |
+| Unit-2 | `ledger-service` | ~$0.70 | ~$21 |
+| Unit-3 | `kyc-worker` | ~$0.70 | ~$21 |
 
 ### 5.3 Cost-per-correct-decision (Pack #2 — joint with AI eval)
 
@@ -187,11 +201,17 @@ resource "aws_budgets_budget" "platform_budget" {
 }
 ```
 
+### 6.3 Per-monitored-service-unit quota enforcement
+
+- API rate limit: 1,000 req/min per monitored service unit (enforced tại Telemetry API)
+- Prediction cadence lock: không cho phép caller request prediction dày hơn 5 phút/lần per service
+- Timestream write quota: reject ingest nếu write rate > 2× baseline expected per monitored service unit
+
 ---
 
 ## 7. Cost recommendations for production
 
-*   **Thay thế NAT Gateway bằng NAT Instance**: Sử dụng 1 EC2 instance siêu nhỏ (ví dụ `t3.nano` hoặc `t4g.nano`) tự cấu hình NAT thay vì AWS NAT Gateway dịch vụ. Chi phí sẽ giảm từ **$43.07/tháng** xuống chỉ còn **~$3.50/tháng** (tiết kiệm hơn 90% chi phí NAT).
+*   **Sử dụng NAT Instance (Tùy chọn - Optional)**: Sử dụng 1 EC2 instance siêu nhỏ (ví dụ `t3.nano` hoặc `t4g.nano`) tự cấu hình NAT thay vì AWS NAT Gateway dịch vụ. Đây là tùy chọn (optional) dành riêng cho môi trường non-production hoặc cost-sensitive sandbox để tiết kiệm chi phí, không khuyến nghị làm mặc định cho môi trường Production thực tế nhằm đảm bảo tính sẵn sàng cao (High Availability) và thông lượng mạng lớn.
 *   **AWS Savings Plans**: Đăng ký gói cam kết sử dụng Compute 1 năm cho Fargate để giảm 20-30% chi phí.
 *   **Chuyển đổi sang DynamoDB Provisioned Capacity**: Khi lượng truy cập đã ổn định và dự đoán được, chuyển DynamoDB sang Provisioned Capacity và cấu hình Auto-scaling để tiết kiệm chi phí hơn On-demand.
 
@@ -202,4 +222,4 @@ resource "aws_budgets_budget" "platform_budget" {
 *   [`02_infra_design.md`](02_infra_design.md) — Sơ đồ kiến trúc hạ tầng chi tiết.
 *   [`04_deployment_design.md`](04_deployment_design.md) — Kế hoạch CI/CD và triển khai.
 *   [`07_test_eval_report.md`](07_test_eval_report.md) — Báo cáo test tải kiểm chứng giả định chi phí.
-*   [`08_adrs.md`](08_adrs.md) — ADR-002 (Timestream) và ADR-003 (DynamoDB on-demand).
+*   [`08_adrs.md`](08_adrs.md) — Hồ sơ quyết định kiến trúc: ADR-004 (Timestream), ADR-007 (DynamoDB audit store), và ADR-008 (NAT + Gateway Endpoints).
