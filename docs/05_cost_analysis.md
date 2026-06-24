@@ -1,7 +1,7 @@
 # Cost Analysis - Task Force 4 · CDO 04
 
 <!-- Doc owner: Tạ Hoàng Huy (Huy)
-     Status: Refined (W11 T6 Pack #1) - v1.2
+     Status: Refined (W11 T6 Pack #1) - v1.3
      Word target: 1000-1500 từ -->
 
 > **Scope note**: Platform của nhóm không dùng LLM/Bedrock. AI Engine (Nhóm AI) chạy statistical ML.
@@ -161,9 +161,9 @@ Dưới đây là dự báo chi phí thực tế cho **2 tuần chạy thử ngh
 
 *Quy tắc cốt lõi*: **Không bao giờ tắt Audit Log (DynamoDB) và cơ chế Fail-open Fallback** ở bất kỳ ngưỡng chi phí nào để đảm bảo hệ thống không mất hoàn toàn giám sát.
 
-*   **Ngưỡng 70% ($140/tháng)**: Bắn cảnh báo qua SNS tới Email/Slack của Infra Owner. Rà soát tần suất gọi AI của Worker, đảm bảo không tự ý giảm cadence xuống dưới 5 phút/lần.
-*   **Ngưỡng 90% ($180/tháng)**: Review khẩn cấp. Tự động giảm log verbosity (chuyển từ `DEBUG` sang `WARN`) để giảm chi phí ghi log của CloudWatch. Rà soát lại Timestream query pattern, đảm bảo query bắt buộc phải filter theo `tenant_id`, `service_id` và time window. Giảm tần suất chạy kịch bản load test giả lập.
-*   **Ngưỡng 100% ($200/tháng)**: Kích hoạt **Circuit Breaker** – lập tức tạm dừng (pause) toàn bộ luồng chạy Synthetic Load Test (k6/Locust) và các prediction job không quan trọng. Chuyển hoàn toàn sang theo dõi bằng ngưỡng tĩnh (CloudWatch alarms) để duy trì giám sát tối thiểu.
+*   **Ngưỡng 70% ($140/tháng)**: Bắn cảnh báo qua SNS tới Email/Slack của Infra Owner. Rà soát tần suất gọi AI của Worker, đảm bảo không cho phép tăng prediction cadence dày hơn 5 phút/lần nếu chưa có approval.
+*   **Ngưỡng 90% ($180/tháng)**: Review khẩn cấp. Tự động giảm log verbosity (chuyển từ `DEBUG` sang `WARN`) để giảm chi phí ghi log của CloudWatch. Rà soát lại Timestream query pattern, đảm bảo câu truy vấn bắt buộc phải filter đầy đủ theo `tenant_id`, `service_id`, `metric_type` và time window (align với ADR-004). Giảm tần suất chạy kịch bản load test giả lập.
+*   **Ngưỡng 100% ($200/tháng)**: Kích hoạt **Circuit Breaker** – lập tức tạm dừng (pause) toàn bộ luồng chạy Synthetic Load Test (k6/Locust) và các prediction job không quan trọng. Các prediction/fallback decision quan trọng vẫn tiếp tục được ghi audit. Cơ chế fail-open static threshold fallback không bị tắt.
 
 ### 6.2 Cấu hình Terraform Budgets
 
@@ -203,9 +203,9 @@ resource "aws_budgets_budget" "platform_budget" {
 
 ### 6.3 Per-monitored-service-unit quota enforcement
 
-- API rate limit: 1,000 req/min per monitored service unit (enforced tại Telemetry API)
+- API entry layer rate limit: 1,000 req/min per monitored service unit (đây là giả định thiết kế - assumption cho W12, được enforced tại Telemetry API)
 - Prediction cadence lock: không cho phép caller request prediction dày hơn 5 phút/lần per service
-- Timestream write quota: reject ingest nếu write rate > 2× baseline expected per monitored service unit
+- Timestream write quota: reject ingest nếu write rate > 2× baseline expected per monitored service unit (để đảm bảo tối ưu hóa chi phí và align với ADR-004)
 
 ---
 
