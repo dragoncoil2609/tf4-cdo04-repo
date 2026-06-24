@@ -1,6 +1,6 @@
 # Security Design - TF4 Foresight Lens · CDO-04
 
-**Doc owner:** CDO-04  
+**Doc owner:** Nguyễn Trọng Tín (Tín)  
 **Status:** Draft  
 **Project:** TF4 Foresight Lens  
 **Infra source of truth:** `02_infra_design.md`  
