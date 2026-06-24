@@ -22,15 +22,14 @@ Chi phí này tồn tại độc lập với số lượng monitored service uni
 | Component | AWS Service | Config | $/month (fixed) |
 |---|---|---|---|
 | Telemetry API | ECS Fargate | 0.25 vCPU · 0.5GB RAM · always-on | ~$9.01 |
-| Prediction Worker | ECS Fargate | 0.25 vCPU · 0.5GB RAM · event-driven (Giả định chạy demo/test window tổng thời gian thực tế khoảng 150 giờ/tháng) | ~$5.00 |
+| Prediction Worker | ECS Fargate | 0.25 vCPU · 0.5GB RAM · runs as small ECS Fargate service polling SQS queue | ~$5.00 |
 | NAT Gateway | VPC | 1 NAT · ap-southeast-1 (Singapore) | ~$43.07 |
 | CloudWatch Dashboard | CloudWatch | 1 dashboard dùng chung | ~$3.00 |
-| EventBridge Scheduler | Scheduler | ~8,640 invocations/tháng/3 service | ~$0.01 |
+| EventBridge Scheduler | Scheduler | ~8,640 scheduler runs/month, each run enqueues jobs for 3 monitored service units | ~$0.01 |
 | **Total fixed** | | | **~$60.09/month** |
 
-> **Lưu ý về Prediction Worker**: Worker chạy dưới dạng ECS Fargate task được kích hoạt bởi EventBridge Scheduler qua SQS. Chi phí $5.00/tháng dựa trên giả định chạy theo event-driven (khoảng 150 giờ/tháng cho demo/test window). Nếu chạy always-on 24/7 trong Production thực tế, chi phí sẽ tăng lên tương đương Telemetry API (~$9.01/tháng).
-
 > **Lưu ý NAT Gateway**: $43.07/tháng (tính theo đơn giá $0.059/giờ tại Singapore) là chi phí cố định lớn nhất, chiếm hơn 70% tổng chi phí cố định. MVP sử dụng 1 NAT Gateway kết hợp với S3/DynamoDB Gateway Endpoints để giảm một phần chi phí NAT data processing, chứ không bypass hoàn toàn NAT Gateway.
+> **Lưu ý về Prediction Worker**: Prediction Worker chạy như ECS Fargate service nhỏ, poll SQS queue và xử lý prediction jobs. Trong MVP, service có thể scale down ngoài test window để tiết kiệm chi phí. Nếu chạy always-on 24/7 trong Production thực tế, chi phí sẽ tăng lên tương đương Telemetry API (~$9.01/tháng).
 
 ### 1.2 Variable cost per monitored service unit (per service monitored)
 
@@ -75,7 +74,7 @@ Chi phí này tồn tại độc lập với số lượng monitored service uni
 | 3 | ~$67 | ~$22.29 | Môi trường Capstone Demo — fixed cost chưa được phân bổ tối ưu |
 | 10 | ~$83 | ~$8.27 | Quy mô sản xuất nhỏ (Small Production) |
 | 50 | ~$173 | ~$3.46 | Quy mô mục tiêu (Production Target) — vẫn nằm dưới budget $200 |
-| 100 | ~$286 | ~$2.86 | Vượt budget $200 — cần cấu hình NAT Instance cho sandbox hoặc mua Savings Plan |
+| 100 | ~$286 | ~$2.86 | Vượt budget $200 — cần cost optimization như giảm custom metrics/log volume, Savings Plans, hoặc xem xét NAT Instance cho sandbox/non-production. |
 
 *Per-service-unit cost giảm dần khi quy mô tăng vì fixed cost ($60.09) được phân bổ đều cho nhiều service unit hơn. Từ 50 service units trở lên, variable cost bắt đầu chiếm ưu thế.*
 
@@ -86,7 +85,7 @@ Chi phí này tồn tại độc lập với số lượng monitored service uni
 ### 3.1 Đã áp dụng trong thiết kế hạ tầng
 
 - [x] **Gateway Endpoints cho S3 & DynamoDB**: MVP sử dụng 1 NAT Gateway kết hợp với S3/DynamoDB Gateway Endpoints để chuyển hướng một phần lưu lượng nội bộ trực tiếp trên hạ tầng AWS. Điều này giúp giảm thiểu một phần chi phí NAT data processing (mức tiết kiệm cụ thể sẽ được xác nhận sau khi có hóa đơn thực tế - actual bill ở Pack #2).
-- [x] **Event-driven Prediction Worker**: Worker chỉ hoạt động khi có trigger từ EventBridge Scheduler qua SQS, tránh lãng phí compute nhàn rỗi (idle Fargate tasks).
+- [x] **Prediction Worker**: Prediction Worker chạy như ECS Fargate service nhỏ, poll SQS queue và xử lý prediction jobs. Trong MVP, service có thể scale down ngoài test window để tiết kiệm chi phí.
 - [x] **DynamoDB On-Demand Billing**: Không đặt trước dung lượng (provisioned capacity), chỉ trả phí dựa trên số lần ghi thực tế của Audit Log (cực kỳ rẻ cho tần suất 5 phút/lần).
 - [x] **Timestream Magnetic Tiering**: Cấu hình Memory store ngắn hạn (7 ngày) và tự động đẩy dữ liệu cũ sang Magnetic store giúp tối ưu chi phí lưu trữ chuỗi thời gian.
 - [x] **CloudWatch Log Retention (14 ngày)**: Giới hạn thời gian lưu trữ log thay vì lưu vô hạn để tránh phình chi phí lưu trữ CloudWatch Logs.
@@ -116,7 +115,7 @@ Dưới đây là dự báo chi phí thực tế cho **2 tuần chạy thử ngh
 
 | Service | Forecast 2 tuần | Ghi chú |
 |---|---|---|
-| ECS Fargate (API + Worker) | ~$10.00 | Always-on API (0.25 vCPU) + event-driven Worker |
+| ECS Fargate (API + Worker) | ~$10.00 | Always-on Telemetry API (0.25 vCPU) + Prediction Worker (có thể scale down ngoài test window) |
 | NAT Gateway | ~$21.50 | Chi phí cố định theo giờ chạy thực tế của NAT |
 | Amazon Timestream | ~$1.50 | Gồm ghi dữ liệu, lưu trữ và truy vấn |
 | DynamoDB | ~$0.15 | On-demand cho Audit Log |
@@ -203,7 +202,7 @@ resource "aws_budgets_budget" "platform_budget" {
 
 ### 6.3 Per-monitored-service-unit quota enforcement
 
-- API entry layer rate limit: 1,000 req/min per monitored service unit (đây là giả định thiết kế - assumption cho W12, được enforced tại Telemetry API)
+- API entry layer rate limit: 1,000 req/min per monitored service unit (đây là design assumption được enforced tại Telemetry API trong MVP, không phải API Gateway, do kiến trúc sử dụng ALB + ECS Fargate)
 - Prediction cadence lock: không cho phép caller request prediction dày hơn 5 phút/lần per service
 - Timestream write quota: reject ingest nếu write rate > 2× baseline expected per monitored service unit (để đảm bảo tối ưu hóa chi phí và align với ADR-004)
 
