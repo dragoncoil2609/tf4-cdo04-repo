@@ -31,6 +31,7 @@ Platform của CDO không build thêm một dashboard mới. Platform biến tel
 | Service scope          | 3 tier-1 services                                                      | TF4 yêu cầu multi-service ít nhất 3 service                              |
 | Demo services          | `payment-gateway`, `ledger-service`, `kyc-worker`                      | Đại diện cho ALB-heavy, RDS-heavy và Queue-heavy capacity patterns       |
 | Prediction cadence     | Every 5 minutes                                                        | Balanced mode, cân bằng giữa lead time và cost                           |
+| Telemetry frequency    | Every 1 minute                                                         | Granularity chính thức để ghi metric vào Timestream và tạo signal window đủ chi tiết cho AI |
 | Lookback window        | 1–2 hours                                                              | Đủ để phát hiện gradual drift, sudden spike, slow leak và noisy baseline |
 | Lead time              | Minimum ≥15 minutes, target 30 minutes if possible                     | Hard requirement của TF4                                                 |
 | False positive rate    | ≤12%                                                                   | Hard requirement, tránh alert fatigue                                    |
@@ -121,6 +122,21 @@ Platform phức tạp hơn một dashboard hoặc một serverless function đơ
 * Telemetry store: **Amazon Timestream**.
 * Audit store: **DynamoDB**.
 * Evidence model: **Timestream + CloudWatch + DynamoDB**.
+
+### 3.6 AI integration contract update
+
+Các điểm đã được chốt với Team AI cho W12 integration:
+
+| Item | Decision |
+|---|---|
+| AI endpoint | `POST /v1/predict` |
+| Telemetry frequency | Every 1 minute |
+| Prediction cadence | Every 5 minutes |
+| Lookback window | 1–2 hours |
+
+CDO sẽ thu thập telemetry mỗi 1 phút và lưu vào Amazon Timestream. Prediction Worker chạy mỗi 5 phút, query dữ liệu telemetry trong 1–2 giờ gần nhất làm lookback window, sau đó gọi AI endpoint `POST /v1/predict`.
+
+Lưu ý: **telemetry frequency** khác với **prediction cadence**. Telemetry frequency là tần suất ghi metric vào Timestream, còn prediction cadence là tần suất worker gọi AI để tạo prediction decision.
 
 ---
 
@@ -234,15 +250,15 @@ Các câu hỏi dưới đây cần resolve với Team AI trước khi ký/freez
 * [ ] AI cần input dạng **raw time-series window** hay **aggregated features**?
 * [ ] Telemetry schema chính xác gồm những field nào?
 * [ ] Có bắt buộc `tenant_id`, `service_id`, `metric_type`, `timestamp`, `value`, `unit` không?
-* [ ] AI cần lookback window mặc định bao lâu: 60 phút hay 120 phút?
-* [ ] AI cần metric granularity bao nhiêu: 1 phút, 5 phút hay 15 phút?
+* [x] AI cần lookback window mặc định bao lâu: 60 phút hay 120 phút? - *Resolved: CDO dùng lookback window 1–2 giờ, mặc định 60 phút và có thể mở rộng 120 phút theo scenario.*
+* [x] AI cần metric granularity bao nhiêu: 1 phút, 5 phút hay 15 phút? - *Resolved: telemetry frequency chính thức là 1 phút.*
 * [ ] AI có yêu cầu batch size hoặc max payload size cho mỗi prediction request không?
 * [ ] AI có yêu cầu CDO chuẩn hóa unit không? Ví dụ `latency_ms`, `cpu_percent`, `queue_depth`.
 * [ ] AI cần CDO gửi metric set khác nhau theo từng service hay dùng chung một schema metric?
 
 ### 6.2 AI API Contract
 
-* [ ] Endpoint chính thức có phải `POST /v1/predict` không?
+* [x] Endpoint chính thức có phải `POST /v1/predict` không? - *Resolved: endpoint chính thức cho W12 integration là `POST /v1/predict`.*
 * [ ] Request schema chính xác là gì?
 * [ ] Response có bắt buộc trả về 3 thông tin chính không: `service_id`, `root_cause`, `recommendation`?
 * [ ] Response có thêm `confidence`, `risk_level`, `predicted_breach_in_minutes`, `model_version`, `baseline_version` không?
