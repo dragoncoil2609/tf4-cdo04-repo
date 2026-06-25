@@ -32,7 +32,7 @@ Platform của CDO không build thêm một dashboard mới. Platform biến tel
 | Demo services          | `payment-gateway`, `ledger-service`, `kyc-worker`                      | Đại diện cho ALB-heavy, RDS-heavy và Queue-heavy capacity patterns       |
 | Prediction cadence     | Every 5 minutes                                                        | Balanced mode, cân bằng giữa lead time và cost                           |
 | Telemetry frequency    | Every 1 minute                                                         | Granularity chính thức để ghi metric vào Timestream và tạo signal window đủ chi tiết cho AI |
-| Lookback window        | 1–2 hours                                                              | Đủ để phát hiện gradual drift, sudden spike, slow leak và noisy baseline |
+| Lookback window        | Default 120 minutes                                                     | Align với AI API Contract: `signal_window` phải chứa dữ liệu ≥120 phút gần nhất |
 | Lead time              | Minimum ≥15 minutes, target 30 minutes if possible                     | Hard requirement của TF4                                                 |
 | False positive rate    | ≤12%                                                                   | Hard requirement, tránh alert fatigue                                    |
 | Drift catch rate       | ≥80%                                                                   | Hard requirement, chứng minh prediction workflow có giá trị              |
@@ -44,7 +44,7 @@ Platform của CDO không build thêm một dashboard mới. Platform biến tel
 | Security               | Encryption at rest/in transit, least privilege IAM                     | Baseline security cho fintech/SRE context                                |
 | Fallback               | Static threshold fallback when AI endpoint unavailable                 | Fail-open để không mất monitoring khi AI lỗi                             |
 | Cost                   | ≤ $200/month                                                           | Capstone budget constraint                                               |
-| Deployment             | ECS Fargate for Telemetry API and Prediction Worker                    | Align với client production environment và DevOps evidence               |
+| Deployment             | ECS Fargate for Telemetry API, Prediction Worker and AI Engine Service | Align với client production environment, AI Deployment Contract và DevOps evidence |
 | Rollback               | ECS task definition rollback + config rollback + Terraform rollback    | Giảm rủi ro khi deploy lỗi                                               |
 | Dashboard scope        | Annotation/evidence only, no new full dashboard product                | Client đã có dashboard, nhóm không build another dashboard               |
 
@@ -132,9 +132,9 @@ Các điểm đã được chốt với Team AI cho W12 integration:
 | AI endpoint | `POST /v1/predict` |
 | Telemetry frequency | Every 1 minute |
 | Prediction cadence | Every 5 minutes |
-| Lookback window | 1–2 hours |
+| Lookback window | Default 120 minutes |
 
-CDO sẽ thu thập telemetry mỗi 1 phút và lưu vào Amazon Timestream. Prediction Worker chạy mỗi 5 phút, query dữ liệu telemetry trong 1–2 giờ gần nhất làm lookback window, sau đó gọi AI endpoint `POST /v1/predict`.
+CDO sẽ thu thập telemetry mỗi 1 phút và lưu vào Amazon Timestream. Prediction Worker chạy mỗi 5 phút, query dữ liệu telemetry **120 phút gần nhất** làm lookback window mặc định, sau đó gọi AI endpoint `POST /v1/predict`. Mốc 120 phút này align với AI API Contract vì `signal_window` thiếu dữ liệu 120 phút có thể bị AI trả `400 Bad Request`.
 
 Lưu ý: **telemetry frequency** khác với **prediction cadence**. Telemetry frequency là tần suất ghi metric vào Timestream, còn prediction cadence là tần suất worker gọi AI để tạo prediction decision.
 
@@ -203,7 +203,7 @@ Production hardening có thể bổ sung interface endpoints nếu cần private
 ### 5.1 Technical constraints
 
 * AWS only.
-* Region: `ap-southeast-1` hoặc mentor/client-approved region.
+* Region chính thức: `ap-southeast-1` (Singapore).
 * Compute platform: ECS Fargate for CDO workloads.
 * Service scope: 3 tier-1 services.
 * Telemetry: infra metrics only, no PII, no custom business metrics.
@@ -250,7 +250,7 @@ Các câu hỏi dưới đây cần resolve với Team AI trước khi ký/freez
 * [ ] AI cần input dạng **raw time-series window** hay **aggregated features**?
 * [ ] Telemetry schema chính xác gồm những field nào?
 * [ ] Có bắt buộc `tenant_id`, `service_id`, `metric_type`, `timestamp`, `value`, `unit` không?
-* [x] AI cần lookback window mặc định bao lâu: 60 phút hay 120 phút? - *Resolved: CDO dùng lookback window 1–2 giờ, mặc định 60 phút và có thể mở rộng 120 phút theo scenario.*
+* [x] AI cần lookback window mặc định bao lâu: 60 phút hay 120 phút? - *Resolved: CDO dùng lookback window mặc định **120 phút** để align với AI API Contract; 60 phút chỉ dùng cho degraded/test mode nếu được approve.*
 * [x] AI cần metric granularity bao nhiêu: 1 phút, 5 phút hay 15 phút? - *Resolved: telemetry frequency chính thức là 1 phút.*
 * [ ] AI có yêu cầu batch size hoặc max payload size cho mỗi prediction request không?
 * [ ] AI có yêu cầu CDO chuẩn hóa unit không? Ví dụ `latency_ms`, `cpu_percent`, `queue_depth`.
@@ -270,9 +270,9 @@ Các câu hỏi dưới đây cần resolve với Team AI trước khi ký/freez
 
 ### 6.3 Deployment Contract
 
-* [ ] AI endpoint sẽ chạy ở đâu: Lambda, ECS Fargate, EKS hay service khác?
-* [ ] CDO gọi AI endpoint qua public URL, private ALB, API Gateway hay VPC internal endpoint?
-* [ ] Health check path là gì? Ví dụ `/health` hoặc `/ready`.
+* [x] AI endpoint sẽ chạy ở đâu: Lambda, ECS Fargate, EKS hay service khác? - *Resolved: CDO host AI Engine như ECS Fargate service trong private subnet, expose nội bộ qua ALB path `POST /v1/predict`.*
+* [x] CDO gọi AI endpoint qua public URL, private ALB, API Gateway hay VPC internal endpoint? - *Resolved: Prediction Worker gọi AI qua internal ALB/private route, không gọi public URL.*
+* [x] Health check path là gì? Ví dụ `/health` hoặc `/ready`. - *Resolved: `/health` trên port 8080 theo AI Deployment Contract.*
 * [ ] AI endpoint có versioning không? Ví dụ `/v1/predict`.
 * [ ] AI có yêu cầu secret/config nào CDO phải inject không?
 * [ ] Khi AI deploy model mới, CDO có cần thay đổi gì ở infra không, hay endpoint/schema giữ nguyên?
