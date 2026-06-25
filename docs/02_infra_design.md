@@ -1,7 +1,7 @@
 # Infrastructure Design - Task force 4 · CDO SLO Early-Warning Control Plane
 
 <!-- Doc owner: Nhóm CDO-04
-     Status: Draft
+     Status: Refined
      Word target: 1500-2500 từ -->
 
 ## 1. Architecture diagram
@@ -17,31 +17,31 @@ _Phân rã chi tiết theo block:_
 | ![Data Layer](assets/02_infra_design/data-layer-block.png) | Data Layer |
 | ![Observability](assets/02_infra_design/observability-block.png) | Observability |
 
-*Caption: Flow bắt đầu từ `payment-gateway`, `ledger-service` và `kyc-worker` gửi telemetry vào ALB; k6 chỉ tạo synthetic load cho cùng ingest path. Region triển khai final là `us-west-2` với 2 AZ. Layout tách rõ trust boundary: external actors ở ngoài AWS account; public ALB/NAT và private ECS services nằm trong VPC; các regional managed services nằm ngoài VPC. ALB nằm ở public subnets để nhận HTTPS, còn ECS Fargate Telemetry API, Prediction Worker và **AI Engine** chạy trong private subnets của cùng ECS cluster với `assignPublicIp = DISABLED`. AI không còn là shared service/public dependency bên ngoài; worker gọi `POST /v1/predict` qua **internal target group trên ALB hiện có** (path-based routing: `/v1/ingest` → Telemetry API TG, `/v1/predict` → AI Engine TG), nên traffic prediction không đi qua internet/NAT. EventBridge Scheduler, SQS, Timestream, DynamoDB, SNS, CloudWatch, S3, Secrets Manager và ECR là regional managed services nên được vẽ **ngoài VPC**; Scheduler dùng execution role có quyền `sqs:SendMessage`, không chạy trong private subnet và không cần security group hoặc NAT. Luồng prediction được tách bằng Scheduler → SQS → Worker để ingestion không bị kẹt khi AI endpoint chậm hoặc lỗi. Mỗi lần dự đoán, worker lấy metric từ Timestream, đọc service policy, gọi AI internal `/v1/predict`, ghi audit vào DynamoDB, rồi đẩy evidence/alert qua CloudWatch/SNS. Nếu AI không phản hồi hoặc trả sai schema, worker chuyển sang static threshold fallback và vẫn ghi audit. Networking final dùng cost-optimized **1 zonal NAT Gateway** đặt trong một public subnet và được private subnets ở 2 AZ dùng chung cho outbound AWS API traffic chưa đi qua Gateway Endpoint; đây không phải “regional NAT” và không nằm trên đường gọi AI. S3 và DynamoDB đi qua **Gateway VPC Endpoints** với endpoint policy để giảm NAT data processing và giữ đường evidence/audit private. Full interface VPCE no-NAT đã bị loại cho baseline infra vì workload chỉ khoảng 12GB/tháng AWS API traffic, trong khi 10 interface endpoints × 2 AZ tại `us-west-2` tạo fixed cost khoảng $146/tháng và chỉ break-even ở mức multi-TB/tháng. Traffic còn lại qua NAT được siết bằng HTTPS-only security group egress khi khả thi, IAM least privilege và application-level allowlist cho các AWS API cần gọi. Nếu Timestream không nhận write sau bounded retry, Telemetry API ghi raw payload có idempotency key vào S3 failure buffer để replay theo runbook; S3 buffer này không thay thế TSDB hot path. Trade-off được chấp nhận của một zonal NAT Gateway là egress không HA tuyệt đối: nếu AZ chứa NAT lỗi, private task ở AZ khác có thể mất đường gọi public AWS APIs. Vì AI endpoint đã internal trong VPC, NAT failure không cắt đường Worker → AI. Quyết định final ưu tiên cost-security fit cho capstone: giữ 1 zonal NAT + S3/DynamoDB Gateway Endpoints, không triển khai full interface VPCE trong infra baseline.*
+*Caption: Flow bắt đầu từ `payment-gateway`, `ledger-service` và `kyc-worker` gửi telemetry vào ALB; k6 chỉ tạo synthetic load cho cùng ingest path. Region triển khai final là `ap-southeast-1` theo AI Deployment Contract, với 2 AZ. Layout tách rõ trust boundary: external actors ở ngoài AWS account; public ALB/NAT và private ECS services nằm trong VPC; các regional managed services nằm ngoài VPC. ALB nằm ở public subnets để nhận HTTPS, còn ECS Fargate Telemetry API, Prediction Worker và **AI Engine** chạy trong private subnets của cùng ECS cluster với `assignPublicIp = DISABLED`. AI không còn là shared service/public dependency bên ngoài; worker gọi `POST /v1/predict` qua **internal target group trên ALB hiện có** (path-based routing: `/v1/ingest` → Telemetry API TG, `/v1/predict` → AI Engine TG), nên traffic prediction không đi qua internet/NAT. EventBridge Scheduler, SQS, Timestream, DynamoDB, SNS, CloudWatch, S3, Secrets Manager và ECR là regional managed services nên được vẽ **ngoài VPC**; Scheduler dùng execution role có quyền `sqs:SendMessage`, không chạy trong private subnet và không cần security group hoặc NAT. Luồng prediction được tách bằng Scheduler → SQS → Worker để ingestion không bị kẹt khi AI endpoint chậm hoặc lỗi. Mỗi lần dự đoán, worker lấy metric từ Timestream, đọc service policy, gọi AI internal `/v1/predict`, ghi audit vào DynamoDB, rồi đẩy evidence/alert qua CloudWatch/SNS. Nếu AI không phản hồi hoặc trả sai schema, worker chuyển sang static threshold fallback và vẫn ghi audit. Networking final dùng cost-optimized **1 zonal NAT Gateway** đặt trong một public subnet và được private subnets ở 2 AZ dùng chung cho outbound AWS API traffic chưa đi qua Gateway Endpoint; đây không phải “regional NAT” và không nằm trên đường gọi AI. S3 và DynamoDB đi qua **Gateway VPC Endpoints** với endpoint policy để giảm NAT data processing và giữ đường evidence/audit private. Full interface VPCE no-NAT đã bị loại cho baseline infra vì workload chỉ khoảng 12GB/tháng AWS API traffic; ở quy mô này fixed cost của nhiều interface endpoints × 2 AZ vẫn cao hơn 1 NAT Gateway và chỉ break-even ở mức traffic rất lớn. Traffic còn lại qua NAT được siết bằng HTTPS-only security group egress khi khả thi, IAM least privilege và application-level allowlist cho các AWS API cần gọi. Nếu Timestream không nhận write sau bounded retry, Telemetry API ghi raw payload có idempotency key vào S3 failure buffer để replay theo runbook; S3 buffer này không thay thế TSDB hot path. Trade-off được chấp nhận của một zonal NAT Gateway là egress không HA tuyệt đối: nếu AZ chứa NAT lỗi, private task ở AZ khác có thể mất đường gọi public AWS APIs. Vì AI endpoint đã internal trong VPC, NAT failure không cắt đường Worker → AI. Quyết định final ưu tiên cost-security fit cho capstone: giữ 1 zonal NAT + S3/DynamoDB Gateway Endpoints, không triển khai full interface VPCE trong infra baseline.*
 
 ## 2. Component table
 
-Giả định tính chi phí final: region `us-west-2` làm baseline pricing, 730 giờ/tháng, 2 AZ, 3 service demo, prediction mỗi 5 phút, CloudWatch log retention 14 ngày, S3 raw failure buffer 7 ngày và evidence/baseline export 90 ngày. Đây là **chi phí platform baseline** cho demo scope, không phải chi phí phân bổ chính xác theo từng tenant. Giá chi tiết của network path được giải thích trong `vpce_vs_nat_cost_notes.md`; cost analysis tổng thể sẽ được chốt trong `05_cost_analysis.md`.
+Giả định tính chi phí final: region `ap-southeast-1` theo AI Deployment Contract, 730 giờ/tháng, 2 AZ, 3 service demo, prediction mỗi 5 phút, app log retention 14 ngày, AI audit log retention 365 ngày, S3 raw failure buffer 7 ngày và telemetry/evidence/baseline retention tối thiểu 90 ngày. Đây là **chi phí platform baseline** cho demo scope, không phải chi phí phân bổ chính xác theo từng tenant. Giá chi tiết của network path được giải thích trong `vpce_vs_nat_cost_notes.md`; cost analysis tổng thể sẽ được chốt trong `05_cost_analysis.md`.
 
 | Component | AWS Service | Reason | Cost note |
 |---|---|---|---|
-| Tầng compute | ECS Fargate | Chạy 2 task cho Telemetry API, 1 task cho Prediction Worker và 2 task cho AI Engine trong cùng ECS cluster. Fargate phù hợp vì không phải quản lý EC2, có task role riêng, và chạy được API, worker, AI serving theo cùng mô hình container/private subnet. | **$90.10/tháng** = 5 task × 730h × (0.5 vCPU × $0.04048 + 1GB × $0.004445). |
-| Cổng API | Application Load Balancer + ACM | ALB nhận telemetry từ 3 service demo và tải synthetic từ k6, kết thúc HTTPS rồi chuyển request vào ECS service. ACM certificate không tính phí. | **$22.27/tháng** = ALB $16.43 + 1 LCU trung bình $5.84. |
-| Kho metric TSDB | Amazon Timestream | Lưu metric theo tenant/service/time để worker query window 1-2 giờ. | **$5.00/tháng**: hạn mức dự kiến cho ~0.65M metric/tháng, memory store ngắn, magnetic store nhỏ, query luôn có time predicate. |
+| Tầng compute | ECS Fargate | Chạy 2 task cho Telemetry API, 1 task cho Prediction Worker và 2 task cho AI Engine trong cùng ECS cluster. Fargate phù hợp vì không phải quản lý EC2, có task role riêng, và chạy được API, worker, AI serving theo cùng mô hình container/private subnet. | **$112.46/tháng tại `ap-southeast-1`** = 5 task × 730h × (0.5 vCPU × $0.05056 + 1GB × $0.005530). |
+| Cổng API | Application Load Balancer + ACM | ALB nhận telemetry từ 3 service demo và tải synthetic từ k6, kết thúc HTTPS rồi chuyển request vào ECS service. ACM certificate không tính phí. | **$24.24/tháng tại `ap-southeast-1`** = ALB $18.40 + 1 LCU trung bình $5.84. |
+| Kho metric TSDB | Amazon Timestream | Lưu metric theo tenant/service/time để worker query **đủ 120 phút** theo AI API Contract. | **$5.00/tháng**: hạn mức dự kiến cho demo traffic thấp, query luôn có `tenant_id`, `service_id` và time predicate; telemetry retention phải đạt 90 ngày tối thiểu theo contract. |
 | Audit + service policy database | DynamoDB | Audit log là dữ liệu ghi nối tiếp, cần tra cứu nhanh theo tenant/service/time; service policy chứa metric allowlist, baseline, quota và fallback threshold. DynamoDB gọn hơn RDS cho key-value access pattern này. | **$0.10/tháng**: ~26k audit write/tháng + policy read nhỏ; read và storage rất nhỏ, nằm trong 25GB storage miễn phí. |
 | Điều phối job | EventBridge Scheduler + SQS + DLQ | Scheduler tạo prediction job mỗi 5 phút; SQS tách worker khỏi độ trễ của AI; DLQ giữ job lỗi để debug. | **$0.05/tháng**: ~26k job/tháng, khoảng 3 SQS request/job; Scheduler gần như không đáng kể ở volume này. |
-| Lưu trữ evidence + failure buffer | S3 | Lưu ALB access log, evidence/baseline export và raw telemetry buffer khi Timestream write fail; không dùng làm audit DB chính. | **$0.35/tháng**: giả định evidence/export giữ 90 ngày, raw failure buffer giữ 7 ngày, request nhỏ. |
-| Quan sát hệ thống | CloudWatch + SNS | Ghi log task, custom metrics, alarm và dashboard; SNS gửi alert high-risk. | **$8.00/tháng**: 1 dashboard ~$3, 10-12 alarm ~$1-2, log ingest/storage khoảng ~$3; SNS email dưới 1k notification miễn phí. |
+| Lưu trữ baseline + evidence + failure buffer | S3 + KMS | Lưu AI baseline JSON trong bucket KMS theo prefix `baselines/`, evidence/export và raw telemetry buffer khi Timestream write fail; không dùng làm audit DB chính. | **$0.35/tháng**: giả định baseline/evidence/telemetry archive giữ tối thiểu 90 ngày, raw failure buffer giữ 7 ngày, request nhỏ. |
+| Quan sát hệ thống | CloudWatch + SNS | Ghi app log task, custom metrics, alarm và dashboard; tách riêng AI audit log group KMS encrypted retention 365 ngày; SNS gửi alert high-risk. | **$8.00/tháng**: 1 dashboard ~$3, 10-12 alarm ~$1-2, log ingest/storage khoảng ~$3; AI audit volume demo nhỏ, SNS email dưới 1k notification miễn phí. |
 | Bảo mật / cấu hình | Secrets Manager + KMS | Lưu internal endpoint/config của AI Engine, model config/secret nếu có, mã hóa DynamoDB/SQS/Logs bằng KMS, không hardcode credential. | **$3.40/tháng**: 3 secret × $0.40 + 2 KMS key × $1 + request nhỏ. |
-| Kết nối private subnet | NAT Gateway + S3/DynamoDB Gateway Endpoints | Quyết định final: 1 zonal NAT Gateway đặt ở public subnet và dùng chung bởi private subnets ở 2 AZ cho outbound AWS API traffic không đi qua Gateway Endpoint; S3/DynamoDB dùng Gateway Endpoint miễn phí hourly. Full interface VPCE no-NAT không được chọn vì fixed cost cao hơn rõ rệt ở traffic ~12GB/tháng. | **$33.39/tháng** = 1 NAT × 730h × $0.045/h + ~12GB × $0.045/GB; S3/DynamoDB Gateway Endpoint không có hourly/data processing charge. |
+| Kết nối private subnet | NAT Gateway + S3/DynamoDB Gateway Endpoints | Quyết định final: 1 zonal NAT Gateway đặt ở public subnet và dùng chung bởi private subnets ở 2 AZ cho outbound AWS API traffic không đi qua Gateway Endpoint; S3/DynamoDB dùng Gateway Endpoint miễn phí hourly. Full interface VPCE no-NAT không được chọn vì fixed cost cao hơn rõ rệt ở traffic ~12GB/tháng. | **$43.78/tháng tại `ap-southeast-1`** = 1 NAT × 730h × $0.059/h + ~12GB × $0.059/GB; S3/DynamoDB Gateway Endpoint không có hourly/data processing charge. |
 | Container registry | Amazon ECR | Lưu private image cho Telemetry API, Prediction Worker và AI Engine; ECS execution role pull image khi deploy/replace task qua NAT cho ECR API/DKR và qua S3 Gateway Endpoint cho image layer path. | **~$0.10-$1/tháng** cho image demo nhỏ; đã nằm trong buffer vận hành 20%. |
-| Bảo vệ public ingest endpoint | ALB access log + app token bucket + source allowlist cho test traffic | Public ALB chỉ expose telemetry ingest path. Rate limiting ở application layer và giới hạn nguồn synthetic/client demo là baseline final; AWS WAF không nằm trong infra baseline để giữ tổng cost dưới $200. | **$0 AWS fixed cost thêm** ngoài ALB/CloudWatch/S3 log đã tính. |
-| **Tổng baseline** |  | Network path dùng 1 zonal NAT + S3/DynamoDB Gateway Endpoints. | **~$162.66/tháng**. Thêm 20% buffer vận hành là **~$195.19/tháng**, thấp hơn budget **$200/tháng**. |
+| Bảo vệ public ingest endpoint + AI rate limit | ALB access log + app token bucket + source allowlist cho test traffic; AI contract-equivalent limiter | Public ALB chỉ expose telemetry ingest path. Với AI `/v1/predict`, nếu chưa thêm private API Gateway usage plan thì FastAPI middleware phải enforce đúng contract: 600 req/min/tenant, 6000 req/min global và trả `429 Retry-After`. AWS WAF không nằm trong infra baseline để giữ tổng cost dưới $200. | **$0 AWS fixed cost thêm** ngoài ALB/CloudWatch/S3 log đã tính; nếu thêm private API Gateway để match contract từng chữ, cần refresh cost riêng. |
+| **Tổng baseline** |  | Network path dùng 1 zonal NAT + S3/DynamoDB Gateway Endpoints. | **~$197.38/tháng tại `ap-southeast-1`** nếu giữ 5 Fargate tasks và các service còn lại gần như không đổi; thêm 20% buffer vận hành là **~$236.86/tháng**, vượt budget **$200/tháng**. Vì AI contract ưu tiên `ap-southeast-1`, cost guard phải dùng buffer nhỏ hơn, Graviton/ARM64, hoặc giảm non-critical baseline capacity để vẫn giữ core audit/fallback. |
 
 Cost guard:
 
 - AWS Budget alarm tại 50%, 80%, 100% của **$200/tháng**.
-- CloudWatch log retention cố định 14 ngày; S3 raw failure buffer 7 ngày, evidence/baseline export 90 ngày theo lifecycle policy.
+- CloudWatch app log retention cố định 14 ngày; AI audit log group retention 365 ngày, KMS encrypted; S3 raw failure buffer 7 ngày, baseline/evidence/telemetry archive tối thiểu 90 ngày theo lifecycle policy.
 - Synthetic load chỉ bật trong test window đã lên lịch.
 - Timestream query bắt buộc có `tenant_id`, `service_id` và time predicate.
 - Prediction cadence cố định 5 phút cho baseline; không dùng cadence 1 phút trong infra final.
@@ -69,15 +69,16 @@ Dashboard chỉ là nơi xem evidence. Phần chính của CDO là control plane
 
 | Axis | My number | Competing angle estimate |
 |---|---|---|
-| Budget fit | **~$162.66/tháng** baseline; **~$195.19/tháng** nếu thêm 20% buffer, dùng khoảng **97.6%** budget $200 | Dashboard-only có thể chỉ **$60-90/tháng**, nhưng không cover đủ prediction workflow, audit-per-call, fallback, evidence-link requirement và AI serving nội bộ |
-| Cost / service | **~$54.22/service/tháng** baseline cho 3 service; **~$65.06/service/tháng** nếu tính 20% buffer | EKS/self-hosted TSDB hoặc observability stack riêng dễ tăng compute + ops overhead, khó giữ dưới $200 nếu vẫn cần queue, audit, alert, fallback path và AI serving |
-| Cost / prediction cycle | 3 services × mỗi 5 phút ≈ **25,920 prediction cycles/tháng**; baseline ≈ **$0.0063/cycle**, with buffer ≈ **$0.0075/cycle** | Dashboard-only không có prediction cycle/audit decision tương đương; static alarm rẻ hơn nhưng không tạo capacity recommendation có confidence/evidence |
+| Budget fit | **~$197.38/tháng** baseline tại `ap-southeast-1`, dùng khoảng **98.7%** budget $200; 20% ops buffer là risk buffer chứ không phải capacity provisioned cố định | Dashboard-only có thể chỉ **$60-90/tháng**, nhưng không cover đủ prediction workflow, audit-per-call, fallback, evidence-link requirement và AI serving nội bộ |
+| Cost / service | **~$65.79/service/tháng** baseline cho 3 service | EKS/self-hosted TSDB hoặc observability stack riêng dễ tăng compute + ops overhead, khó giữ dưới $200 nếu vẫn cần queue, audit, alert, fallback path và AI serving |
+| Cost / prediction cycle | 3 services × mỗi 5 phút ≈ **25,920 prediction cycles/tháng**; baseline ≈ **$0.0076/cycle** | Dashboard-only không có prediction cycle/audit decision tương đương; static alarm rẻ hơn nhưng không tạo capacity recommendation có confidence/evidence |
+| Contract fit | Region `ap-southeast-1`, AI ECS Fargate min 2/max 4, 120-minute signal window, IAM SigV4, S3 baseline, AI audit 365 ngày | Nếu dùng region/auth/window khác với AI contract thì W12 integration có thể fail dù infra chạy được ở demo local |
 | Requirement coverage | Cover trực tiếp: **≥15 phút lead-time target**, per-service baseline, audit log mỗi prediction, static fallback, evidence link, encrypted stores | Dashboard-only fail pain point “không có người nhìn 24/7”; static threshold dễ alert fatigue hoặc miss slow drift; lakehouse/batch rẻ cho storage nhưng không hợp 5-min operational loop |
 | Early-warning cadence | **5 phút** là balanced point: đủ nhanh để còn buffer cho yêu cầu cảnh báo trước ≥15 phút, nhưng chưa tăng query/job/audit volume quá mức | 1 phút nhanh hơn nhưng tăng noise/cost; 10 phút rẻ hơn nhưng giảm buffer cho yêu cầu cảnh báo sớm |
 | Công vận hành | **2-3 giờ/tuần** nhờ dùng managed services: ECS Fargate, SQS, Timestream, DynamoDB | EKS hoặc self-hosted TSDB có thể **6-10 giờ/tuần** cho node, storage, upgrade, retention và incident handling |
 | Thời gian onboard service | **15-30 phút/service**: khai báo metric, baseline, fallback threshold, smoke test | Làm dashboard/alarm thủ công thường **30-60 phút/service** và dễ thiếu audit consistency |
 
-Điểm cost của thiết kế này không phải là rẻ nhất tuyệt đối. Rẻ nhất tuyệt đối sẽ là dashboard-only hoặc vài CloudWatch alarm tĩnh, nhưng hai hướng đó không giải quyết đúng pain point client đã nêu: không có người nhìn dashboard 24/7 và threshold tĩnh dễ quá nhạy hoặc quá trễ. Vì vậy tiêu chí tối ưu là **cost-to-requirement coverage**: với khoảng **$195.19/tháng** sau buffer, platform vẫn thấp hơn budget **$200/tháng** nhưng có đủ prediction cadence, audit trail, fallback path, evidence link, per-service baseline cho 3 service demo và AI serving nội bộ trong ECS cluster.
+Điểm cost của thiết kế này không phải là rẻ nhất tuyệt đối. Rẻ nhất tuyệt đối sẽ là dashboard-only hoặc vài CloudWatch alarm tĩnh, nhưng hai hướng đó không giải quyết đúng pain point client đã nêu: không có người nhìn dashboard 24/7 và threshold tĩnh dễ quá nhạy hoặc quá trễ. Vì vậy tiêu chí tối ưu là **cost-to-requirement coverage**. Sau khi ưu tiên AI contract và chuyển region về `ap-southeast-1`, baseline 5 Fargate tasks x86 tăng lên khoảng **$197.38/tháng**, tức là vẫn dưới $200 nhưng margin rất mỏng; nếu cộng 20% ops buffer thì vượt budget. Vì vậy buffer không được xem là capacity provisioned cố định: cost guard final phải dùng ARM64/Graviton khi image support, giảm synthetic load/log verbosity, hoặc giảm non-critical capacity trong test window, nhưng **không tắt audit/fallback**.
 
 Balanced mode được chọn vì hợp với budget và yêu cầu lead time. Cadence 1 phút phát hiện nhanh hơn nhưng làm tăng Timestream query, SQS job, audit write và alert noise. Cadence 10 phút rẻ hơn nhưng không còn nhiều buffer cho yêu cầu cảnh báo trước tối thiểu 15 phút.
 
@@ -85,7 +86,7 @@ Balanced mode được chọn vì hợp với budget và yêu cầu lead time. C
 
 - **Phức tạp hơn dashboard-only**: cần scheduler, queue, worker, TSDB, audit DB và alert path. Nhóm chấp nhận điểm này vì fallback và audit log là hard requirement.
 - **CDO platform phải host thêm AI serving capacity**: so với thiết kế cũ gọi endpoint ngoài, ECS cluster cần thêm AI Engine task, health check, logs, scaling rule và SG rule nội bộ. Đổi lại, đường gọi prediction private hơn, ít phụ thuộc internet/NAT hơn và match deployment contract mới.
-- **Phụ thuộc AI response quality**: AI response bắt buộc được schema-validate trước khi tạo warning. Response thiếu `root_cause` hoặc `recommendation` bị xem là invalid schema và kích hoạt static threshold fallback; audit ghi `fallback_reason = ai_invalid_response`.
+- **Phụ thuộc AI response quality**: AI response bắt buộc được schema-validate trước khi tạo warning. Response thiếu các field theo AI contract như `anomaly`, `severity`, `reasoning`, `recommendation.action_verb`, `recommendation.target`, `recommendation.from_to`, `recommendation.confidence` hoặc `audit_id` bị xem là invalid schema và kích hoạt static threshold fallback; audit ghi `fallback_reason = ai_invalid_response`.
 - **Static fallback có false positive**: fallback chỉ dùng khi AI unavailable hoặc response invalid. Audit record luôn ghi `prediction_source = static_threshold_fallback` để SRE biết đây không phải prediction từ model.
 - **Chi phí được kiểm soát bằng guardrail cố định**: CloudWatch log retention giữ 14 ngày, S3 lifecycle tách raw buffer 7 ngày khỏi evidence/baseline 90 ngày, và mọi query Timestream bắt buộc filter theo `tenant_id`, `service_id` và time window để giữ platform dưới budget $200/tháng.
 
@@ -123,14 +124,16 @@ evidence_link, audit_id, model_version, baseline_version
 
 - Endpoint path chốt cho tài liệu này: `POST /v1/predict`.
 - Deployment topology: AI Engine chạy như ECS Fargate service trong **cùng ECS cluster/VPC** với CDO platform, không gọi qua public URL hoặc external shared service.
-- Worker gọi AI qua **internal target group trên ALB hiện có**; ALB dùng path-based routing: `/v1/ingest` → Telemetry API target group, `/v1/predict` → AI Engine target group. Endpoint nội bộ chốt: `http://<alb-internal-dns>/v1/predict`.
-- Auth giữa Worker và AI dùng private service auth bằng service-to-service token lưu trong Secrets Manager; network layer: Worker SG gọi ALB SG; ALB SG chỉ forward `/v1/predict` đến AI Engine SG; không mở Worker SG → AI Engine SG trực tiếp.
-- Request phải mang tenant context đã verify, không tự tin vào tenant header từ client.
-- **SLA latency AI contract: P99 < 500ms.** Worker alarm khi AI p99 > 500ms (xem §6.1). CDO worker timeout hard limit 2 giây, sau đó fallback.
-- Retry: 1-2 lần với backoff ngắn.
-- Nếu AI timeout, 5xx, 429 vượt retry, hoặc response sai schema, worker dùng static threshold fallback.
+- Worker gọi AI qua **internal target group trên ALB hiện có**; ALB dùng path-based routing: `/v1/ingest` → Telemetry API target group, `/v1/predict` → AI Engine target group. Endpoint nội bộ chốt bằng Route 53 Private Hosted Zone: `https://ai-engine.cdo04.internal/v1/predict` trỏ về internal ALB, không dùng raw ALB DNS trong application config.
+- Auth giữa Worker và AI dùng **IAM SigV4** theo AI API Contract. Worker task role ký request tới `/v1/predict`; `Authorization` optional chỉ trong W11 mock testing, từ W12 final phải enforce. Không dùng API key/service token làm auth chính.
+- Network layer: Worker SG gọi ALB SG; ALB SG chỉ forward `/v1/predict` đến AI Engine SG; không mở Worker SG → AI Engine SG trực tiếp và không expose AI endpoint public.
+- Request phải mang `X-Tenant-Id`, `Authorization` SigV4 và tenant context đã verify; `signal_window[].tenant_id` phải match với header `X-Tenant-Id`.
+- **SLA latency AI contract: P99 < 500ms, throughput 100 RPS aggregate, availability 99.5%.** Worker alarm khi AI p99 > 500ms (xem §6.1). CDO worker timeout hard limit 2 giây, sau đó fallback.
+- Request body final phải chứa `signal_window` đủ **≥120 phút gần nhất** theo AI API Contract. Worker không gọi final AI endpoint nếu window ngắn hơn 120 phút.
+- Trước khi gọi AI, Worker align dữ liệu thành 1-minute buckets liền mạch cho toàn bộ 120 phút; missing buckets phải forward-fill hoặc zero-fill theo metric policy. Nếu khoảng thiếu vượt ngưỡng policy, Worker không gọi AI và fallback với `fallback_reason = insufficient_signal_window`.
+- Retry/error handling theo contract: `400` invalid input → không retry, fallback + engineering alert; `401` → refresh/re-sign credential và retry once; `429` → exponential backoff `1s → 2s → 4s`; `503/5xx/timeout` → static threshold fallback.
 - Worker inject `context.deployment_version` từ **ECR image digest (SHA256)** của ECS task đang chạy, đọc qua ECS task metadata endpoint (`169.254.170.2/v4/metadata`) lúc startup, cached cho vòng đời task.
-- CDO lưu audit record dùng **đúng tên field của AI response** (không mapping): `anomaly`, `severity`, `reasoning`, `recommendation.action_verb`, `recommendation.target`, `recommendation.from_to`, `recommendation.confidence`, `audit_id`. Xem schema tại §4.1.
+- CDO lưu audit record dùng **đúng tên field của AI response** (không mapping): `anomaly`, `severity`, `reasoning`, `recommendation.action_verb`, `recommendation.target`, `recommendation.from_to`, `recommendation.confidence`, `recommendation.evidence_link`, `audit_id`. Nếu alert cần `risk_level` hoặc `root_cause`, CDO derive từ `severity` và `reasoning`, không yêu cầu AI trả thêm field ngoài contract.
 
 ### 4.3 Isolation pattern
 
@@ -179,7 +182,8 @@ prediction_id = hash(tenant_id, service_id, window_start, model_version, baselin
 
 - `PutItem` dùng conditional write: `attribute_not_exists(prediction_id)`.
 - Worker chỉ delete SQS message sau khi audit write thành công.
-- TTL audit: 90 ngày cho baseline final.
+- TTL CDO decision audit: 90 ngày cho baseline final. Lưu ý: đây là audit của CDO control plane, **không thay thế AI internal audit**.
+- AI internal audit log theo AI API/Deployment Contract phải nằm trong CloudWatch Logs/S3 archive riêng, KMS encrypted, retention **365 ngày**.
 - PITR bật ở final environment.
 - KMS encryption bật; task role chỉ có quyền `PutItem`, `Query`, `GetItem` trên table/index cần dùng.
 
@@ -232,7 +236,7 @@ Manual baseline train: 1 lần trước test window chính
 Baseline review: weekly manual review cho từng service
 Retrain / refresh trigger: FP rate >12%, catch rate <80%, service deploy làm đổi capacity profile,
 traffic pattern thay đổi rõ rệt, hoặc static fallback threshold liên tục tạo false positive
-ADR: ghi rõ trigger logic; infra lưu baseline_version trong service policy và audit record
+ADR: ghi rõ trigger logic; infra lưu baseline_version trong service policy và audit record; baseline JSON thực tế lưu trong S3 KMS prefix `baselines/` theo AI Deployment Contract
 ```
 
 ### 4.6 Timestream data model
@@ -257,26 +261,34 @@ trace_id
 prediction_id
 ```
 
-Multi-measure record theo `tenant_id + service_id + timestamp`. Measure fields align với telemetry contract signal names:
+Multi-measure record theo `tenant_id + service_id + timestamp`. `timestamp` phải là RFC3339 UTC với millisecond precision khi gửi sang AI. Measure fields align với telemetry contract signal names:
 
 ```text
 api_latency_ms
 cpu_usage_percent
 memory_usage_percent
-error_rate
 db_connection_pool_pct
 queue_depth
-oldest_message_age_seconds
 cache_hit_rate_pct
 active_connections
 ```
 
+Signal-specific labels theo AI Telemetry Contract:
+
+```text
+db_connection_pool_pct -> db_type
+queue_depth            -> queue_name
+cache_hit_rate_pct     -> cache_type
+```
+
+`error_rate` và `oldest_message_age_seconds` vẫn có thể lưu để dashboard/fallback nội bộ, nhưng không được xem là required AI signals nếu chưa nằm trong contract.
+
 Retention:
 
 ```text
-Memory store: 24h cho recent prediction window
-Magnetic store: 30 ngày cho evidence/demo
-S3 evidence + aggregated baseline export: 90 ngày theo lifecycle
+Hot retention: tối thiểu 7 ngày cho telemetry recent window
+Cold retention/archive: tối thiểu 83 ngày
+Total telemetry retention: 90 ngày minimum theo AI Telemetry Contract
 S3 raw telemetry failure buffer: 7 ngày hoặc xóa ngay sau replay thành công
 ```
 
@@ -312,7 +324,7 @@ Không query toàn tenant/all services trong runtime path. Dashboard/evidence qu
 | Payload size | 256KB/request | 512KB/request | Tránh log/query cost tăng đột biến |
 | Service scope | 3 service | 5 service | Capstone chỉ cần 3 service |
 | Prediction jobs | 1 job/service/5min | 1 job/service/5min | Không cho tenant tự tăng cadence |
-| Lookback window | tối đa 2h | tối đa 2h | Giữ Timestream query cost ổn định |
+| Lookback window | đúng 120 phút cho AI call | đúng 120 phút cho AI call | Theo AI API Contract; ngắn hơn 120 phút thì không gọi final AI endpoint |
 
 Cost guard khi forecast gần $200/tháng: giữ cadence 5 phút, giảm synthetic load và log verbosity; không tắt audit/fallback.
 
@@ -332,8 +344,9 @@ Nguyên tắc triển khai Fargate:
 - Telemetry API, Prediction Worker và AI Engine dùng cùng ECS cluster nhưng tách ECS service, task role, security group và autoscaling policy.
 - ALB ở public subnet, HTTPS bằng ACM, HTTP redirect sang HTTPS cho telemetry ingest; path-based routing bổ sung `/v1/predict` target group trỏ đến AI Engine (chỉ accessible từ Worker SG nội bộ).
 - Worker resolve AI Engine qua ALB internal DNS và gọi endpoint path `POST /v1/predict` qua AI Engine target group.
-- Target group type `ip`, health check `/health`, grace period 60-90 giây.
-- Deployment circuit breaker bật rollback, `minimumHealthyPercent=100`, `maximumPercent=200`.
+- Target group type `ip`; AI health check đúng Deployment Contract: path `/health`, port `8080`, interval 30 giây, healthy threshold 2 consecutive 200, unhealthy threshold 3 consecutive non-200, grace period 60-90 giây.
+- Telemetry API và Prediction Worker có thể dùng ECS rolling deployment circuit breaker; riêng **AI Engine** dùng ECS Blue/Green với AWS CodeDeploy canary theo contract: 10% traffic trong 5 phút → 50% trong 5 phút → 100%.
+- AI canary auto rollback khi error rate >1%, p99 latency >800ms, hoặc Capacity Exhaustion false/deviation >15%; rollback primary method là CodeDeploy về previous task definition, secondary là ECS service revert manual, target RTO <60 giây.
 - Tách `executionRoleArn` để pull image/logs/secrets và `taskRoleArn` để ứng dụng gọi Timestream, DynamoDB, SQS, SNS.
 - Secret và config nhạy cảm đặt trong Secrets Manager hoặc SSM Parameter Store.
 
@@ -349,7 +362,7 @@ Nguyên tắc triển khai Fargate:
 
 | Nhóm quyết định | Phương án | Ưu điểm | Nhược điểm | Quyết định |
 |---|---|---|---|---|
-| Metrics store | S3 metric lake | Rẻ cho dữ liệu lịch sử. | Không tối ưu query window 1-2 giờ mỗi 5 phút. | Không chọn cho hot path. |
+| Metrics store | S3 metric lake | Rẻ cho dữ liệu lịch sử. | Không tối ưu query window 120 phút mỗi 5 phút. | Không chọn cho hot path; chỉ dùng archive/failure buffer. |
 | Metrics store | Amazon Timestream | Phù hợp time-series, có memory/magnetic retention, query theo service/time tốt. | Query sai pattern có thể tăng cost. | ✅ **Chọn** làm TSDB cho prediction và evidence. |
 | Điều phối prediction | Scheduler gọi worker trực tiếp | Ít thành phần. | AI timeout có thể làm mất job hoặc block luồng xử lý. | Không chọn. |
 | Điều phối prediction | EventBridge Scheduler → SQS → Worker | Có retry, DLQ, scale worker theo backlog, dễ demo failure path. | Thêm queue cần monitor. | ✅ **Chọn** cho control plane. |
@@ -360,7 +373,7 @@ Nguyên tắc triển khai Fargate:
 |---|---|---|---|
 | Telemetry API | 2 task × 0.5 vCPU / 1GB | CPU >70%, memory >75%, ALB p99 vượt target | Max 5 task |
 | Prediction Worker | 1 task × 0.5 vCPU / 1GB | Queue age >2 phút, visible messages >20 trong 5 phút, backlog-per-task cao, worker timeout | Max 5 task |
-| AI Engine | 2 task × 0.5 vCPU / 1GB | AI p95 >350ms trong 5 phút (early warning), AI p99 >500ms (SLO breach), 5xx tăng, CPU >70%, hoặc request count/task vượt baseline | Max 5 task |
+| AI Engine | 2 task × 0.5 vCPU / 1GB | AI p95 >350ms trong 5 phút (early warning), AI p99 >500ms (SLO breach), 5xx tăng, CPU >70%, hoặc RequestCountPerTarget >80 RPS/task | Max 4 task theo AI Deployment Contract |
 | Worker nâng cấp | 1 vCPU / 2GB | Timestream query + AI call thường xuyên vượt timeout hoặc memory >75% | Ưu tiên nâng worker trước API vì bottleneck prediction nằm ở query + AI call path |
 
 Scaling triggers:
@@ -371,8 +384,8 @@ Scaling triggers:
 | Prediction Worker - backlog | `ApproximateNumberOfMessagesVisible > 20` trong 5 phút | Thêm 1 worker task | Min 1, max 5 |
 | Prediction Worker - lag | `ApproximateAgeOfOldestMessage > 2 phút` | Scale worker ngay và gửi SNS alert | Max 5 |
 | Prediction Worker - scale-in | Queue trống và CPU <30% trong 10 phút | Giảm 1 worker task | Không dưới 1 task |
-| AI Engine - early warning | p95 latency >350ms trong 5 phút | Gửi SNS, kiểm tra image/runtime, xem xét provisioned concurrency hoặc scale nếu p99 đang tăng | Min 2, max 5 |
-| AI Engine - SLO breach | p99 latency >500ms hoặc 5xx >1% trong 5 phút | Thêm 1 AI task hoặc rollback AI version; gửi SNS nếu fallback rate tăng | Min 2, max 5 |
+| AI Engine - early warning | p95 latency >350ms trong 5 phút hoặc RequestCountPerTarget >80 RPS/task | Gửi SNS, kiểm tra image/runtime, scale nếu p99 đang tăng | Min 2, max 4 |
+| AI Engine - SLO breach | p99 latency >500ms hoặc 5xx >1% trong 5 phút | Thêm 1 AI task hoặc rollback AI version; gửi SNS nếu fallback rate tăng | Min 2, max 4 |
 
 Ngoài autoscaling, theo dõi DLQ depth > 0, DynamoDB throttles, Timestream rejected records/query error và AI fallback rate tăng bất thường.
 
@@ -404,11 +417,13 @@ Worker flow:
 
 ```text
 1. Receive message
-2. Query Timestream
-3. Call AI hoặc static fallback
-4. Conditional write audit vào DynamoDB
-5. Publish alert nếu risk high
-6. Delete SQS message cuối cùng
+2. Query Timestream đủ 120 phút gần nhất
+3. Align 1-minute buckets và forward-fill/zero-fill missing data theo metric policy
+4. Nếu window <120 phút hoặc imputation vượt ngưỡng: static fallback, không gọi AI
+5. Call AI /v1/predict bằng IAM SigV4 hoặc static fallback theo error matrix
+6. Conditional write audit vào DynamoDB
+7. Publish alert nếu severity/risk high
+8. Delete SQS message cuối cùng
 ```
 
 ### 6.1 Observability triggers and evidence
@@ -470,7 +485,7 @@ Security group:
 | ALB SG | 443 từ internet hoặc IP range demo; 80 chỉ redirect HTTPS; app port từ Worker SG (predict path nội bộ) | ECS API SG (ingest path); AI Engine SG (predict path) |
 | ECS API SG | Chỉ từ ALB SG vào app port | HTTPS/443 tới AWS public service endpoints qua 1 zonal NAT; S3 failure buffer qua S3 Gateway Endpoint; DynamoDB không nằm trên API runtime path |
 | Worker SG | Không mở inbound | HTTPS/443 tới SQS/Timestream/SNS/Secrets Manager/CloudWatch/ECR control plane qua 1 zonal NAT; DynamoDB audit/policy qua DynamoDB Gateway Endpoint; app port tới ALB SG (predict path nội bộ) |
-| AI Engine SG | Chỉ từ ALB SG vào app port; health check từ ALB target group | HTTPS/443 tới CloudWatch/Secrets Manager/ECR control plane qua 1 zonal NAT; không mở inbound từ Worker SG trực tiếp hoặc internet |
+| AI Engine SG | Chỉ từ ALB SG vào port 8080; health check `/health` từ ALB target group | HTTPS/443 tới CloudWatch/Secrets Manager/ECR control plane qua 1 zonal NAT; S3 baseline bucket qua S3 Gateway Endpoint; không mở inbound từ Worker SG trực tiếp hoặc internet |
 
 IAM role:
 
@@ -478,8 +493,8 @@ IAM role:
 |---|---|
 | ECS execution role | Pull image từ ECR, ghi CloudWatch Logs, đọc secret cần inject lúc start |
 | Telemetry API task role | Timestream write, CloudWatch metric/log, `s3:PutObject` chỉ vào failure-buffer prefix; không có quyền DynamoDB audit write vì API không tạo prediction |
-| Worker task role | SQS receive/delete, Timestream query, DynamoDB `PutItem/Query/GetItem` audit + service policy, SNS publish, Secrets Manager read |
-| AI Engine task role | Đọc model/config secret cần thiết, ghi CloudWatch Logs/custom metrics; không có quyền đọc audit table hoặc SQS prediction queue |
+| Worker task role | SQS receive/delete, Timestream query, DynamoDB `PutItem/Query/GetItem` audit + service policy, SNS publish, Secrets Manager read, ký IAM SigV4 request tới AI endpoint |
+| AI Engine task role | `s3:GetObject` baseline bucket prefix `baselines/`, `kms:Decrypt` baseline/audit key, đọc model/config secret cần thiết, ghi CloudWatch app logs/custom metrics và AI audit logs; không có quyền đọc CDO audit table hoặc SQS prediction queue |
 | EventBridge Scheduler execution role | Chỉ `sqs:SendMessage` vào prediction queue ARN; không có quyền truy cập VPC resource |
 | Buffer replay role (break-glass) | Đọc failure-buffer prefix, ghi lại Timestream; không có quyền đọc audit table hoặc secret không liên quan |
 

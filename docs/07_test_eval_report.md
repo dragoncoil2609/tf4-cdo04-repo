@@ -22,29 +22,31 @@
 
 ### 0.2 Chi tiết từng scenario
 
+Tất cả scenario phải tạo hoặc forward thành các signal đúng AI Telemetry Contract trước khi đưa vào `signal_window`: `cpu_usage_percent`, `memory_usage_percent`, `active_connections`, `db_connection_pool_pct`, `queue_depth`, `cache_hit_rate_pct`, `api_latency_ms`. Các metric phụ như `error_rate` hoặc `oldest_message_age_seconds` chỉ dùng cho dashboard/fallback nội bộ.
+
 **SC-01 - Gradual Drift (`ledger-service`)**
 
-- **Expected Warning**: `WARN_LEDGER_DRIFT_DETECTED` - p99 latency và metric ingestion rate tăng tuyến tính +15% mỗi 10 phút, khớp pattern anomaly lịch sử.
-- **Expected Recommendation**: "Phát hiện xu hướng trôi dạt hiệu năng tại `ledger-service`. Đề xuất scale-out task hoặc tối ưu batch size ghi Timestream trước khi vi phạm SLA (350ms) trong ~35 phút tới."
-- **Metrics cần tạo**: `ledger_p99_latency_ms` (Histogram, k6 custom), `timestream_write_latency_ms` (Histogram, CloudWatch), `ledger_request_rate` (Counter).
+- **Expected Warning**: `WARN_LEDGER_DRIFT_DETECTED` - `api_latency_ms`, `cpu_usage_percent` và `db_connection_pool_pct` tăng tuyến tính +15% mỗi 10 phút, khớp pattern anomaly lịch sử.
+- **Expected Recommendation**: "Phát hiện xu hướng trôi dạt hiệu năng tại `ledger-service`. Đề xuất scale-out task hoặc tối ưu batch/query trước khi AI SLO p99 500ms/platform p99 800ms bị vi phạm trong ~35 phút tới."
+- **Metrics cần tạo/forward**: `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`, `db_connection_pool_pct`; dashboard phụ có thể đo `timestream_write_latency_ms`.
 
 **SC-02 - Sudden Spike (`payment-gateway`)**
 
-- **Expected Warning**: `CRITICAL_PAYMENT_SPIKE_DETECTED` - throughput tăng từ 200 → 4,500 RPS trong < 30s, 5xx error rate vượt ngưỡng, scale-out đang được trigger.
-- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu chi phí Task chạm ngưỡng Circuit Breaker (`[Target: $40 - TBD]`), tự động kích hoạt SNS Alert thông báo Infra Owner/SRE để review và giảm ECS Desired Count hoặc tạm pause synthetic load test nếu được approve. Khuyến nghị bật Rate Limiting ở mức `[Configurable: ~3,000 RPS]`."
-- **Metrics cần tạo**: `payment_http_5xx_error_rate` (Rate), `http_req_duration` p99 (k6 built-in), `payment_gateway_running_task_count` (Gauge).
+- **Expected Warning**: `CRITICAL_PAYMENT_SPIKE_DETECTED` - `active_connections` và `api_latency_ms` tăng nhanh, 5xx nội bộ vượt ngưỡng fallback, scale-out đang được trigger.
+- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu budget alarm tiệm cận 90-100%, pause synthetic load test thay vì tắt audit/fallback. Khuyến nghị bật rate limiting ứng dụng theo quota demo."
+- **Metrics cần tạo/forward**: `active_connections`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`; `error_rate` chỉ dùng fallback/dashboard.
 
 **SC-03 - Slow Leak (`ledger-service`)**
 
-- **Expected Warning**: `WARN_LEDGER_RESOURCE_LEAK` - memory/thread count tăng liên tục không có plateau sau warm-up, dự báo OOM risk.
-- **Expected Recommendation**: "Dự báo `ledger-service` OOM trong ~4.2 tiếng. Khuyến nghị rolling restart và heap dump phân tích. Nếu cost ingestion tiệm cận ngưỡng `[Target: $30 - TBD]`, tự động hạ sampling rate ghi metric từ 1s xuống 10s."
-- **Metrics cần tạo**: `ledger_memory_utilization` (Gauge), `ledger_active_threads_count` (Gauge), `foresight_timestream_ingestion_cost_usd` (Derived metric).
+- **Expected Warning**: `WARN_LEDGER_RESOURCE_LEAK` - `memory_usage_percent` và `api_latency_ms` tăng liên tục không có plateau sau warm-up, dự báo OOM risk.
+- **Expected Recommendation**: "Dự báo `ledger-service` OOM trong ~4.2 tiếng. Khuyến nghị rolling restart và heap dump phân tích; nếu budget gần ngưỡng, giảm synthetic load/log verbosity, không giảm prediction cadence dưới 5 phút."
+- **Metrics cần tạo/forward**: `memory_usage_percent`, `cpu_usage_percent`, `api_latency_ms`, `active_connections`.
 
 **SC-04 - Noisy Baseline & AI Down (`kyc-worker`)**
 
-- **Expected Warning**: `CRITICAL_QUEUE_BACKLOG_ANOMALY` - SQS backlog vượt baseline 320%, AI API timeout > 5,000ms phát hiện, message đang route xuống DLQ.
-- **Expected Recommendation**: "Queue `kyc-worker` quá tải - Fallback Engine tự động kích hoạt: ngắt AI call, chuyển sang Static Rules, ghi Audit Decision trực tiếp vào Amazon DynamoDB để xả nghẽn và bảo vệ budget. Cần điều tra DLQ để replay sau khi AI hồi phục."
-- **Metrics cần tạo**: `kyc_sqs_messages_visible` (Gauge), `kyc_sqs_dlq_messages_sent` (Counter), `kyc_ai_call_duration_ms` (Histogram), `kyc_fallback_activations_total` (Counter).
+- **Expected Warning**: `CRITICAL_QUEUE_BACKLOG_ANOMALY` - `queue_depth` vượt baseline, AI `/v1/predict` timeout hoặc trả 5xx/503, Worker kích hoạt static threshold fallback.
+- **Expected Recommendation**: "Queue `kyc-worker` quá tải - Worker chuyển sang Static Rules, ghi Audit Decision vào DynamoDB và không delete SQS job trước khi audit write thành công. Cần điều tra DLQ/replay sau khi AI hồi phục."
+- **Metrics cần tạo/forward**: `queue_depth`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`; dashboard phụ có thể đo DLQ/fallback counters.
 
 ---
 
@@ -54,8 +56,8 @@
 |---|---|---|
 | Unit test | pytest / go test | `<X%>` - chưa có số liệu, cần bổ sung từ CI report |
 | Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger-service` → Amazon Timestream) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `kyc-worker` → AI/Fallback Engine → Amazon DynamoDB) |
-| E2E test | k6 (4 scenario script, xem §3.5) | SC-01 Gradual Drift, SC-02 Sudden Spike, SC-04 Noisy Baseline & AI Down |
-| Load test | k6 (`ramping-arrival-rate` executor) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target synthetic 50,000 events/sec _(có thể scale down trong sandbox tùy ngân sách EC2)_ |
+| E2E test | k6 (4 scenario script, xem §3.5) | SC-01 Gradual Drift, SC-02 Sudden Spike, SC-03 Slow Leak, SC-04 Noisy Baseline & AI Down |
+| Load test | k6 (`stages` cho SC-01/03, `ramping-arrival-rate` cho SC-02) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target synthetic có thể scale down trong sandbox tùy ngân sách |
 | Chaos test | Manual + k6 injected fault | 4 kịch bản: Gradual Drift, Sudden Spike, Slow Leak (memory), AI Down/Fallback |
 
 ---
@@ -157,8 +159,8 @@ export const options = {
 
 export default function () {
   const res = http.post(
-    'http://internal-alb.staging.internal/v1/ledger/metrics',
-    JSON.stringify({ tenant_id: 'tenant-001', value: Math.random() * 100 }),
+    'https://<public-alb-dns>/v1/ingest',
+    JSON.stringify({ tenant_id: 'tenant-001', service_id: 'ledger-service', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 100 }),
     { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-01' } }
   );
   p99Latency.add(res.timings.duration);
@@ -197,9 +199,9 @@ export const options = {
 };
 
 export default function () {
-  const payload = JSON.stringify({ amount: 1000, currency: 'VND' });
+  const payload = JSON.stringify({ tenant_id: 'tenant-001', service_id: 'payment-gateway', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 1000 });
   const params  = { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-02' } };
-  const res = http.post('http://internal-alb.staging.internal/v1/charge', payload, params);
+  const res = http.post('https://<public-alb-dns>/v1/ingest', payload, params);
   check(res, { 'status not 5xx': (r) => r.status < 500 });
 }
 ```

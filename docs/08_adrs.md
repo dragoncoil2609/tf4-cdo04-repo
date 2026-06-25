@@ -139,7 +139,7 @@ Các ADR dự kiến cho CDO-04:
   |---|---|
   | Prediction cadence | Mỗi 5 phút |
   | Telemetry frequency | Mỗi 1 phút |
-  | Lookback window | 1-2 giờ gần nhất |
+  | Lookback window | Default 120 phút gần nhất |
   | Lead time target | Tối thiểu >=15 phút, target 30 phút nếu có thể |
   | Service scope | 3 service tier-1 |
   | Metric scope | 3-5 leading metrics/service |
@@ -148,14 +148,14 @@ Các ADR dự kiến cho CDO-04:
 
   Prediction Worker sẽ query telemetry gần nhất từ Timestream, build input window, gọi AI endpoint `POST /v1/predict`, ghi audit record vào DynamoDB và publish alert khi risk level là high.
 
-Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry API ghi metric vào Timestream mỗi 1 phút, còn Prediction Worker chỉ chạy prediction mỗi 5 phút bằng cách query lookback window 1-2 giờ gần nhất.
+Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry API ghi metric vào Timestream mỗi 1 phút, còn Prediction Worker chỉ chạy prediction mỗi 5 phút bằng cách query lookback window mặc định 120 phút gần nhất.
 
 - **Consequence**:
 
   - ✅ Balanced mode hỗ trợ hard requirement về cảnh báo sớm với lead time >=15 phút.
   - ✅ Cadence mỗi 5 phút tạo đủ cơ hội để phát hiện gradual drift mà không tạo quá nhiều AI calls.
   - ✅ Telemetry frequency 1 phút cung cấp signal window đủ chi tiết cho AI mà vẫn giữ prediction cadence ở mức tiết kiệm cost.
-  - ✅ Lookback window 1-2 giờ cung cấp đủ context time-series cho baseline/drift analysis.
+  - ✅ Lookback window 120 phút align với AI API Contract và cung cấp đủ context time-series cho baseline/drift analysis.
   - ✅ Cost dễ kiểm soát hơn high-sensitivity mode vì số lượng prediction jobs, Timestream queries và audit records ở mức vừa phải.
   - ✅ Nguy cơ false positive thấp hơn mode 1 phút vì platform không phản ứng quá nhanh với các spike ngắn hoặc noisy baseline.
   - ✅ Dễ giải thích và test trong capstone với 3 service và 4 scenario: gradual drift, sudden spike, slow leak, noisy baseline.
@@ -230,9 +230,14 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   Alert được tạo từ fallback phải vẫn có đủ thông tin tối thiểu:
 
   * `service_id`
-  * `risk_level`
-  * `root_cause`
-  * `recommendation`
+  * `anomaly`
+  * `severity`
+  * `reasoning`
+  * `recommendation.action_verb`
+  * `recommendation.target`
+  * `recommendation.from_to`
+  * `recommendation.confidence`
+  * `recommendation.evidence_link`
   * `prediction_source`
   * `fallback_reason`
   * `prediction_id`
@@ -297,7 +302,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
 
 * **Context**:
 
-  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 1-2 giờ gần nhất trước khi gọi AI endpoint `POST /v1/predict`. Telemetry được ingest với frequency chính thức mỗi 1 phút để tạo signal window đủ chi tiết cho 3-Sigma/AI prediction.
+  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 120 phút gần nhất trước khi gọi AI endpoint `POST /v1/predict`. Telemetry được ingest với frequency chính thức mỗi 1 phút để tạo signal window đủ chi tiết cho 3-Sigma/AI prediction.
 
   Dữ liệu này không chỉ dùng để gọi AI, mà còn dùng làm **metric evidence** khi platform tạo warning. Khi SRE nhận được alert, họ cần biết warning dựa trên metric nào, trong time window nào và service nào đang có drift/capacity risk.
 
@@ -361,8 +366,8 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
 * **Consequence**:
 
   * ✅ Timestream phù hợp với dữ liệu time-series và prediction workflow cần query theo time window.
-  * ✅ Prediction Worker có thể lấy input window 1-2 giờ gần nhất cho từng service trước khi gọi AI.
-  * ✅ Telemetry sample mỗi 1 phút giúp AI có đủ data points trong lookback window 60-120 phút.
+  * ✅ Prediction Worker có thể lấy input window 120 phút gần nhất cho từng service trước khi gọi AI.
+  * ✅ Telemetry sample mỗi 1 phút giúp AI có đủ data points trong lookback window đúng 120 phút theo AI API Contract.
   * ✅ Metric evidence rõ ràng hơn so với chỉ dùng dashboard screenshot.
   * ✅ Hỗ trợ mô hình evidence 3 lớp: Timestream metric evidence, CloudWatch visualization evidence, DynamoDB decision evidence.
   * ✅ Giúp tách rõ vai trò giữa telemetry store, dashboard và audit store.
@@ -459,7 +464,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
 
 * **Context**:
 
-  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. Telemetry frequency đã chốt là mỗi 1 phút, nhưng prediction không chạy mỗi phút; Prediction Worker sẽ chạy mỗi 5 phút và query dữ liệu telemetry 1-2 giờ gần nhất từ Timestream. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
+  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. Telemetry frequency đã chốt là mỗi 1 phút, nhưng prediction không chạy mỗi phút; Prediction Worker sẽ chạy mỗi 5 phút và query dữ liệu telemetry 120 phút gần nhất từ Timestream. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
 
   Prediction job có thể lỗi do AI timeout, Timestream query lỗi, DynamoDB audit write lỗi hoặc worker deployment issue. Vì vậy orchestration cần có retry boundary, queue visibility và DLQ để debug job lỗi.
 
@@ -555,17 +560,24 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   tenant_id
   service_id
   prediction_source
-  risk_level
-  confidence
-  root_cause
-  recommendation
+  anomaly
+  severity
+  reasoning
+  recommendation.action_verb
+  recommendation.target
+  recommendation.from_to
+  recommendation.confidence
+  recommendation.evidence_link
+  audit_id
   timestream_query_reference
   cloudwatch_dashboard_url
-  model_version
+  deployment_version
   baseline_version
   fallback_reason
   correlation_id
   ```
+
+  Nếu alert cần `risk_level` hoặc `root_cause`, CDO derive từ `severity` và `reasoning`; không yêu cầu AI trả thêm field ngoài contract.
 
   Suggested key pattern:
 
@@ -690,6 +702,86 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
 
     Rejected vì S3 Gateway Endpoint và DynamoDB Gateway Endpoint là lựa chọn tốt cho MVP, giúp giảm NAT data processing mà không cần full interface endpoint strategy.
 
+
+---
+## ADR-009 - Host AI Engine Service on ECS Fargate in Singapore
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-25
+
+* **Context**:
+
+  Sau khi Team AI freeze `ai-api-contract.md`, `telemetry-contract.md` và `deployment-contract.md`, CDO cần đồng bộ hạ tầng theo contract liên nhóm. AI Deployment Contract xác định rằng **CDO tự host AI Engine trên platform của mình**, compute target là **ECS Fargate task**, service chạy trong private subnet, expose qua internal-only ALB và rollback bằng ECS task definition.
+
+  Đồng thời region chính thức của CDO platform được chốt là `ap-southeast-1` (Singapore). Vì vậy CDO cần quyết định final về việc host AI Engine bằng ECS Fargate hay chuyển sang Lambda/container function để tối ưu chi phí.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn host **AI Engine Service trên ECS Fargate** trong cùng VPC/ECS platform với Telemetry API và Prediction Worker.
+
+  Final compute model:
+
+  ```text
+  Telemetry Ingestion API  -> ECS Fargate
+  Prediction Worker        -> ECS Fargate
+  AI Engine Service        -> ECS Fargate
+  ```
+
+  Final AI serving path:
+
+  ```text
+  Prediction Worker
+      -> internal/private ALB route
+      -> POST /v1/predict
+      -> AI Engine Service
+  ```
+
+  Final region:
+
+  ```text
+  ap-southeast-1 (Singapore)
+  ```
+
+  AI Engine sizing baseline:
+
+  ```text
+  min 2 tasks, max 4 tasks
+  0.5 vCPU / 1GB per task
+  health check path: /health
+  port: 8080
+  ```
+
+* **Consequence**:
+
+  * ✅ Align trực tiếp với AI Deployment Contract: CDO host AI Engine, target ECS Fargate, private subnet, internal ALB, rollback task definition.
+  * ✅ Giữ toàn bộ core runtime trên cùng container platform: Telemetry API, Prediction Worker và AI Engine.
+  * ✅ Worker có endpoint nội bộ ổn định cho `POST /v1/predict`, không gọi task IP động và không đi qua internet/NAT.
+  * ✅ Internal ALB target group cung cấp health check, load balancing, target isolation và security group boundary rõ ràng.
+  * ✅ Rollback thống nhất bằng ECS task definition revision và CodeDeploy/ECS service rollback.
+  * ✅ CloudWatch Logs/Metrics/ECS service event cung cấp deployment và operations evidence rõ hơn cho capstone.
+  * ✅ Tránh rủi ro cold start và Lambda packaging adapter cho FastAPI/NumPy trong thời gian W12.
+  * ⚠️ Chi phí idle cao hơn Lambda container image vì AI Engine giữ tối thiểu 2 tasks chạy nền.
+  * ⚠️ Singapore pricing làm budget all-ECS khá sát $200, nên cần cost guard nghiêm ngặt: giới hạn synthetic load, log retention, không giảm prediction cadence dưới 5 phút và không tạo full interface endpoints trong baseline.
+  * ⚠️ Nếu sau MVP cần tối ưu chi phí, Lambda container image cho AI Engine có thể được đánh giá lại như future optimization, nhưng không phải final baseline.
+
+* **Alternatives considered**:
+
+  * **AI Engine on Lambda container image**:
+
+    Rejected for final MVP dù có lợi về idle cost. Lý do: lệch với AI Deployment Contract, cần thay đổi cách expose `/v1/predict`, có rủi ro cold start, packaging FastAPI/NumPy cho Lambda, và tạo deployment/rollback model khác với Telemetry API/Worker.
+
+  * **External AI endpoint hosted by AI team**:
+
+    Rejected vì Deployment Contract nói rõ mỗi CDO tự host engine trên platform riêng. External shared endpoint làm yếu ownership, network boundary và rollback control của CDO.
+
+  * **EKS**:
+
+    Rejected vì quá nặng cho capstone MVP, tăng control-plane cost và vận hành phức tạp hơn ECS Fargate.
+
+  * **Single monolithic ECS service cho Worker + AI**:
+
+    Rejected vì Worker và AI Engine có lifecycle, scaling trigger, health check và rollback khác nhau. Tách thành ECS services riêng giúp vận hành rõ hơn.
 
 ## Related documents
 
