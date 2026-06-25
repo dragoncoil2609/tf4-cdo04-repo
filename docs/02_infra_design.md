@@ -360,7 +360,7 @@ Nguyên tắc triển khai Fargate:
 |---|---|---|---|
 | Telemetry API | 2 task × 0.5 vCPU / 1GB | CPU >70%, memory >75%, ALB p99 vượt target | Max 5 task |
 | Prediction Worker | 1 task × 0.5 vCPU / 1GB | Queue age >2 phút, visible messages >20 trong 5 phút, backlog-per-task cao, worker timeout | Max 5 task |
-| AI Engine | 2 task × 0.5 vCPU / 1GB | AI p95 latency >500ms (SLA breach), 5xx tăng, CPU >70%, hoặc request count/task vượt baseline | Max 5 task |
+| AI Engine | 2 task × 0.5 vCPU / 1GB | AI p95 >350ms trong 5 phút (early warning), AI p99 >500ms (SLO breach), 5xx tăng, CPU >70%, hoặc request count/task vượt baseline | Max 5 task |
 | Worker nâng cấp | 1 vCPU / 2GB | Timestream query + AI call thường xuyên vượt timeout hoặc memory >75% | Ưu tiên nâng worker trước API vì bottleneck prediction nằm ở query + AI call path |
 
 Scaling triggers:
@@ -371,7 +371,8 @@ Scaling triggers:
 | Prediction Worker - backlog | `ApproximateNumberOfMessagesVisible > 20` trong 5 phút | Thêm 1 worker task | Min 1, max 5 |
 | Prediction Worker - lag | `ApproximateAgeOfOldestMessage > 2 phút` | Scale worker ngay và gửi SNS alert | Max 5 |
 | Prediction Worker - scale-in | Queue trống và CPU <30% trong 10 phút | Giảm 1 worker task | Không dưới 1 task |
-| AI Engine - latency/error | p95 latency >500ms (SLA) hoặc 5xx >1% trong 5 phút | Thêm 1 AI task và gửi SNS nếu fallback rate tăng | Min 2, max 5 |
+| AI Engine - early warning | p95 latency >350ms trong 5 phút | Gửi SNS, kiểm tra image/runtime, xem xét provisioned concurrency hoặc scale nếu p99 đang tăng | Min 2, max 5 |
+| AI Engine - SLO breach | p99 latency >500ms hoặc 5xx >1% trong 5 phút | Thêm 1 AI task hoặc rollback AI version; gửi SNS nếu fallback rate tăng | Min 2, max 5 |
 
 Ngoài autoscaling, theo dõi DLQ depth > 0, DynamoDB throttles, Timestream rejected records/query error và AI fallback rate tăng bất thường.
 
@@ -422,7 +423,7 @@ Dashboard cần có các widget sau:
 | ECS | CPU, memory, running task count cho API và Worker |
 | SQS | Visible messages, age of oldest message, DLQ depth |
 | Prediction | Success count, failure count, fallback rate, AI latency |
-| AI Engine | Internal target health, request count, p95 latency, 5xx, CPU/memory |
+| AI Engine | Internal target health, request count, p95 early warning, p99 SLO, 5xx, CPU/memory |
 | Data stores | Timestream rejected/query errors, DynamoDB throttles/system errors |
 | Audit | High-risk decisions gần nhất theo tenant/service |
 
@@ -437,7 +438,7 @@ Alarm tối thiểu:
 | AI latency SLA breach | AI p99 latency >500ms trong 5 phút (SLA từ AI contract) | SNS + review AI Engine task sizing; fallback rate tăng là leading indicator |
 | Audit write failure | >0 trong 5 phút | SNS |
 | Timestream rejected records | >0 | SNS |
-| ALB 5xx / p99 latency | breach theo baseline demo | SNS |
+| ALB 5xx / platform p99 latency | platform/API p99 >800ms trong 5 phút hoặc 5xx >1% | SNS + rollback/canary abort nếu đang deploy |
 | Budget | 50%, 80%, 100% của $200 | Email/SNS |
 | Failure buffer age | S3 raw failure buffer object chưa replay sau >5 phút | SNS + chạy replay runbook |
 | Partial evidence window | Prediction window có buffered telemetry chưa replay | Gắn cờ evidence partial và ưu tiên backfill |
