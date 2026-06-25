@@ -138,6 +138,7 @@ Các ADR dự kiến cho CDO-04:
   | Item | Decision |
   |---|---|
   | Prediction cadence | Mỗi 5 phút |
+  | Telemetry frequency | Mỗi 1 phút |
   | Lookback window | 1-2 giờ gần nhất |
   | Lead time target | Tối thiểu >=15 phút, target 30 phút nếu có thể |
   | Service scope | 3 service tier-1 |
@@ -147,10 +148,13 @@ Các ADR dự kiến cho CDO-04:
 
   Prediction Worker sẽ query telemetry gần nhất từ Timestream, build input window, gọi AI endpoint `POST /v1/predict`, ghi audit record vào DynamoDB và publish alert khi risk level là high.
 
+Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry API ghi metric vào Timestream mỗi 1 phút, còn Prediction Worker chỉ chạy prediction mỗi 5 phút bằng cách query lookback window 1-2 giờ gần nhất.
+
 - **Consequence**:
 
   - ✅ Balanced mode hỗ trợ hard requirement về cảnh báo sớm với lead time >=15 phút.
   - ✅ Cadence mỗi 5 phút tạo đủ cơ hội để phát hiện gradual drift mà không tạo quá nhiều AI calls.
+  - ✅ Telemetry frequency 1 phút cung cấp signal window đủ chi tiết cho AI mà vẫn giữ prediction cadence ở mức tiết kiệm cost.
   - ✅ Lookback window 1-2 giờ cung cấp đủ context time-series cho baseline/drift analysis.
   - ✅ Cost dễ kiểm soát hơn high-sensitivity mode vì số lượng prediction jobs, Timestream queries và audit records ở mức vừa phải.
   - ✅ Nguy cơ false positive thấp hơn mode 1 phút vì platform không phản ứng quá nhanh với các spike ngắn hoặc noisy baseline.
@@ -293,7 +297,7 @@ Các ADR dự kiến cho CDO-04:
 
 * **Context**:
 
-  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 1-2 giờ gần nhất trước khi gọi AI endpoint `POST /v1/predict`.
+  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 1-2 giờ gần nhất trước khi gọi AI endpoint `POST /v1/predict`. Telemetry được ingest với frequency chính thức mỗi 1 phút để tạo signal window đủ chi tiết cho 3-Sigma/AI prediction.
 
   Dữ liệu này không chỉ dùng để gọi AI, mà còn dùng làm **metric evidence** khi platform tạo warning. Khi SRE nhận được alert, họ cần biết warning dựa trên metric nào, trong time window nào và service nào đang có drift/capacity risk.
 
@@ -307,6 +311,7 @@ Các ADR dự kiến cho CDO-04:
   * primary metric evidence source
   * source of truth cho prediction input
   * nơi Prediction Worker query dữ liệu time-series trước khi gọi AI
+  * nơi lưu telemetry samples với frequency 1 phút
 
   CloudWatch vẫn được sử dụng nhưng với vai trò khác:
 
@@ -347,10 +352,17 @@ Các ADR dự kiến cho CDO-04:
 
   để tránh query quá rộng và kiểm soát cost.
 
+  Telemetry ingest frequency mặc định:
+
+  ```text
+  every 1 minute per metric
+  ```
+
 * **Consequence**:
 
   * ✅ Timestream phù hợp với dữ liệu time-series và prediction workflow cần query theo time window.
   * ✅ Prediction Worker có thể lấy input window 1-2 giờ gần nhất cho từng service trước khi gọi AI.
+  * ✅ Telemetry sample mỗi 1 phút giúp AI có đủ data points trong lookback window 60-120 phút.
   * ✅ Metric evidence rõ ràng hơn so với chỉ dùng dashboard screenshot.
   * ✅ Hỗ trợ mô hình evidence 3 lớp: Timestream metric evidence, CloudWatch visualization evidence, DynamoDB decision evidence.
   * ✅ Giúp tách rõ vai trò giữa telemetry store, dashboard và audit store.
@@ -447,7 +459,7 @@ Các ADR dự kiến cho CDO-04:
 
 * **Context**:
 
-  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
+  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. Telemetry frequency đã chốt là mỗi 1 phút, nhưng prediction không chạy mỗi phút; Prediction Worker sẽ chạy mỗi 5 phút và query dữ liệu telemetry 1-2 giờ gần nhất từ Timestream. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
 
   Prediction job có thể lỗi do AI timeout, Timestream query lỗi, DynamoDB audit write lỗi hoặc worker deployment issue. Vì vậy orchestration cần có retry boundary, queue visibility và DLQ để debug job lỗi.
 
@@ -480,6 +492,7 @@ Các ADR dự kiến cho CDO-04:
   service_id
   prediction_window_start
   prediction_window_end
+  lookback_window_minutes
   correlation_id
   prediction_mode
   ```
