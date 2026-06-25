@@ -203,7 +203,7 @@ Production hardening có thể bổ sung interface endpoints nếu cần private
 ### 5.1 Technical constraints
 
 * AWS only.
-* Region: `us-east-1` hoặc mentor/client-approved region.
+* Region: `ap-southeast-1` hoặc mentor/client-approved region.
 * Compute platform: ECS Fargate for CDO workloads.
 * Service scope: 3 tier-1 services.
 * Telemetry: infra metrics only, no PII, no custom business metrics.
