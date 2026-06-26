@@ -5,13 +5,13 @@
 **Project:** TF4 Foresight Lens  
 **Infra source of truth:** `02_infra_design.md`  
 **Angle:** SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow  
-**Core stack:** ALB + ECS Fargate + Amazon Timestream + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
+**Core stack:** ALB + ECS Fargate + Amazon Timestream for InfluxDB + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
 
 ---
 
 ## 1. Phạm vi bảo mật
 
-Tài liệu này mô tả thiết kế bảo mật ở góc nhìn DevOps cho platform CDO-04. Platform nhận telemetry từ 3 service demo, lưu metric dạng time-series vào Amazon Timestream, tạo prediction job định kỳ, gọi AI endpoint `POST /v1/predict`, ghi audit log, gửi cảnh báo cho SRE và fallback sang static threshold khi AI serving không khả dụng.
+Tài liệu này mô tả thiết kế bảo mật ở góc nhìn DevOps cho platform CDO-04. Platform nhận telemetry từ 3 service demo, lưu metric dạng time-series vào Amazon Timestream for InfluxDB, tạo prediction job định kỳ, gọi AI endpoint `POST /v1/predict`, ghi audit log, gửi cảnh báo cho SRE và fallback sang static threshold khi AI serving không khả dụng.
 
 Security design tập trung vào các phần CDO thật sự cấu hình và vận hành:
 
@@ -57,7 +57,7 @@ flowchart TB
         end
 
         subgraph ManagedData["Managed data/security services"]
-            TS["Amazon Timestream<br/>metrics"]
+            TS["Amazon Timestream for InfluxDB<br/>org/bucket metrics"]
             SQS["SQS prediction-jobs<br/>+ DLQ"]
             DDB["DynamoDB<br/>audit + policy"]
             S3["S3 Evidence Snapshots"]
@@ -77,7 +77,7 @@ flowchart TB
     K6 -->|synthetic telemetry| ALB
 
     ALB --> INGEST
-    INGEST -->|validated WriteRecords| TS
+    INGEST -->|validated InfluxDB points| TS
     INGEST --> CW
 
     EB --> SQS
@@ -94,7 +94,7 @@ flowchart TB
 
 Nguyên tắc bảo mật chính:
 
-> Chỉ `telemetry-ingest` được ghi metric vào Timestream. Chỉ `prediction-worker` được consume prediction job, query metric evidence, gọi AI, ghi prediction audit và gửi alert. Mọi prediction decision phải có audit record và phải được scope theo `tenant_id` + `service_id`.
+> Chỉ `telemetry-ingest` được giữ InfluxDB write token để ghi metric vào Timestream for InfluxDB. Chỉ `prediction-worker` được consume prediction job, query metric evidence, gọi AI, ghi prediction audit và gửi alert. Mọi prediction decision phải có audit record và phải được scope theo `tenant_id` + `service_id`.
 
 ---
 
@@ -106,9 +106,9 @@ Nguyên tắc bảo mật chính:
 |---|---|---:|---|
 | ALB `/v1/ingest` | Public subnet cho demo | Có, HTTPS only | Cho phép k6/Locust và service demo gửi telemetry mà không cần VPN. |
 | ECS `telemetry-ingest` | Private app subnets | Không | Chỉ nhận traffic từ ALB security group. |
-| ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query Timestream, gọi AI qua internal ALB và ghi audit. |
+| ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query Timestream for InfluxDB, gọi AI qua internal ALB và ghi audit. |
 | ECS `ai-engine` | Private app subnets | Không | Chỉ nhận `/v1/predict` từ internal ALB/Worker path; không public-facing. |
-| Timestream | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và AWS SDK. |
+| Timestream for InfluxDB | AWS managed InfluxDB endpoint | Không public | Truy cập qua private endpoint/SG, TLS và InfluxDB credential từ Secrets Manager; không expose TSDB ra Internet. |
 | DynamoDB audit/policy | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và AWS SDK. |
 | SQS/DLQ | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và queue policy. |
 | S3 evidence | AWS managed | Bucket private | Lưu evidence snapshot, bật encryption. |
@@ -139,7 +139,7 @@ Inbound được giới hạn theo nguyên tắc:
 - Mọi ingest request phải có header `X-Tenant-Id`.
 - `telemetry-ingest` validate body `tenant_id` phải khớp với `X-Tenant-Id`.
 - Payload vượt giới hạn batch size sẽ bị reject với `413`.
-- Payload sai schema trả `400`, không ghi vào Timestream.
+- Payload sai schema trả `400`, không ghi point vào Timestream for InfluxDB.
 
 ### 3.4 VPC endpoints
 
@@ -166,22 +166,24 @@ Trong capstone, VPC endpoints có thể triển khai theo mức độ ưu tiên 
 
 IAM của CDO-04 đi theo nguyên tắc **least privilege**: mỗi service chỉ được cấp đúng quyền cần cho nhiệm vụ của nó. Không dùng quyền broad kiểu `*:*`, không gắn `AdministratorAccess`, không dùng long-lived access key trong container.
 
+Với Amazon Timestream for InfluxDB, data-plane access không dùng IAM action kiểu LiveAnalytics cho write/query. Ứng dụng kết nối tới InfluxDB endpoint bằng TLS và credential/token lưu trong Secrets Manager; IAM kiểm soát quyền đọc secret, KMS decrypt, network/SG posture và Terraform provisioning scope. InfluxDB token tách quyền write/read/admin theo nhu cầu.
+
 | Role | Used by | Permissions |
 |---|---|---|
-| `tf4-cdo04-ingest-task-role` | ECS `telemetry-ingest` | Ghi metric hợp lệ vào Timestream bằng `timestream:WriteRecords` trên DB/table `foresight/metrics`; ghi app logs vào CloudWatch Logs; optional đọc tenant config từ Secrets Manager nếu dùng ingest token. |
-| `tf4-cdo04-prediction-worker-role` | ECS `prediction-worker` | Consume prediction job từ SQS; query rolling window trong Timestream; đọc service policy từ DynamoDB; ký IAM SigV4 request tới AI endpoint; ghi audit log vào DynamoDB; lưu evidence snapshot vào S3; publish high-risk alert qua SNS; ghi logs/metrics vào CloudWatch. |
-| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, ALB target group/listener rule, SQS/DLQ, Timestream table, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
-| `tf4-cdo04-readonly-reviewer-role` | Mentor/reviewer/Hoàng approve | Read-only để review evidence: ECS describe, CloudWatch logs read, SQS queue attributes read, Timestream sample query/read, DynamoDB audit read, S3 evidence read, SNS topic describe. Không có quyền write/delete. |
-| `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ private ECR và ghi container logs vào CloudWatch. Không có quyền đọc/ghi application data như Timestream, DynamoDB, S3 evidence hoặc SNS. |
+| `tf4-cdo04-ingest-task-role` | ECS `telemetry-ingest` | Đọc InfluxDB write credential từ Secrets Manager, decrypt bằng KMS, ghi app logs vào CloudWatch Logs, optional `s3:PutObject` vào failure-buffer prefix; không có quyền đọc audit DB. |
+| `tf4-cdo04-prediction-worker-role` | ECS `prediction-worker` | Consume prediction job từ SQS; đọc InfluxDB read credential từ Secrets Manager; query rolling window qua private InfluxDB endpoint; đọc service policy từ DynamoDB; ký IAM SigV4 request tới AI endpoint; ghi audit log vào DynamoDB; lưu evidence snapshot vào S3; publish high-risk alert qua SNS; ghi logs/metrics vào CloudWatch. |
+| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, ALB target group/listener rule, SQS/DLQ, Timestream for InfluxDB instance/endpoint/security group, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
+| `tf4-cdo04-readonly-reviewer-role` | Mentor/reviewer/Hoàng approve | Read-only để review evidence: ECS describe, CloudWatch logs read, SQS queue attributes read, DynamoDB audit read, S3 evidence read, SNS topic describe. InfluxDB sample query chỉ qua temporary read-only InfluxDB credential được cấp riêng, không qua broad IAM action. |
+| `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ private ECR và ghi container logs vào CloudWatch. Không có quyền đọc/ghi application data như InfluxDB credentials, DynamoDB, S3 evidence hoặc SNS. |
 
 ### 4.2 Permission mapping theo checklist Task 18
 
 | Permission area | Role nhận quyền | Actions cần có | Resource scope |
 |---|---|---|---|
-| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `kms:Decrypt`, `kms:GenerateDataKey`, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ queue/table/bucket/topic/secret/KMS key của CDO-04. |
+| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `kms:Decrypt`, `kms:GenerateDataKey`, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ queue/table/bucket/topic/secret/KMS key của CDO-04. InfluxDB query permission nằm trong read token, không trong IAM data action. |
+| Telemetry ingest role | `tf4-cdo04-ingest-task-role` | `secretsmanager:GetSecretValue`, `kms:Decrypt`, `s3:PutObject` cho failure buffer, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ InfluxDB write-secret, failure-buffer prefix và log group của service. |
 | Terraform deploy role | `tf4-cdo04-terraform-deploy-role` | Các quyền create/update/delete resource hạ tầng trong scope Terraform module | Resource có prefix/tag `tf4-cdo04` và environment capstone. |
-| Read-only reviewer role | `tf4-cdo04-readonly-reviewer-role` | `Describe*`, `Get*`, `List*`, `logs:StartQuery`, `logs:GetQueryResults`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:Query`, `s3:GetObject` | Read-only trên resource evidence/review của project. |
-| Query Timestream | `tf4-cdo04-prediction-worker-role`, `tf4-cdo04-readonly-reviewer-role` | `timestream:Select`, optional `timestream:DescribeTable` | Database `foresight`, table `metrics`. |
+| Read-only reviewer role | `tf4-cdo04-readonly-reviewer-role` | `Describe*`, `Get*`, `List*`, `logs:StartQuery`, `logs:GetQueryResults`, `dynamodb:GetItem`, `dynamodb:Query`, `s3:GetObject` | Read-only trên resource evidence/review của project; InfluxDB access dùng temporary read token nếu cần. |
 | Write DynamoDB audit log | `tf4-cdo04-prediction-worker-role` | `dynamodb:PutItem`, optional `dynamodb:UpdateItem` nếu cần mark replay status | Table `foresight-audit-log` only. |
 | Publish SNS alert | `tf4-cdo04-prediction-worker-role` | `sns:Publish` | Topic `tf4-cdo04-high-risk-alerts` only. |
 
@@ -189,12 +191,13 @@ IAM của CDO-04 đi theo nguyên tắc **least privilege**: mỗi service chỉ
 
 Task role phải scope theo resource cụ thể:
 
-- Timestream database/table: `foresight/metrics`.
+- InfluxDB write/read/admin credentials: Secrets Manager secrets như `tf4-cdo04/influxdb/write-token`, `tf4-cdo04/influxdb/read-token`, `tf4-cdo04/influxdb/admin-token`; task chỉ đọc token đúng vai trò.
+- InfluxDB endpoint/network: private endpoint hoặc private network path chỉ cho phép ECS ingest/worker SG cần thiết; không public TSDB exposure.
 - SQS queue: `prediction-jobs` và `prediction-jobs-dlq`.
 - DynamoDB table: `foresight-audit-log`.
-- S3 bucket/prefix: `s3://tf4-cdo04-evidence/*`.
+- S3 bucket/prefix: `s3://tf4-cdo04-evidence/*` và failure-buffer prefix.
 - SNS topic: `tf4-cdo04-high-risk-alerts`.
-- Secrets/config: `tf4-cdo04/ai-engine-endpoint-config`, `tf4-cdo04/slack-webhook`; AI auth chính là IAM SigV4 bằng Worker task role.
+- Secrets/config: `tf4-cdo04/ai-engine-endpoint-config`, `tf4-cdo04/slack-webhook`, tenant ingest token và InfluxDB token secrets; AI auth chính là IAM SigV4 bằng Worker task role.
 - KMS key nếu dùng CMK: `arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*`.
 
 Không dùng:
@@ -203,69 +206,32 @@ Không dùng:
 - `AdministratorAccess`.
 - Wildcard data-plane permission như `s3:*`, `dynamodb:*`, `sns:*`, `sqs:*`.
 - Long-lived AWS access key trong container.
-- Hardcode AI endpoint config, SigV4 credential, tenant token hoặc webhook URL trong code.
+- Hardcode AI endpoint config, SigV4 credential, tenant token, InfluxDB token hoặc webhook URL trong code.
 
 Nếu buộc phải dùng wildcard ở một số AWS API không hỗ trợ resource-level permission, phải ghi rõ lý do trong ADR hoặc comment Terraform, và giới hạn bằng condition/tag/project prefix nếu có thể.
 
 ### 4.4 Policy sketch
 
-Ví dụ policy intent cho `prediction-worker`:
+Ví dụ policy intent cho `prediction-worker` sau khi chuyển sang Timestream for InfluxDB:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-      ],
-      "Resource": "arn:aws:sqs:ap-southeast-1:<account-id>:prediction-jobs"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "timestream:Select",
-        "timestream:DescribeTable"
-      ],
-      "Resource": "arn:aws:timestream:ap-southeast-1:<account-id>:database/foresight/table/metrics"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:GetItem",
-        "dynamodb:PutItem"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-southeast-1:<account-id>:table/foresight-audit-log"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "sns:Publish",
-      "Resource": "arn:aws:sns:ap-southeast-1:<account-id>:tf4-cdo04-high-risk-alerts"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": [
-        "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/ai-engine-endpoint-config-*",
-        "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/slack-webhook-*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*"
-    }
+    { "Effect": "Allow", "Action": ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], "Resource": "arn:aws:sqs:ap-southeast-1:<account-id>:prediction-jobs" },
+    { "Effect": "Allow", "Action": ["dynamodb:GetItem", "dynamodb:PutItem"], "Resource": "arn:aws:dynamodb:ap-southeast-1:<account-id>:table/foresight-audit-log" },
+    { "Effect": "Allow", "Action": "sns:Publish", "Resource": "arn:aws:sns:ap-southeast-1:<account-id>:tf4-cdo04-high-risk-alerts" },
+    { "Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": [
+      "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/ai-engine-endpoint-config-*",
+      "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/influxdb/read-token-*",
+      "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/slack-webhook-*"
+    ]},
+    { "Effect": "Allow", "Action": ["kms:Decrypt", "kms:GenerateDataKey"], "Resource": "arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*" }
   ]
 }
 ```
 
-Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terraform inject theo account/region/workspace.
+Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terraform inject theo account/region/workspace. Network access tới InfluxDB endpoint còn bị giới hạn bằng security group và private endpoint controls.
 
 ### 4.5 Service-to-service authorization
 
@@ -274,7 +240,7 @@ Ingest path:
 - Producers gọi ALB qua HTTPS.
 - Request có `X-Tenant-Id`.
 - Có thể dùng demo token qua `Authorization: Bearer <tenant-ingest-token>`.
-- `telemetry-ingest` validate tenant, schema và metric allowlist trước khi ghi Timestream.
+- `telemetry-ingest` validate tenant, schema và metric allowlist trước khi ghi Timestream for InfluxDB.
 
 Prediction path:
 
@@ -292,7 +258,10 @@ Prediction path:
 
 | Secret | Storage | Accessed by | Rotation |
 |---|---|---|---|
-| `tf4-cdo04/ai-engine-endpoint-config` | AWS Secrets Manager hoặc SSM Parameter Store | `prediction-worker` | Chứa private DNS/host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. |
+| `tf4-cdo04/ai-engine-endpoint-config` | AWS Secrets Manager hoặc SSM Parameter Store | `prediction-worker` | Chứa internal ALB endpoint/host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. Route 53/private DNS không nằm trong baseline. |
+| `tf4-cdo04/influxdb/write-token` | AWS Secrets Manager | `telemetry-ingest` | Token chỉ ghi vào bucket `telemetry`; rotate khi nghi leak hoặc theo release window. |
+| `tf4-cdo04/influxdb/read-token` | AWS Secrets Manager | `prediction-worker` | Token chỉ đọc/query bucket `telemetry`; không có quyền admin/write. |
+| `tf4-cdo04/influxdb/admin-token` | AWS Secrets Manager | Terraform/admin break-glass only | Không inject vào app task; dùng cho provisioning/rotation có kiểm soát. |
 | `tf4-cdo04/slack-webhook` | AWS Secrets Manager | `prediction-worker` | Manual hoặc rotate khi nghi leak. |
 | `tf4-cdo04/tenant-ingest-token/<tenant>` | Secrets Manager hoặc SSM Parameter Store | `telemetry-ingest` | Manual cho demo tenants. |
 | `tf4-cdo04/grafana-api-token` | Secrets Manager | `prediction-worker` nếu dùng Grafana annotation API | Manual trong capstone. |
@@ -320,7 +289,7 @@ Prediction path:
 
 | Dữ liệu | Store | Encryption | Retention |
 |---|---|---|---|
-| Time-series telemetry | Amazon Timestream `foresight.metrics` | AWS-managed encryption mặc định | 7 ngày hot + 83 ngày cold/archive, tổng tối thiểu 90 ngày. |
+| Time-series telemetry | Amazon Timestream for InfluxDB org `tf4-cdo04`, bucket `telemetry` | Encryption at rest/SSE or KMS where supported by the managed service | Bucket retention target 90 ngày; không dùng memory/magnetic retention wording của LiveAnalytics. |
 | CDO decision audit log | DynamoDB `foresight-audit-log` | DynamoDB SSE enabled | TTL `audit_expiry` 90 ngày; không thay thế AI internal audit. |
 | AI internal audit logs | CloudWatch Logs/S3 archive riêng | KMS encrypted | 365 ngày theo AI API/Deployment Contract. |
 | Evidence snapshots + AI baseline JSON | S3 `tf4-cdo04-evidence` / baseline bucket prefix `baselines/` | SSE-S3 hoặc SSE-KMS | Evidence/baseline tối thiểu 90 ngày; raw failure buffer 7 ngày hoặc xóa sau replay. |
@@ -339,7 +308,7 @@ Prediction path:
 
 ### 6.3 KMS notes
 
-Với capstone MVP, AWS-managed keys là chấp nhận được cho Timestream, DynamoDB, SQS, CloudWatch và Secrets Manager. Nếu còn thời gian, dùng customer-managed KMS key cho:
+Với capstone MVP, AWS-managed keys hoặc service-managed encryption là chấp nhận được cho Timestream for InfluxDB, DynamoDB, SQS, CloudWatch và Secrets Manager. Nếu còn thời gian, dùng customer-managed KMS key cho:
 
 - S3 evidence snapshots.
 - DynamoDB audit table.
@@ -364,17 +333,20 @@ value
 unit
 ```
 
-Timestream dùng `tenant_id`, `service_id`, `metric_type` làm dimensions. DynamoDB audit record cũng lưu `tenant_id` và `service_id`, có GSI `tenant-service-time-index` để truy vấn evidence theo service/time.
+Timestream for InfluxDB dùng `tenant_id`, `service_id`, `metric_type` làm tags trong measurement `service_metrics`. DynamoDB audit record cũng lưu `tenant_id` và `service_id`, có GSI `tenant-service-time-index` để truy vấn evidence theo service/time.
 
 ### 7.2 Query isolation
 
-`prediction-worker` phải query metric evidence với đầy đủ filter:
+`prediction-worker` phải query metric evidence bằng Flux với đầy đủ filter:
 
-```sql
-tenant_id = :tenant_id
-service_id = :service_id
-metric_type IN (:enabled_metrics)
-time BETWEEN :start_time AND :end_time
+```flux
+from(bucket: "telemetry")
+  |> range(start: windowStart, stop: windowEnd)
+  |> filter(fn: (r) => r._measurement == "service_metrics")
+  |> filter(fn: (r) => r.tenant_id == tenantId)
+  |> filter(fn: (r) => r.service_id == serviceId)
+  |> filter(fn: (r) => contains(value: r.metric_type, set: enabledMetrics))
+  |> filter(fn: (r) => r._field == "value")
 ```
 
 Worker reject job nếu:
@@ -398,7 +370,7 @@ Metric allowlist cho AI contract:
 | `cache_hit_rate_pct` | `tenant_id`, `service_id`, `region`, `cache_type` |
 | `api_latency_ms` | `tenant_id`, `service_id`, `region` |
 
-`error_rate` và `oldest_message_age_seconds` có thể lưu cho dashboard/fallback nội bộ, nhưng không được xem là required AI signals nếu chưa nằm trong AI Telemetry Contract. Payload có `metric_type` lạ sẽ bị reject trước khi ghi vào Timestream hoặc không được đưa vào `signal_window` gửi AI.
+`error_rate` và `oldest_message_age_seconds` có thể lưu cho dashboard/fallback nội bộ, nhưng không được xem là required AI signals nếu chưa nằm trong AI Telemetry Contract. Payload có `metric_type` lạ sẽ bị reject trước khi ghi vào Timestream for InfluxDB hoặc không được đưa vào `signal_window` gửi AI.
 
 ### 7.4 PII handling
 
@@ -532,14 +504,14 @@ Các thay đổi security-sensitive cần review:
 | DLQ có message | SQS DLQ visible messages > 0 | Review failed jobs, fix schema/worker issue, replay job hợp lệ. |
 | AI endpoint failures | Worker non-2xx/timeout count | Trigger fallback, notify task force, giữ audit trail. |
 | Audit write failures | DynamoDB SDK errors | Retry, alarm, tránh mất prediction decision âm thầm. |
-| Timestream write failures | `WriteRecords` errors | Retry, buffer raw event sang S3 nếu implemented. |
+| Timestream for InfluxDB write failures | InfluxDB write errors | Retry, buffer raw event sang S3 nếu implemented. |
 | Cost guard threshold | AWS Budget ở `$180` | Stop synthetic load, giảm prediction frequency, scale down task không quan trọng. |
 | ECS unhealthy task | ECS service health | Auto-restart, kiểm tra CloudWatch logs. |
 
 ### 10.2 Incident runbook
 
 1. Detect alarm trong CloudWatch/SNS.
-2. Xác định component bị ảnh hưởng: ingest, Timestream, queue, worker, AI, audit hoặc alert.
+2. Xác định component bị ảnh hưởng: ingest, Timestream for InfluxDB, queue, worker, AI, audit hoặc alert.
 3. Contain:
    - Bad payload: block tenant/token và reject schema.
    - AI unavailable: tiếp tục static threshold fallback.
@@ -561,7 +533,7 @@ Các thay đổi security-sensitive cần review:
 | SOC2 monitoring | CloudWatch alarms cho ingest, worker, SQS, audit và cost guard. |
 | SOC2 change management | CI/CD deploy role, ECR image tags, Git SHA trong task definition. |
 | GDPR-style data minimization | Infra metric allowlist; reject PII-like fields tại ingest. |
-| GDPR-style retention | Timestream 90-day magnetic retention; DynamoDB TTL cho audit. |
+| GDPR-style retention | Timestream for InfluxDB bucket retention target 90 ngày; DynamoDB TTL cho audit. |
 | PCI-DSS | Out of scope: không nhận cardholder data hoặc transaction payload. |
 
 ---
@@ -587,4 +559,4 @@ Resolved contract points now treated as fixed:
 - [`04_deployment_design.md`](04_deployment_design.md) - CI/CD, IaC, rollout, rollback và pipeline security gates.
 - [`05_cost_analysis.md`](05_cost_analysis.md) - budget assumptions và cost guard behavior.
 - [`07_test_eval_report.md`](07_test_eval_report.md) - security tests, multi-tenant isolation tests và failure-path evidence.
-- [`08_adrs.md`](08_adrs.md) - ADRs cho ECS, Timestream, audit storage, fallback và observability choices.
+- [`08_adrs.md`](08_adrs.md) - ADRs cho ECS, Timestream for InfluxDB, audit storage, fallback và observability choices.

@@ -783,6 +783,64 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
 
     Rejected vì Worker và AI Engine có lifecycle, scaling trigger, health check và rollback khác nhau. Tách thành ECS services riêng giúp vận hành rõ hơn.
 
+---
+
+## ADR-010 - Finalize Amazon Timestream for InfluxDB as the TSDB in ap-southeast-1
+
+* **Status**: Accepted; clarifies/supersedes the product flavor implied by ADR-004
+
+* **Date**: 2026-06-26
+
+* **Context**:
+
+  ADR-004 correctly captured the architectural requirement: CDO needs a managed TSDB/evidence source for tenant/service/time telemetry and 120-minute prediction windows. However, older wording used the broad name **Amazon Timestream**, which can be read as the LiveAnalytics database/table + SQL product flavor. The final regional plan is Singapore (`ap-southeast-1`), and Terraform should target the **Amazon Timestream for InfluxDB** flavor for regional viability and InfluxDB-compatible org/bucket/measurement/tags/fields semantics.
+
+  This ADR does not delete ADR-004. It records the final product flavor and updates the cost consequence of the TSDB choice.
+
+* **Decision**:
+
+  CDO-04 finalizes **Amazon Timestream for InfluxDB in `ap-southeast-1`** as the TSDB for telemetry and metric evidence.
+
+  Final TSDB model:
+
+  ```text
+  Organization: tf4-cdo04
+  Bucket      : telemetry
+  Measurement : service_metrics
+  Tags        : tenant_id, service_id, env, region, service_tier, metric_type
+  Fields      : value, optional unit/sample_count
+  Query style : Flux with tenant/service/enabled-metric filters and 120-minute range
+  Retention   : 90-day bucket retention target
+  ```
+
+  Older references to Amazon Timestream should be interpreted as the TSDB requirement unless they explicitly mention LiveAnalytics. New Terraform and security docs should use the InfluxDB flavor, store InfluxDB credentials/tokens in Secrets Manager, and protect the endpoint with private networking/security group controls. Do not use LiveAnalytics-style IAM data-plane examples for the InfluxDB write/query path.
+
+* **Cost consequence**:
+
+  AWS Pricing MCP recheck for `ap-southeast-1` shows:
+
+  | Instance | Deployment | Hourly price | 730h monthly estimate |
+  |---|---|---:|---:|
+  | `db.influx.medium` | Single-AZ | **$0.142/hour** | **~$103.66/month** |
+
+  Therefore the old generic **$5/month TSDB** assumption is invalid. `db.influx.medium` Single-AZ is the minimum viable managed InfluxDB option for the baseline. With this option, the full always-on platform baseline becomes about **$296.04/month** before ops buffer, so it no longer fits a strict **$200/month** budget.
+
+* **Mitigation**:
+
+  * Use `db.influx.medium` Single-AZ for capstone unless load tests prove it is insufficient.
+  * Keep prediction cadence at 5 minutes and require Flux filters by tenant, service, enabled metrics and 120-minute window.
+  * Run within the 2-week capstone/demo window where forecast is about **$148.02** instead of presenting the full-month baseline as budget-fit.
+  * Prefer ARM64/Graviton for ECS images when compatible, but recognize this only reduces compute and does not offset the full TSDB instance cost by itself.
+  * Teardown or stop non-demo environments outside test windows where feasible; do not disable audit/fallback to save cost.
+  * If the environment must run always-on for a full month, request budget exception or funding credits rather than hiding the TSDB cost.
+
+* **Consequences**:
+
+  * Final docs and Terraform direction are region/product-specific: Amazon Timestream for InfluxDB in Singapore.
+  * Data model aligns with InfluxDB org/bucket/measurement/tags/fields and Flux semantics.
+  * Security posture is clearer: no public TSDB exposure; credentials in Secrets Manager; endpoint access controlled by SG/private network and TLS.
+  * Cost defense changes materially. The platform is still valid architecturally, but the full always-on monthly baseline is above $200 without mitigation.
+
 ## Related documents
 
 - `docs/00_client_debrief.md` - client discovery summary and scope lock
