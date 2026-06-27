@@ -177,7 +177,9 @@ module "compute" {
   amp_query_endpoint           = module.data.amp_query_endpoint
   amp_workspace_arn            = module.data.amp_workspace_arn
   audit_table_name             = module.data.audit_table_name
+  audit_table_arn              = module.data.audit_table_arn
   policy_table_name            = module.data.policy_table_name
+  policy_table_arn             = module.data.policy_table_arn
   baseline_bucket_name         = module.data.baseline_bucket_name
   sns_alert_topic_arn          = module.data.sns_alert_topic_arn
   service_policy_secret_arn    = module.data.service_policy_secret_arn
@@ -216,6 +218,15 @@ module "compute" {
 # Expected inputs from modules/data:
 #   prediction_queue_url, prediction_queue_dlq_url
 #   audit_table_name, amp_workspace_arn
+resource "terraform_data" "cidr_check" {
+  lifecycle {
+    precondition {
+      condition     = var.environment == "sandbox" || (!contains(var.allowed_ingress_cidrs, "0.0.0.0/0") && !contains(var.allowed_ingress_cidrs, "::/0"))
+      error_message = "0.0.0.0/0 and ::/0 are not allowed in non-sandbox environments. Use explicit CIDR ranges."
+    }
+  }
+}
+
 module "observability" {
   source = "./modules/observability"
 

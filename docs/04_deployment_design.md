@@ -12,14 +12,14 @@
 - **Deployment region/runtime**: CDO-04 deploy tại `us-east-1` với ECS Fargate Linux/x86 cho Telemetry API, Prediction Worker và AI Engine.
   - **Lý do lựa chọn**: Terraform cung cấp cơ chế quản lý trạng thái hạ tầng mạnh mẽ, thư viện tài nguyên phong phú trên AWS, hỗ trợ viết code dạng khai báo (declarative) giúp dễ dàng theo dõi và tái sử dụng qua các module.
 - **State backend**: **Amazon S3** remote backend với native lockfile (`use_lockfile = true`). Thiết kế mới **không tạo DynamoDB lock table** vì Terraform S3 native locking đã đủ cho workflow này và giữ bootstrap đơn giản.
-- **GitHub OIDC bootstrap**: `infra/bootstrap/` phải khởi tạo **GitHub Actions OIDC provider** và Terraform deploy role/policy tối thiểu cho CI/CD assume-role. OIDC là foundation giống state backend, nên không để trong main `infra/terraform/` root để tránh chicken-and-egg khi pipeline cần quyền chạy plan/apply.
+- **GitHub OIDC bootstrap**: `infra/bootstrap/` khởi tạo **GitHub Actions OIDC provider** và backend role tối thiểu cho CI/CD assume-role. Role bootstrap chỉ truy cập S3 state backend và `sts:GetCallerIdentity`; role deploy chính cho main `terraform plan/apply` là role riêng theo environment.
 - **Modular structure**: `infra/bootstrap/` bootstrap backend + GitHub OIDC foundation; `infra/terraform/` là root module chính và gọi các module con (`networking`, `data`, `compute`, `observability`) để tránh flat Terraform khó review.
 
 ### 1.2 Module structure
 
 ```
 infra/
-├── bootstrap/             # One-time S3 backend bucket + KMS key + GitHub OIDC provider/deploy role; backend uses use_lockfile=true
+├── bootstrap/             # One-time S3 backend bucket + GitHub OIDC provider/backend role; backend uses use_lockfile=true
 ├── terraform/             # Terraform root chính for the platform
 │   ├── modules/
 │   │   ├── networking/    # VPC, public/private subnets, SGs, 1 NAT, S3/DynamoDB Gateway Endpoints
@@ -37,7 +37,7 @@ infra/
 
 - **Remote state**: `infra/bootstrap/` tạo S3 bucket cho Terraform state, bật versioning, encryption và TLS-only bucket policy.
 - **State lock**: dùng native S3 lockfile với `use_lockfile = true`; thiết kế này **không dùng DynamoDB lock table**.
-- **GitHub OIDC foundation**: `infra/bootstrap/` cũng phải tạo IAM OIDC provider cho `token.actions.githubusercontent.com` và Terraform deploy role cho GitHub Actions. Trust policy phải giới hạn theo đúng GitHub org/repo/branch hoặc environment; role này là role pipeline dùng để chạy `terraform plan/apply` cho main root.
+- **GitHub OIDC foundation**: `infra/bootstrap/` tạo IAM OIDC provider cho `token.actions.githubusercontent.com` và backend role cho GitHub Actions. Trust policy giới hạn theo đúng GitHub org/repo/branch hoặc environment. Role này chỉ truy cập S3 state backend; role pipeline dùng để chạy main root `terraform plan/apply` phải được cấp riêng theo môi trường.
 - **Pipeline integration**: Thực hiện chạy `terraform plan` tự động khi mở Pull Request (PR) và chỉ thực hiện `terraform apply` sau khi PR được merge vào nhánh chính tương ứng.
 
 
@@ -55,7 +55,7 @@ S3 state bucket tách riêng với bucket evidence/failure-buffer. State bucket 
 
 ### 1.5 Trình tự bootstrap Terraform v1
 
-1. `infra/bootstrap/` tạo S3 state bucket, KMS key tùy chọn, GitHub OIDC provider và Terraform deploy role.
+1. `infra/bootstrap/` tạo S3 state bucket, GitHub OIDC provider và backend role tối thiểu cho state access.
 2. `infra/terraform/` apply phần network/data/observability và ECR repositories.
 3. CI build/push image tags vào ECR.
 4. `enable_services = true` apply ECS task definitions/services với image tags cụ thể.

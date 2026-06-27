@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TF4 CDO-04 — Tài Liệu Phiên Làm Việc Hạ Tầng (Infrastructure Session Document)</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fafaf9; --surface:#fff; --border:#e5e4e1; --text:#1c1b19; --text-muted:#5e5c58;
+  --accent:#1a654a; --accent-light:#e6f2ed; --warn:#b54708; --warn-light:#fef3e7;
+  --code-bg:#f4f3f1; --code-text:#2d2b28;
+  --nav-width:260px; --content-max:860px;
+  font-size:16px; line-height:1.6;
+}
+body{font-family:"Inter",system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+nav.sidebar{
+  position:sticky;top:0;left:0;width:var(--nav-width);height:100vh;overflow-y:auto;
+  background:var(--surface);border-right:1px solid var(--border);padding:24px 16px;
+  flex-shrink:0;font-size:.875rem;z-index:10;
+}
+nav.sidebar h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:12px;font-weight:700}
+nav.sidebar a{display:block;padding:6px 10px;color:var(--text-muted);text-decoration:none;border-radius:6px;margin-bottom:2px;transition:background .12s,color .12s}
+nav.sidebar a:hover,nav.sidebar a.active{background:var(--accent-light);color:var(--accent);font-weight:600}
+nav.sidebar .section-label{font-size:.72rem;letter-spacing:.08em;color:var(--text-muted);margin:18px 0 4px;font-weight:700}
+main{flex:1;max-width:var(--content-max);padding:40px 56px 80px;overflow-y:auto}
+h1{font-size:2rem;font-weight:800;letter-spacing:-.02em;color:var(--text);margin-bottom:8px;line-height:1.2}
+h1 .sub{display:block;font-size:1rem;font-weight:500;color:var(--text-muted);margin-top:4px}
+h2{font-size:1.5rem;font-weight:700;color:var(--text);margin:40px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--border);letter-spacing:-.01em}
+h3{font-size:1.15rem;font-weight:700;color:var(--text);margin:28px 0 10px}
+h4{font-size:1rem;font-weight:700;color:var(--text);margin:20px 0 8px}
+p{margin-bottom:12px;color:var(--text)}
+strong{color:var(--text)}
+a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+ul,ol{margin-bottom:14px;padding-left:24px}
+li{margin-bottom:4px}
+code{font-family:"JetBrains Mono","Fira Code","Cascadia Code",monospace;font-size:.875em;background:var(--code-bg);color:var(--code-text);padding:2px 6px;border-radius:4px}
+pre{background:var(--code-bg);color:var(--code-text);padding:16px 18px;border-radius:8px;overflow-x:auto;margin-bottom:16px;font-size:.85rem;line-height:1.55;border:1px solid var(--border)}
+pre code{background:none;padding:0;font-size:inherit}
+table{width:100%;border-collapse:collapse;margin-bottom:18px;font-size:.9rem}
+thead th{text-align:left;font-weight:700;background:var(--code-bg);padding:8px 10px;border-bottom:2px solid var(--border);font-size:.82rem;letter-spacing:.03em;text-transform:uppercase}
+tbody td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tbody tr:hover{background:var(--accent-light)}
+.callout{padding:14px 16px;border-radius:8px;margin-bottom:16px;font-size:.9rem}
+.callout.info{background:var(--accent-light);border-left:4px solid var(--accent)}
+.callout.warn{background:var(--warn-light);border-left:4px solid var(--warn)}
+.callout.info strong{color:var(--accent)}
+.callout.warn strong{color:var(--warn)}
+.figure-caption{font-size:.82rem;color:var(--text-muted);text-align:center;margin:-10px 0 18px;font-style:italic}
+@media(max-width:960px){
+  body{flex-direction:column}
+  nav.sidebar{position:relative;width:100%;height:auto;max-height:40vh;border-right:none;border-bottom:1px solid var(--border)}
+  main{padding:24px 20px 60px}
+}
+@media print{
+  nav.sidebar{display:none}
+  main{max-width:100%;padding:0}
+  pre,code{white-space:pre-wrap;word-break:break-all}
+}
+</style>
+</head>
+<body>
+<nav class="sidebar">
+  <h2>TF4 CDO-04</h2>
+  <a href="#tong-quan">Tổng quan phiên làm việc</a>
+  <a href="#kien-truc">Kiến trúc hệ thống</a>
+  <a href="#cau-hinh">Cấu hình (Configuration)</a>
+  <a href="#dich-vu">Dịch vụ (Services)</a>
+  <a href="#lenh-van-hanh">Lệnh &amp; Vận hành</a>
+  <a href="#qa-evidence">QA &amp; Evidence</a>
+  <a href="#tradeoff">Trade-off &amp; ADR</a>
+  <a href="#bao-mat">Bảo mật</a>
+  <a href="#chi-phi">Phân tích chi phí</a>
+  <a href="#deploy">Triển khai (Deployment)</a>
+  <a href="#tong-ket">Tổng kết</a>
+</nav>
+
+<main>
+<h1>TF4 CDO-04 &mdash; Tài Liệu Phiên Làm Việc Hạ Tầng
+  <span class="sub">SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow</span>
+</h1>
+<p><strong>Ngày cập nhật:</strong> 2026-06-28 &ensp;|&ensp;
+<strong>Region:</strong> us-east-1 (US East / N. Virginia) &ensp;|&ensp;
+<strong>Team:</strong> CDO-04 (Cloud/DevOps) &ensp;|&ensp;
+<strong>Ngân sách:</strong> &le; $200/tháng</p>
+<div class="callout info">
+<strong>Mục đích tài liệu:</strong> Tổng hợp toàn bộ phiên làm việc hạ tầng của nhóm CDO-04 trong Task Force 4 Foresight Lens. Bao gồm kiến trúc, cấu hình Terraform, dịch vụ AWS, lệnh vận hành, QA evidence, trade-off kiến trúc, bảo mật, chi phí và pipeline triển khai. Tài liệu tự chứa (self-contained HTML), dùng tiếng Việt với thuật ngữ kỹ thuật giữ nguyên tiếng Anh.
+</div>
+
+<h2 id="tong-quan">1. Tổng Quan Phiên Làm Việc</h2>
+
+<h3>1.1 Bối cảnh dự án</h3>
+<p>TF4 Foresight Lens giải quyết bài toán <strong>cảnh báo sớm (early warning)</strong> cho Head of SRE tại một fintech mid-size vận hành khoảng 120 microservice. Trong 3 tháng gần đây, hệ thống miss SLO 7 lần do <strong>capacity exhaustion</strong> âm thầm: RDS CPU tăng dần, SQS backlog tăng, ALB connection chạm giới hạn trong traffic spike.</p>
+<p>Client đã có Grafana, CloudWatch và Datadog trial &mdash; vấn đề <strong>không</strong> phải thiếu dashboard hay metric. Pain chính: SRE không có workflow cảnh báo sớm đủ tin cậy, thiếu recommendation cụ thể để hành động kịp thời.</p>
+
+<h3>1.2 Angle của nhóm CDO-04</h3>
+<div class="callout info">
+<strong>SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow</strong><br>
+Platform biến telemetry + AI prediction thành workflow vận hành có recommendation, evidence, audit log và fallback khi AI endpoint unavailable. <em>Không build thêm một dashboard mới.</em>
+</div>
+
+<h3>1.3 Các nguồn tài liệu gốc trong repo</h3>
+<table>
+<thead><tr><th>Tài liệu</th><th>Nội dung</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><code>docs/00_client_debrief.md</code></td><td>Client discovery &amp; scope lock</td><td>Hoàn thành</td></tr>
+<tr><td><code>docs/01_requirements_analysis.md</code></td><td>NFR, angle, constraints, open questions</td><td>Hoàn thành</td></tr>
+<tr><td><code>docs/02_infra_design.md</code></td><td>Kiến trúc hạ tầng, component table, failure modes</td><td>Refined (AMP/us-east-1)</td></tr>
+<tr><td><code>docs/03_security_design.md</code></td><td>Network, IAM, secrets, encryption, audit</td><td>Refined (AMP/us-east-1)</td></tr>
+<tr><td><code>docs/04_deployment_design.md</code></td><td>CI/CD, IaC, rollback, sync waves</td><td>Refined (W11 T4)</td></tr>
+<tr><td><code>docs/05_cost_analysis.md</code></td><td>Budget model, guardrail, NAT vs VPCE</td><td>Synced with AMP/us-east-1</td></tr>
+<tr><td><code>docs/07_test_eval_report.md</code></td><td>4 scenario test, SLO evidence, security test</td><td>DRAFT v1.3</td></tr>
+<tr><td><code>docs/08_adrs.md</code></td><td>11 ADR từ platform angle đến AMP migration</td><td>ADR-011 accepted</td></tr>
+<tr><td><code>contracts/telemetry-contract.md</code></td><td>AI Telemetry contract</td><td>Frozen</td></tr>
+<tr><td><code>contracts/ai-api-contract.md</code></td><td>AI API contract</td><td>Frozen</td></tr>
+<tr><td><code>contracts/deployment-contract.md</code></td><td>AI Deployment contract</td><td>Frozen</td></tr>
+</tbody>
+</table>
+
+<h3>1.4 Nhân sự &amp; phân công</h3>
+<table>
+<thead><tr><th>Thành viên</th><th>Vai trò</th><th>EPIC chính</th></tr></thead>
+<tbody>
+<tr><td>Nguyễn Văn Huy Hoàng (Hoàng)</td><td>Owner CI/CD &amp; Deploy</td><td>EPIC-06</td></tr>
+<tr><td>Ngô Nguyễn Trương An (An)</td><td>Tech Lead / Security Review</td><td>EPIC-05</td></tr>
+<tr><td>Nguyễn Thành Vinh (Vinh)</td><td>Infrastructure / Terraform</td><td>EPIC-04</td></tr>
+<tr><td>Tạ Hoàng Huy (Huy)</td><td>Cost Analysis</td><td>EPIC-08</td></tr>
+<tr><td>Tuấn</td><td>Infrastructure Design</td><td>EPIC-03</td></tr>
+<tr><td>Ninh</td><td>Observability / Test / Cost</td><td>EPIC-07</td></tr>
+</tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="kien-truc">2. Kiến Trúc Hệ Thống</h2>
+
+<h3>2.1 Architecture Diagram (text-based overview)</h3>
+<pre><code>                                    +------------------+
+                                    |   AWS Account    |
+                                    |   us-east-1      |
++-------------+                     |                  |
+| k6 / Locust |--HTTPS--+           |  +------------+  |
++-------------+         |           |  | Public ALB |  |
+                        +-----------&gt;| /v1/ingest  |  |
++-------------+         |           |  +-----+------+  |
+|payment-gateway|-HTTPS-+           |        |         |
++-------------+         |           |  +-----v-------+ |
+                        |           |  |Telemetry API| |
++-------------+         |           |  |ECS Fargate  | |
+|ledger-service|-HTTPS--+           |  | x86 0.5vCPU | |
++-------------+         |           |  | private sub | |
+                        |           |  +--+----+-----+ |
++-------------+         |           |     |    |       |
+| kyc-worker  |-HTTPS---+           |     |  ADOT/     |
++-------------+                     |     |  Collector |
+                                    |     |    |       |
+                                    |  +--v----v-----+ |
+                                    |  |    AMP      | |
+                                    |  | workspace   | |
+                                    |  +------------+ |
+                                    |                  |
++-------------------+               |  +------------+ |
+| EventBridge       |               |  |   SQS +    | |
+| Scheduler (5-min) +--------------&gt;|  |   DLQ      | |
++-------------------+               |  +-----+------+ |
+                                    |        |         |
+                                    |  +-----v------+ |
+                                    |  |Prediction  | |
+                                    |  |Worker      | |
+                                    |  |ECS Fargate | |
+                                    |  |private sub | |
+                                    |  +-+--+--+--+-+ |
+                                    |    |  |  |  |   |
+                                    |    |  |  |  +--&gt; CloudWatch Logs
+                                    |    |  |  +----&gt; DynamoDB Audit
+                                    |    |  +------&gt; SNS Alert
+                                    |    |         |   |
+                                    |    |  Service Connect
+                                    |    |         |   |
+                                    |  +-v---------v-+ |
+                                    |  | AI Engine   | |
+                                    |  | ECS Fargate | |
+                                    |  | /v1/predict | |
+                                    |  | private sub | |
+                                    |  +------------+ |
+                                    +------------------+</code></pre>
+<p class="figure-caption">Hình 1: Kiến trúc tổng quan platform CDO-04 tại us-east-1. Luồng chính: telemetry → AMP → SQS → Worker → AI → Audit → Alert.</p>
+
+<h3>2.2 Component Table</h3>
+<table>
+<thead><tr><th>Component</th><th>AWS Service</th><th>Lý do</th><th>Chi phí/tháng</th></tr></thead>
+<tbody>
+<tr><td>Tầng compute</td><td>ECS Fargate Linux/x86</td><td>5 task: Telemetry API &times;2, Prediction Worker &times;1, AI Engine &times;2. Fargate không quản lý EC2, có task role riêng, chạy API/worker/AI theo cùng container model.</td><td>$90.10</td></tr>
+<tr><td>Cổng ingress public</td><td>1&times; ALB + ACM</td><td>Public ALB chỉ nhận <code>/v1/ingest</code>. Worker &rarr; AI dùng ECS Service Connect trong private subnets.</td><td>$22.27</td></tr>
+<tr><td>Kho metric TSDB</td><td>AMP (Amazon Managed Service for Prometheus)</td><td>Serverless managed Prometheus, IAM/SigV4, 150-day retention, usage-based cost.</td><td>~$0.00</td></tr>
+<tr><td>Audit + policy DB</td><td>DynamoDB</td><td>Append-heavy audit log, lookup theo tenant/service/time. Gọn hơn RDS cho key-value pattern.</td><td>$0.10</td></tr>
+<tr><td>Điều phối job</td><td>EventBridge Scheduler + SQS + 2 DLQ</td><td>Scheduler 5-min, SQS buffer, DLX retry. Decouple scheduler khỏi worker.</td><td>$0.05</td></tr>
+<tr><td>Lưu trữ evidence</td><td>S3 + KMS</td><td>AI baseline JSON prefix <code>baselines/</code>, evidence export, raw failure buffer 7 ngày.</td><td>$0.35</td></tr>
+<tr><td>Quan sát hệ thống</td><td>CloudWatch + SNS</td><td>App logs, custom metrics, dashboard, 10-12 alarm.</td><td>$8.00</td></tr>
+<tr><td>Bảo mật / cấu hình</td><td>Secrets Manager + KMS</td><td>AI endpoint config, webhook/tenant token, KMS keys.</td><td>$3.40</td></tr>
+<tr><td>Kết nối private subnet</td><td>1 NAT GW + S3/DDB Gateway Endpoints</td><td>Cost-optimized: 1 zonal NAT cho outbound, S3/DDB qua Gateway Endpoint.</td><td>$33.39</td></tr>
+<tr><td>Container registry</td><td>Amazon ECR</td><td>Private image cho Telemetry API, Worker, AI Engine.</td><td>$0.50</td></tr>
+<tr><td colspan="3" style="text-align:right"><strong>Tổng (full always-on x86)</strong></td><td><strong>~$158.16</strong></td></tr>
+<tr><td colspan="3" style="text-align:right"><strong>+20% ops buffer</strong></td><td><strong>~$189.79</strong></td></tr>
+</tbody>
+</table>
+
+<h3>2.3 Luồng dữ liệu (Data Flow)</h3>
+<ol>
+  <li><strong>Telemetry Ingestion:</strong> 3 mock service (payment-gateway, ledger-service, kyc-worker) + k6 synthetic &rarr; HTTPS &rarr; Public ALB <code>/v1/ingest</code> &rarr; ECS Telemetry API validate &rarr; ADOT Collector remote_write (SigV4) &rarr; AMP workspace.</li>
+  <li><strong>Prediction Orchestration:</strong> EventBridge Scheduler (mỗi 5 phút) &rarr; SQS prediction-jobs &rarr; ECS Prediction Worker poll message.</li>
+  <li><strong>Prediction Execution:</strong> Worker &rarr; query AMP bằng PromQL <code>query_range</code> (120 phút, filter tenant/service/metric) &rarr; align 1-minute buckets &rarr; gọi AI <code>POST /v1/predict</code> qua ECS Service Connect &rarr; nhận response (anomaly, severity, reasoning, recommendation.*).</li>
+  <li><strong>Audit &amp; Alert:</strong> Worker &rarr; ghi DynamoDB audit record &rarr; publish SNS nếu high risk &rarr; S3 evidence snapshot nếu cần &rarr; delete SQS message.</li>
+  <li><strong>Fallback Path:</strong> Nếu AI timeout/unavailable/sai schema &rarr; static threshold fallback &rarr; audit ghi <code>prediction_source=static_threshold_fallback</code>.</li>
+</ol>
+
+<h3>2.4 Failure Modes &amp; Recovery</h3>
+<table>
+<thead><tr><th>Lỗi</th><th>Phát hiện</th><th>Khôi phục</th><th>RTO</th><th>RPO</th></tr></thead>
+<tbody>
+<tr><td>ECS task crash</td><td>ECS event, CloudWatch alarm</td><td>ECS auto-replace task; deployment circuit breaker rollback nếu bản mới lỗi</td><td>&lt;60s</td><td>0</td></tr>
+<tr><td>Mất một AZ</td><td>ALB target unhealthy hoặc ECS thiếu task</td><td>ALB/Service Connect route sang task khỏe ở AZ còn lại</td><td>&lt;5min</td><td>&lt;1min</td></tr>
+<tr><td>EventBridge missed run</td><td>Không có job mới &gt;10 phút</td><td>Alarm + manual enqueue/backfill window gần nhất</td><td>&lt;10min</td><td>Max 1 cycle</td></tr>
+<tr><td>AI timeout/down</td><td>Worker timeout, AI 5xx, fallback-rate alarm</td><td>Static threshold fallback; audit ghi <code>prediction_source=static_threshold_fallback</code></td><td>&lt;1 cycle</td><td>0</td></tr>
+<tr><td>AI sai schema</td><td>Schema validation error</td><td>Fallback; audit <code>fallback_reason=ai_invalid_response</code></td><td>&lt;1 cycle</td><td>0</td></tr>
+<tr><td>Job lỗi lặp lại</td><td>SQS receive count vượt ngưỡng, DLQ depth&gt;0</td><td>Re-drive policy; sau maxReceiveCount &rarr; DLQ</td><td>&lt;10min</td><td>Job in DLQ</td></tr>
+<tr><td>AMP remote_write fail</td><td>Rejected/throttled, worker error</td><td>Retry bounded; S3 failure buffer &rarr; replay</td><td>5-15min</td><td>~0</td></tr>
+<tr><td>DynamoDB throttle</td><td>DDB throttle metric, PutItem error</td><td>SDK retry/backoff; keep message in SQS</td><td>&lt;5min</td><td>~0</td></tr>
+<tr><td>Cost guard triggered</td><td>Budget alarm</td><td>Giữ cadence 5 phút; giảm synthetic load; không tắt audit/fallback</td><td>Same day</td><td>0 audit</td></tr>
+</tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="cau-hinh">3. Cấu Hình (Configuration)</h2>
+
+<h3>3.1 Terraform Module Structure</h3>
+<pre><code>infra/
+├── bootstrap/                    # One-time S3 backend + GitHub OIDC
+│   ├── main.tf                   # S3 state bucket, OIDC provider, deploy role
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── versions.tf               # Terraform &ge; 1.10, AWS &ge; 5.80
+├── terraform/                    # Main platform root
+│   ├── backend.tf                # S3 remote state + use_lockfile=true
+│   ├── main.tf                   # Wires 4 modules
+│   ├── variables.tf              # 14 input variables
+│   ├── outputs.tf                # 22 outputs
+│   ├── versions.tf
+│   ├── terraform.tfvars.example
+│   └── modules/
+│       ├── networking/           # VPC, subnets, 1 NAT, SGs, S3/DDB Gateway Endpoints
+│       ├── data/                 # AMP, DynamoDB, SQS/DLQ, S3 evidence, Secrets/KMS
+│       ├── compute/              # ALB, ECS Cluster, Fargate Services, Service Connect, Scheduler
+│       └── observability/        # CloudWatch Logs, Metrics, Dashboard, Alarms, SNS, Budget
+└── README.md</code></pre>
+
+<h3>3.2 Terraform Variables (14 biến chính)</h3>
+<table>
+<thead><tr><th>Variable</th><th>Type</th><th>Default</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td><code>project_name</code></td><td>string</td><td>tf4-cdo04</td><td>Dùng trong resource naming và tags</td></tr>
+<tr><td><code>environment</code></td><td>string</td><td>sandbox</td><td>sandbox | staging | prod</td></tr>
+<tr><td><code>aws_region</code></td><td>string</td><td>us-east-1</td><td>Region chính thức</td></tr>
+<tr><td><code>vpc_cidr</code></td><td>string</td><td>10.0.0.0/16</td><td>CIDR block cho VPC</td></tr>
+<tr><td><code>az_count</code></td><td>number</td><td>2</td><td>Ít nhất 2 AZ cho ALB availability</td></tr>
+<tr><td><code>allowed_ingress_cidrs</code></td><td>list(string)</td><td><em>bắt buộc</em></td><td>Phải khai báo rõ; cấm 0.0.0.0/0 non-sandbox</td></tr>
+<tr><td><code>acm_certificate_arn</code></td><td>string</td><td>""</td><td>Required cho non-sandbox HTTPS</td></tr>
+<tr><td><code>telemetry_api_image_tag</code></td><td>string</td><td>MOCK_PLACEHOLDER</td><td>ECR URI hoặc placeholder</td></tr>
+<tr><td><code>prediction_worker_image_tag</code></td><td>string</td><td>MOCK_PLACEHOLDER</td><td>ECR URI hoặc placeholder</td></tr>
+<tr><td><code>ai_engine_image_tag</code></td><td>string</td><td>MOCK_PLACEHOLDER</td><td>ECR URI hoặc placeholder</td></tr>
+<tr><td><code>adot_collector_image_tag</code></td><td>string</td><td>""</td><td>Empty = fallback public ADOT image</td></tr>
+<tr><td><code>enable_services</code></td><td>bool</td><td>false</td><td>Chỉ bật sau khi image pushed ECR</td></tr>
+<tr><td><code>alert_email</code></td><td>string</td><td>""</td><td>SNS email subscription (optional)</td></tr>
+<tr><td><code>budget_limit</code></td><td>number</td><td>200</td><td>Monthly budget limit (USD)</td></tr>
+</tbody>
+</table>
+
+<h3>3.3 Terraform Outputs</h3>
+<table>
+<thead><tr><th>Output</th><th>Module</th><th>Mô tả</th></tr></thead>
+<tbody>
+<tr><td><code>vpc_id</code></td><td>networking</td><td>VPC ID</td></tr>
+<tr><td><code>private_subnet_ids</code></td><td>networking</td><td>Private subnet IDs</td></tr>
+<tr><td><code>public_subnet_ids</code></td><td>networking</td><td>Public subnet IDs</td></tr>
+<tr><td><code>ecs_cluster_name</code></td><td>compute</td><td>ECS cluster name</td></tr>
+<tr><td><code>alb_dns_name</code></td><td>compute</td><td>Public ALB DNS cho ingest</td></tr>
+<tr><td><code>alb_arn</code></td><td>compute</td><td>ALB ARN</td></tr>
+<tr><td><code>telemetry_api_service_name</code></td><td>compute</td><td>ECS service Telemetry API</td></tr>
+<tr><td><code>prediction_worker_service_name</code></td><td>compute</td><td>ECS service Prediction Worker</td></tr>
+<tr><td><code>ai_engine_service_name</code></td><td>compute</td><td>ECS service AI Engine</td></tr>
+<tr><td><code>adot_collector_service_name</code></td><td>compute</td><td>ECS service ADOT Collector</td></tr>
+<tr><td><code>amp_workspace_id</code></td><td>data</td><td>AMP workspace ID</td></tr>
+<tr><td><code>amp_remote_write_endpoint</code></td><td>data</td><td>AMP remote_write endpoint URL</td></tr>
+<tr><td><code>amp_query_endpoint</code></td><td>data</td><td>AMP query endpoint URL</td></tr>
+<tr><td><code>prediction_queue_url</code></td><td>data</td><td>SQS queue URL</td></tr>
+<tr><td><code>prediction_queue_dlq_url</code></td><td>data</td><td>SQS DLQ URL</td></tr>
+<tr><td><code>audit_table_name</code></td><td>data</td><td>DynamoDB audit table name</td></tr>
+<tr><td><code>evidence_bucket_name</code></td><td>data</td><td>S3 evidence bucket name</td></tr>
+<tr><td><code>telemetry_api_ecr_repository_url</code></td><td>compute</td><td>ECR repo URL</td></tr>
+<tr><td><code>prediction_worker_ecr_repository_url</code></td><td>compute</td><td>ECR repo URL</td></tr>
+<tr><td><code>ai_engine_ecr_repository_url</code></td><td>compute</td><td>ECR repo URL</td></tr>
+<tr><td><code>dashboard_url</code></td><td>observability</td><td>CloudWatch dashboard URL</td></tr>
+<tr><td><code>alarm_arns</code></td><td>observability</td><td>List of CloudWatch alarm ARNs</td></tr>
+<tr><td><code>sns_alert_topic_arn</code></td><td>data</td><td>SNS alert topic ARN</td></tr>
+</tbody>
+</table>
+
+<h3>3.4 Backend Configuration</h3>
+<pre><code># infra/terraform/backend.tf
+terraform {
+  backend "s3" {
+    bucket       = "tf4-cdo04-terraform-state-&lt;suffix&gt;"
+    key          = "tf4-cdo04/sandbox/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true          # Terraform &ge; 1.10 native locking
+  }
+}</code></pre>
+<div class="callout info">
+<strong>Ghi chú:</strong> Thiết kế <strong>không</strong> dùng DynamoDB lock table. Terraform S3 native locking (<code>use_lockfile=true</code>) đủ cho workflow này và giữ bootstrap đơn giản.
+</div>
+
+<h3>3.5 Docker Image Build &amp; ECR</h3>
+<pre><code># CI Matrix Build (GitHub Actions)
+strategy:
+  fail-fast: false
+  matrix:
+    service: [telemetry-api, prediction-worker, ai-engine]
+
+# Immutable tagging
+tags: |
+  &lt;ecr-registry&gt;/foresight-lens/${{ matrix.service }}:${{ github.sha }}
+  &lt;ecr-registry&gt;/foresight-lens/${{ matrix.service }}:latest</code></pre>
+
+<h3>3.6 Mock E2E App (src/mock-e2e/app.py)</h3>
+<p>Single Python image chạy 3 role qua <code>MOCK_ROLE</code> environment variable:</p>
+<ul>
+  <li><strong>api:</strong> <code>POST /v1/ingest</code> &rarr; validate JSON &rarr; gửi message vào SQS prediction queue.</li>
+  <li><strong>worker:</strong> Poll SQS &rarr; gọi AI <code>/v1/predict</code> &rarr; ghi DynamoDB audit &rarr; ghi S3 evidence &rarr; delete SQS message.</li>
+  <li><strong>ai:</strong> <code>POST /v1/predict</code> &rarr; trả fake prediction JSON với <code>risk_score</code>, <code>risk_level</code>, <code>flags</code>.</li>
+</ul>
+<p>Mỗi role expose <code>GET /health</code> trả <code>{"status":"ok","role":"&lt;role&gt;"}</code>. Sử dụng thư viện: boto3, requests, Python stdlib http.server.</p>
+
+<!-- ================================================================ -->
+<h2 id="dich-vu">4. Dịch Vụ (Services)</h2>
+
+<h3>4.1 ECS Fargate Services</h3>
+<table>
+<thead><tr><th>Service</th><th>Tasks</th><th>vCPU/Mem</th><th>Subnet</th><th>Public IP</th><th>Autoscaling Trigger</th></tr></thead>
+<tbody>
+<tr><td>Telemetry API</td><td>2 (max 5)</td><td>0.5/1GB</td><td>Private</td><td>DISABLED</td><td>CPU&gt;70%, mem&gt;75%, ALB p99</td></tr>
+<tr><td>Prediction Worker</td><td>1 (max 5)</td><td>0.5/1GB</td><td>Private</td><td>DISABLED</td><td>Queue age&gt;2min, visible&gt;20</td></tr>
+<tr><td>AI Engine</td><td>2 (max 4)</td><td>0.5/1GB</td><td>Private</td><td>DISABLED</td><td>p95&gt;350ms, p99&gt;500ms, CPU&gt;70%</td></tr>
+<tr><td>ADOT Collector</td><td>1</td><td>0.5/1GB</td><td>Private</td><td>DISABLED</td><td>N/A (self-managed)</td></tr>
+</tbody>
+</table>
+
+<h3>4.2 Managed Services</h3>
+<table>
+<thead><tr><th>Service</th><th>Resource</th><th>Purpose</th><th>Retention</th></tr></thead>
+<tbody>
+<tr><td>AMP</td><td>workspace <code>tf4-cdo04-telemetry</code></td><td>Prometheus-compatible TSDB; remote_write + query_range</td><td>150 ngày</td></tr>
+<tr><td>DynamoDB</td><td><code>foresight-audit-log</code> + policy table</td><td>Audit every prediction/fallback; service policy config</td><td>90 ngày TTL</td></tr>
+<tr><td>SQS</td><td><code>prediction-jobs</code> + DLQ</td><td>Source 4-day, DLQ 14-day, visibility 180s, maxReceiveCount 5</td><td>4/14 ngày</td></tr>
+<tr><td>S3</td><td><code>tf4-cdo04-evidence</code></td><td>AI baseline JSON, evidence export, raw failure buffer</td><td>Evidence 90d; buffer 7d</td></tr>
+<tr><td>CloudWatch Logs</td><td>App logs + AI audit logs</td><td>App 14d; AI audit 365d KMS encrypted</td><td>14/365 ngày</td></tr>
+<tr><td>SNS</td><td><code>tf4-cdo04-high-risk-alerts</code></td><td>Email alerts: high-risk, DLQ, budget, AI SLA breach</td><td>N/A</td></tr>
+</tbody>
+</table>
+
+<h3>4.3 ECS Service Connect (Worker &rarr; AI)</h3>
+<p>Prediction Worker gọi AI Engine qua <strong>ECS Service Connect service name</strong> trong private subnets:</p>
+<pre><code>http://ai-engine:8080/v1/predict</code></pre>
+<ul>
+  <li>Không cần Route 53/private DNS cho luồng AI.</li>
+  <li>Không cần internal ALB cho AI endpoint.</li>
+  <li>Worker lấy service name/timeout từ Secrets Manager/SSM config.</li>
+  <li>AI Engine middleware/sidecar verify IAM SigV4 canonical request (W12 final).</li>
+</ul>
+
+<h3>4.4 AMP Data Model</h3>
+<table>
+<thead><tr><th>Khái niệm</th><th>Giá trị</th></tr></thead>
+<tbody>
+<tr><td>Metric names</td><td><code>api_latency_ms</code>, <code>cpu_usage_percent</code>, <code>memory_usage_percent</code>, <code>queue_depth</code>, <code>active_connections</code>, <code>db_connection_pool_pct</code>, <code>cache_hit_rate_pct</code></td></tr>
+<tr><td>Labels bắt buộc</td><td><code>tenant_id</code>, <code>service_id</code>, <code>env</code>, <code>region</code>, <code>service_tier</code></td></tr>
+<tr><td>Labels theo signal</td><td><code>db_type</code>, <code>queue_name</code>, <code>cache_type</code></td></tr>
+<tr><td><strong>Cấm dùng</strong></td><td><code>request_id</code>, <code>trace_id</code>, <code>prediction_id</code>, <code>user_id</code>, raw endpoint path</td></tr>
+</tbody>
+</table>
+
+<h3>4.5 DynamoDB Audit Schema</h3>
+<pre><code>PK: tenant_id
+SK: service_time
+GSI prediction-index:
+  PK: prediction_status
+  SK: prediction_timestamp
+
+Audit record fields:
+prediction_id, timestamp, tenant_id, service_id,
+prediction_source (ai_model | static_threshold_fallback),
+anomaly, severity, reasoning,
+recommendation.action_verb, recommendation.target,
+recommendation.from_to, recommendation.confidence,
+recommendation.evidence_link, audit_id,
+ai_status_code, ai_latency_ms,
+deployment_version, baseline_version,
+expires_at_epoch (TTL 90 ngày)</code></pre>
+
+<h3>4.6 Service Policy Schema (DynamoDB)</h3>
+<pre><code>{
+  "tenant_id": "demo-tenant-001",
+  "service_id": "kyc-worker",
+  "enabled_metrics": ["queue_depth", "api_latency_ms", "cpu_usage_percent"],
+  "prediction_interval_minutes": 5,
+  "quota_tier": "basic",
+  "baseline_version": "2026-06-26-v1",
+  "fallback_rules": [{
+    "metric_type": "queue_depth",
+    "operator": "&gt;",
+    "threshold": 5000,
+    "duration_minutes": 10,
+    "risk_level": "high",
+    "recommendation": "Increase kyc-worker concurrency from 20 to 40"
+  }]
+}</code></pre>
+
+<!-- ================================================================ -->
+<h2 id="lenh-van-hanh">5. Lệnh &amp; Vận Hành (Commands &amp; Operations)</h2>
+
+<h3>5.1 Terraform Commands</h3>
+<pre><code># Bootstrap (chạy 1 lần/account)
+cd infra/bootstrap
+terraform init
+terraform plan
+terraform apply
+
+# Main platform (sau bootstrap)
+cd infra/terraform
+terraform init -backend-config="environment=sandbox"
+terraform plan
+terraform apply
+
+# Format &amp; validate
+terraform fmt -recursive -check
+terraform validate</code></pre>
+
+<h3>5.2 PromQL Queries (AMP)</h3>
+<pre><code># Worker hot path: query_range 120 phút
+api_latency_ms{
+  tenant_id="demo-tenant-001",
+  service_id="payment-gateway",
+  env="prod",
+  region="us-east-1"
+}
+
+# Bắt buộc: filter tenant_id, service_id, metric name, time window
+# Step: 60s để dựng 1-minute buckets
+# KHÔNG dùng avg_over_time(...[120m]) cho AI input
+# Aggregate PromQL chỉ dùng cho dashboard/evidence summary</code></pre>
+
+<h3>5.3 AI API Call</h3>
+<pre><code>POST http://ai-engine:8080/v1/predict
+Headers:
+  Authorization: AWS4-HMAC-SHA256 Credential=... (IAM SigV4)
+  X-Tenant-Id: demo-tenant-001
+  Content-Type: application/json
+
+Body:
+{
+  "signal_window": [
+    {"tenant_id":"...", "service_id":"...", "timestamp":"...",
+     "metric_name":"api_latency_ms", "value": 245.3, "unit":"ms"},
+    ... 120+ 1-minute buckets per metric
+  ]
+}
+
+Response (expected contract):
+{
+  "anomaly": true,
+  "severity": "high",
+  "reasoning": "...",
+  "recommendation": {
+    "action_verb": "scale_out",
+    "target": "payment-gateway",
+    "from_to": "2 to 4 tasks",
+    "confidence": 0.87,
+    "evidence_link": "..."
+  },
+  "audit_id": "..."
+}</code></pre>
+
+<h3>5.4 Worker Flow (pseudo)</h3>
+<pre><code>1. sqs.receive_message(WaitTimeSeconds=20, MaxNumberOfMessages=1)
+2. PromQL query_range(start, end, step=60s) từ AMP → 120-min window
+3. Align 1-minute buckets; forward-fill/zero-fill missing
+4. Nếu window &lt;120 phút hoặc imputation vượt ngưỡng → static fallback
+5. POST ai-engine:8080/v1/predict (SigV4)
+6. Nếu timeout/5xx/invalid schema → static threshold fallback
+7. dynamodb.put_item(audit_record)
+8. Nếu severity==high → sns.publish(alert)
+9. sqs.delete_message()
+10. Error recovery: retry 5 lần → DLQ</code></pre>
+
+<h3>5.5 AI Error Handling Matrix</h3>
+<table>
+<thead><tr><th>HTTP Status</th><th>Hành động</th></tr></thead>
+<tbody>
+<tr><td><code>400 Bad Request</code></td><td>Không retry &rarr; fallback + engineering alert</td></tr>
+<tr><td><code>401 Unauthorized</code></td><td>Refresh/re-sign credential &rarr; retry once</td></tr>
+<tr><td><code>429 Too Many Requests</code></td><td>Exponential backoff 1s &rarr; 2s &rarr; 4s</td></tr>
+<tr><td><code>503 / 5xx / timeout</code></td><td>Static threshold fallback (sau max 5 retries)</td></tr>
+</tbody>
+</table>
+
+<h3>5.6 Post-Test Cleanup</h3>
+<pre><code># Force new ECS deployment (clear memory leak SC-03)
+aws ecs update-service \
+  --cluster foresight-staging \
+  --service ledger-service \
+  --force-new-deployment \
+  --region us-east-1
+
+# Purge SQS queues (SC-04)
+aws sqs purge-queue --queue-url $KYC_SQS_URL --region us-east-1
+aws sqs purge-queue --queue-url $KYC_DLQ_URL --region us-east-1</code></pre>
+
+<h3>5.7 Rollback Commands</h3>
+<pre><code># ECS rolling deployment circuit breaker (tự động)
+# - ECS tự rollback task definition nếu deployment không steady-state
+# - Hoặc manual:
+aws ecs update-service \
+  --cluster tf4-cdo04-sandbox \
+  --service ai-engine \
+  --task-definition ai-engine:&lt;previous-revision&gt; \
+  --region us-east-1
+
+# Terraform rollback
+git revert &lt;bad-commit&gt;
+terraform plan
+terraform apply</code></pre>
+
+<!-- ================================================================ -->
+<h2 id="qa-evidence">6. QA &amp; Evidence</h2>
+
+<h3>6.1 Test Scenarios (4 kịch bản synthetic)</h3>
+<table>
+<thead><tr><th>Scenario</th><th>Service</th><th>Load Profile</th><th>Mục tiêu</th></tr></thead>
+<tbody>
+<tr><td><strong>SC-01 Gradual Drift</strong></td><td>ledger-service</td><td>Ramp 200 &rarr; 1,500 RPS trong 45 phút</td><td>Suy giảm hiệu năng dần: p99 latency, AMP remote_write</td></tr>
+<tr><td><strong>SC-02 Sudden Spike</strong></td><td>payment-gateway</td><td>Burst 200 &rarr; 4,500 RPS trong 30s, duy trì 5 phút</td><td>Đột biến tải tức thời, test scale-out + circuit breaker</td></tr>
+<tr><td><strong>SC-03 Slow Leak</strong></td><td>ledger-service</td><td>Soak 800 RPS trong 2 tiếng</td><td>Memory/thread leak tích lũy, OOM risk</td></tr>
+<tr><td><strong>SC-04 Noisy Baseline &amp; AI Down</strong></td><td>kyc-worker</td><td>Răng cưa 100 &rarr; 2,000 RPS + inject AI timeout</td><td>Queue backlog, Fallback Engine kích hoạt đúng ngưỡng</td></tr>
+</tbody>
+</table>
+
+<h3>6.2 TF4 KPI Targets</h3>
+<table>
+<thead><tr><th>KPI</th><th>Target</th><th>Stretch</th></tr></thead>
+<tbody>
+<tr><td>Detection Latency</td><td>&le; 5 phút</td><td>&mdash;</td></tr>
+<tr><td>SLO Breach Lead Time</td><td>&ge; 15 phút</td><td>30 phút</td></tr>
+<tr><td>False Positive Rate (FP)</td><td>&le; 12%</td><td>&le; 10%</td></tr>
+<tr><td>Anomaly Catch Rate</td><td>&ge; 80%</td><td>&ge; 90%</td></tr>
+<tr><td>Fallback Activation Rate</td><td>100% khi AI timeout &gt;2s</td><td>&mdash;</td></tr>
+<tr><td>Audit Decision Coverage</td><td>100%</td><td>&mdash;</td></tr>
+</tbody>
+</table>
+
+<h3>6.3 Alarms (10 minimum)</h3>
+<table>
+<thead><tr><th>Alarm</th><th>Điều kiện</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>DLQ depth</td><td><code>ApproximateNumberOfMessagesVisible &gt; 0</code></td><td>SNS</td></tr>
+<tr><td>Queue age</td><td><code>ApproximateAgeOfOldestMessage &gt; 2 phút</code></td><td>SNS + scale worker</td></tr>
+<tr><td>Fallback rate</td><td>Fallback tăng bất thường 15 phút</td><td>SNS</td></tr>
+<tr><td>AI service unhealthy</td><td>Healthy AI task &lt;2, health check fail</td><td>SNS + rollback AI</td></tr>
+<tr><td>AI latency SLA</td><td>p99 &gt; 500ms trong 5 phút</td><td>SNS + review sizing</td></tr>
+<tr><td>Audit write failure</td><td>&gt;0 trong 5 phút</td><td>SNS</td></tr>
+<tr><td>AMP remote_write/query failure</td><td>&gt;0 hoặc 429/throttle</td><td>SNS + replay/fallback</td></tr>
+<tr><td>ALB 5xx / platform p99</td><td>p99 &gt; 800ms hoặc 5xx &gt; 1%</td><td>SNS + rollback</td></tr>
+<tr><td>Budget</td><td>50%, 80%, 100% của $200</td><td>SNS email</td></tr>
+<tr><td>Failure buffer age</td><td>S3 object chưa replay &gt;5 phút</td><td>SNS + runbook</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+<strong>Lưu ý:</strong> Số liệu actual (Measured/Achieved) cho test SC-01 đến SC-04 sẽ được điền sau khi chạy thực tế trong Tuần 12 (W12 Day 5). Báo cáo hiện tại ở dạng skeleton với hypothesis thiết kế.
+</div>
+
+<h3>6.4 Security Tests (Planned)</h3>
+<ul>
+  <li>Public <code>/v1/ingest</code> auth/schema bypass attempt</li>
+  <li>Cross-tenant data leak (AMP labels, DynamoDB audit, S3 evidence)</li>
+  <li>SQL injection / NoSQL injection</li>
+  <li>IAM privilege escalation giữa ECS Task roles</li>
+  <li>Secret/SigV4 exposure via logs</li>
+  <li>Vulnerability scan: Gitleaks (secret leak) + Trivy (image vuln)</li>
+</ul>
+
+<h3>6.5 Multi-Tenant Isolation Tests</h3>
+<table>
+<thead><tr><th>Test</th><th>Expected Result</th></tr></thead>
+<tbody>
+<tr><td>Tenant A reads Tenant B data via API</td><td>403 Forbidden</td></tr>
+<tr><td>Cross-tenant queue contamination</td><td>Audit log catches mismatch</td></tr>
+<tr><td>AMP label isolation</td><td>Empty result for other tenant</td></tr>
+<tr><td>DB/DLQ row-level isolation</td><td>No cross-tenant data</td></tr>
+</tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="tradeoff">7. Trade-off &amp; Architecture Decision Records</h2>
+
+<h3>7.1 ADR Summary</h3>
+<table>
+<thead><tr><th>ADR</th><th>Quyết định</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>ADR-001</td><td>Chọn SLO Early-Warning Control Plane làm platform angle</td><td>Accepted</td></tr>
+<tr><td>ADR-002</td><td>Chọn Balanced Prediction Mode (5-min cadence, 120-min lookback)</td><td>Accepted</td></tr>
+<tr><td>ADR-003</td><td>Chọn Fail-open Static Threshold Fallback khi AI unavailable</td><td>Accepted</td></tr>
+<tr><td>ADR-004</td><td>Timestream làm telemetry store (đã bị thay thế)</td><td>Superseded by ADR-011</td></tr>
+<tr><td>ADR-005</td><td>Chọn ECS Fargate thay vì Lambda cho API và Worker</td><td>Accepted</td></tr>
+<tr><td>ADR-006</td><td>Chọn EventBridge Scheduler + SQS + DLQ cho orchestration</td><td>Accepted</td></tr>
+<tr><td>ADR-007</td><td>Chọn DynamoDB làm prediction decision audit store</td><td>Accepted</td></tr>
+<tr><td>ADR-008</td><td>Chọn 1 NAT Gateway + S3/DynamoDB Gateway Endpoints</td><td>Accepted</td></tr>
+<tr><td>ADR-009</td><td>Host AI Engine on ECS Fargate in Singapore (đã bị thay thế)</td><td>Superseded by ADR-011</td></tr>
+<tr><td>ADR-010</td><td>Timestream for InfluxDB in ap-southeast-1 (đã bị thay thế)</td><td>Superseded by ADR-011</td></tr>
+<tr><td><strong>ADR-011</strong></td><td><strong>Adopt AMP in us-east-1 with x86 ECS Fargate</strong></td><td><strong>Accepted</strong></td></tr>
+</tbody>
+</table>
+
+<h3>7.2 Trade-off Chính Được Chấp Nhận</h3>
+
+<h4>Trade-off 1: ECS Fargate vs Lambda</h4>
+<table>
+<thead><tr><th></th><th>ECS Fargate</th><th>Lambda</th></tr></thead>
+<tbody>
+<tr><th>Ưu điểm</th><td>Container workflow, task role riêng, health check, autoscaling, production-like</td><td>Rẻ hơn traffic thấp, scale tự động, ít vận hành</td></tr>
+<tr><th>Nhược điểm</th><td>Fixed cost cao hơn, cần cấu hình ALB, task definition, networking</td><td>Cold start, p99 khó ổn định, không cùng container workflow với AI team</td></tr>
+<tr><th>Quyết định</th><td colspan="2"><strong>✅ ECS Fargate.</strong> Align với client production environment. CDO phải chứng minh container deployment, task role, health check, rollback, autoscaling.</td></tr>
+</tbody>
+</table>
+
+<h4>Trade-off 2: AMP vs Timestream for InfluxDB</h4>
+<table>
+<thead><tr><th></th><th>AMP (us-east-1)</th><th>Timestream for InfluxDB (ap-southeast-1)</th></tr></thead>
+<tbody>
+<tr><th>Cost</th><td>~$0.00/tháng (demo volume)</td><td>~$103.66/tháng (db.influx.medium)</td></tr>
+<tr><th>Query</th><td>PromQL (query_range)</td><td>Flux</td></tr>
+<tr><th>Auth</th><td>IAM/SigV4</td><td>InfluxDB tokens in Secrets Manager</td></tr>
+<tr><th>Retention</th><td>150-day default</td><td>90-day bucket target</td></tr>
+<tr><th>Budget fit</th><td>✅ $158.16/tháng</td><td>❌ $296.04/tháng</td></tr>
+</tbody>
+</table>
+<div class="callout info">
+<strong>Quyết định (ADR-011):</strong> Chuyển từ Singapore + Timestream for InfluxDB sang <strong>us-east-1 + AMP</strong>. Đây là quyết định cost-driven: giữ nguyên toàn bộ kiến trúc control-plane nhưng thay đổi region và TSDB để fit hard budget $200/tháng.
+</div>
+
+<h4>Trade-off 3: 1 NAT Gateway vs Full Interface VPCE</h4>
+<table>
+<thead><tr><th></th><th>1 NAT + Gateway Endpoints</th><th>Full Interface VPCE no-NAT</th></tr></thead>
+<tbody>
+<tr><th>Cost</th><td>~$33.39/tháng</td><td>+~$73-117/tháng (5-8 endpoints)</td></tr>
+<tr><th>Security</th><td>Private tasks + IAM least privilege + TLS</td><td>Private-only access tuyệt đối</td></tr>
+<tr><th>Quyết định</th><td colspan="2"><strong>✅ 1 zonal NAT + S3/DDB Gateway Endpoints.</strong> Best cost-security fit cho capstone traffic thấp. Production hardening có thể bổ sung AMP PrivateLink.</td></tr>
+</tbody>
+</table>
+
+<h4>Trade-off 4: Dashboard-only vs Control Plane</h4>
+<p>Dashboard-only rẻ hơn tuyệt đối, nhưng <strong>không giải quyết đúng pain point</strong> của client: không có người nhìn dashboard 24/7, static threshold dễ quá nhạy hoặc quá trễ. Control plane phức tạp hơn (cần scheduler, queue, worker, TSDB, audit DB, alert path) nhưng đáp ứng trực tiếp lead time &ge;15 phút, recommendation cụ thể, audit every prediction call, fallback khi AI unavailable.</p>
+
+<h4>Trade-off 5: ARM64/Graviton vs x86</h4>
+<p>ARM64 có thể giảm compute cost nhưng giữ <strong>x86 làm accepted decision</strong> cho compatibility và contract stability. ARM64 là future optimization.</p>
+
+<!-- ================================================================ -->
+<h2 id="bao-mat">8. Bảo Mật (Security)</h2>
+
+<h3>8.1 Security Groups</h3>
+<table>
+<thead><tr><th>Security Group</th><th>Inbound</th><th>Outbound</th></tr></thead>
+<tbody>
+<tr><td><code>tf4-cdo04-alb-sg</code></td><td>443 từ explicit <code>allowed_ingress_cidrs</code></td><td>8080 &rarr; ingest-sg</td></tr>
+<tr><td><code>tf4-cdo04-ingest-sg</code></td><td>8080 từ alb-sg</td><td>443 &rarr; AWS service endpoints</td></tr>
+<tr><td><code>tf4-cdo04-worker-sg</code></td><td>Không cần inbound</td><td>443 &rarr; AWS services; app port &rarr; AI Engine Service Connect</td></tr>
+<tr><td><code>tf4-cdo04-ai-engine-sg</code></td><td>App port từ worker-sg/Service Connect + <code>/health</code></td><td>443 &rarr; CloudWatch/Secrets/ECR/S3</td></tr>
+</tbody>
+</table>
+
+<h3>8.2 IAM Roles (Least Privilege)</h3>
+<table>
+<thead><tr><th>Role</th><th>Used By</th><th>Key Permissions</th></tr></thead>
+<tbody>
+<tr><td><code>tf4-cdo04-ingest-task-role</code></td><td>Telemetry API / Collector</td><td><code>aps:RemoteWrite</code>, optional <code>s3:PutObject</code> vào failure-buffer prefix</td></tr>
+<tr><td><code>tf4-cdo04-prediction-worker-role</code></td><td>Prediction Worker</td><td>SQS receive/delete, <code>aps:QueryMetrics</code>, DynamoDB Get/Put, SNS publish, Secrets Manager read, KMS decrypt, IAM SigV4 sign to AI</td></tr>
+<tr><td><code>tf4-cdo04-ai-engine-task-role</code></td><td>AI Engine</td><td><code>s3:GetObject</code> baseline prefix, <code>kms:Decrypt</code>, CloudWatch logs/metrics</td></tr>
+<tr><td><code>tf4-cdo04-terraform-deploy-role</code></td><td>GitHub Actions CI</td><td>Create/update/delete resources scope <code>tf4-cdo04-*</code></td></tr>
+<tr><td><code>tf4-cdo04-task-execution-role</code></td><td>ECS Agent</td><td>Pull ECR image, CloudWatch logs, read injected secrets</td></tr>
+</tbody>
+</table>
+
+<h3>8.3 Auth giữa các Service</h3>
+<ul>
+  <li><strong>Ingest:</strong> Bearer token từ Secrets Manager + <code>X-Tenant-Id</code> header.</li>
+  <li><strong>Worker &rarr; AI:</strong> IAM SigV4 (W12 final enforce). W11 mock optional <code>Authorization</code>.</li>
+  <li><strong>AMP write/query:</strong> IAM/SigV4 với scoped workspace permissions.</li>
+  <li><strong>GitHub Actions &rarr; AWS:</strong> OIDC + <code>sts:AssumeRoleWithWebIdentity</code>. Không static access key.</li>
+</ul>
+
+<h3>8.4 Encryption</h3>
+<table>
+<thead><tr><th>Data</th><th>At Rest</th><th>In Transit</th></tr></thead>
+<tbody>
+<tr><td>Time-series (AMP)</td><td>AWS-managed encryption</td><td>HTTPS + IAM SigV4</td></tr>
+<tr><td>Audit log (DynamoDB)</td><td>SSE enabled</td><td>HTTPS (AWS SDK)</td></tr>
+<tr><td>AI internal audit (CW Logs)</td><td>KMS encrypted</td><td>HTTPS</td></tr>
+<tr><td>Evidence/Baseline (S3)</td><td>SSE-S3 or SSE-KMS</td><td>HTTPS</td></tr>
+<tr><td>Secrets (Secrets Manager)</td><td>KMS-backed encryption</td><td>HTTPS</td></tr>
+<tr><td>Container images (ECR)</td><td>ECR encryption at rest</td><td>HTTPS</td></tr>
+</tbody>
+</table>
+
+<h3>8.5 Anti-Patterns (Cấm Dùng)</h3>
+<ul>
+  <li><code>Action: "*"</code> + <code>Resource: "*"</code> trong IAM policy</li>
+  <li><code>AdministratorAccess</code> managed policy</li>
+  <li>Long-lived AWS access key trong container</li>
+  <li>Hardcode credential/secret/token trong code</li>
+  <li>High-cardinality Prometheus labels (<code>request_id</code>, <code>trace_id</code>, <code>prediction_id</code>, <code>user_id</code>)</li>
+  <li>PII trong metric, audit key hoặc Prometheus labels</li>
+  <li>Public ALB <code>0.0.0.0/0</code> trong non-sandbox environments</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="chi-phi">9. Phân Tích Chi Phí (Cost Analysis)</h2>
+
+<h3>9.1 Final Cost Model (us-east-1 + AMP)</h3>
+<table>
+<thead><tr><th>Component</th><th>Monthly</th><th>% of Total</th></tr></thead>
+<tbody>
+<tr><td>ECS Fargate x86 (5 tasks)</td><td>$90.10</td><td>57.0%</td></tr>
+<tr><td>NAT Gateway (1 zonal + 12GB)</td><td>$33.39</td><td>21.1%</td></tr>
+<tr><td>Public ALB + 1 LCU</td><td>$22.27</td><td>14.1%</td></tr>
+<tr><td>CloudWatch + SNS</td><td>$8.00</td><td>5.1%</td></tr>
+<tr><td>Secrets Manager + KMS</td><td>$3.40</td><td>2.1%</td></tr>
+<tr><td>S3 evidence/buffer</td><td>$0.35</td><td>0.2%</td></tr>
+<tr><td>ECR</td><td>$0.50</td><td>0.3%</td></tr>
+<tr><td>DynamoDB audit/policy</td><td>$0.10</td><td>0.1%</td></tr>
+<tr><td>EventBridge + SQS/DLQ</td><td>$0.05</td><td>~0%</td></tr>
+<tr><td>AMP workspace</td><td>~$0.00</td><td>~0%</td></tr>
+<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td>~$158.16</td><td>100%</td></tr>
+<tr style="font-weight:700"><td>+20% ops buffer</td><td>~$189.79</td><td></td></tr>
+</tbody>
+</table>
+
+<h3>9.2 Volume Model</h3>
+<table>
+<thead><tr><th>Metric</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Prediction cadence</td><td>5 minutes</td></tr>
+<tr><td>Lookback window per AI call</td><td>120 minutes</td></tr>
+<tr><td>Monthly prediction cycles</td><td>~25,920 (3 services &times; 12/hr &times; 24hr &times; 30d)</td></tr>
+<tr><td>AMP ingested samples/month</td><td>~907,200 (7 metrics &times; 60min &times; 24hr &times; 30d &times; 3 svc)</td></tr>
+<tr><td>AMP query samples/month</td><td>~21.8M (25,920 cycles &times; 7 metrics &times; 120 samples)</td></tr>
+<tr><td>Cost per prediction cycle</td><td>$0.0061</td></tr>
+<tr><td>Cost per service</td><td>$52.72/month</td></tr>
+</tbody>
+</table>
+
+<h3>9.3 Budget Guardrails (50/80/100 Policy)</h3>
+<table>
+<thead><tr><th>Threshold</th><th>Budget Level</th><th>Action</th></tr></thead>
+<tbody>
+<tr><td>50%</td><td>$100/tháng</td><td>SNS/email warning; confirm synthetic load schedule, CloudWatch log volume and AMP active series.</td></tr>
+<tr><td>80%</td><td>$160/tháng</td><td>Freeze prediction cadence at 5 minutes; review PromQL scoping, high-cardinality labels and DEBUG logs.</td></tr>
+<tr><td>100%</td><td>$200/tháng</td><td>Pause non-critical synthetic load. Keep critical prediction/fallback/audit path active. If AI Engine emergency scale-down, Worker must use static threshold fallback + vẫn ghi audit.</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+<strong>Nguyên tắc cứng:</strong> Không bao giờ tắt DynamoDB audit logging hoặc static threshold fallback vì lý do chi phí.
+</div>
+
+<h3>9.4 Budget-Breaking Changes to Avoid</h3>
+<table>
+<thead><tr><th>Change</th><th>Cost Impact</th></tr></thead>
+<tbody>
+<tr><td>AI chạy 4 tasks full-time (thay vì 2)</td><td>+~$36/tháng</td></tr>
+<tr><td>5 interface endpoints trên 2 AZ</td><td>+~$73/tháng</td></tr>
+<tr><td>8 interface endpoints trên 2 AZ</td><td>+~$116.80/tháng</td></tr>
+<tr><td>AMP managed collector</td><td>+$29.20/tháng mỗi collector</td></tr>
+<tr><td>Service Connect TLS / AWS Private CA</td><td>Thêm CA, cert, Secrets Manager và KMS cost</td></tr>
+</tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="deploy">10. Triển Khai (Deployment)</h2>
+
+<h3>10.1 CI/CD Pipeline (GitHub Actions)</h3>
+<pre><code>PR opened → Doc Check → Lint &amp; Validate → Build → Test → Scan → Plan → Review
+→ Merge → Manual Approval → Apply → Smoke test → AMP validate</code></pre>
+
+<table>
+<thead><tr><th>Stage</th><th>Tool</th><th>Quality Gate</th></tr></thead>
+<tbody>
+<tr><td>Doc Check</td><td>Markdown-lint</td><td>No syntax errors, no broken links</td></tr>
+<tr><td>Lint &amp; Validate</td><td>Terraform CLI</td><td><code>fmt -check</code> + <code>validate</code> pass</td></tr>
+<tr><td>Build</td><td>GitHub Actions (Matrix)</td><td>Docker build 3 services thành công</td></tr>
+<tr><td>Test</td><td>Pytest</td><td>Coverage &ge; 80%</td></tr>
+<tr><td>Scan</td><td>Gitleaks + Trivy</td><td>0 leak detected, 0 CRITICAL vuln</td></tr>
+<tr><td>Plan</td><td>Terraform CLI</td><td>Plan reviewed and displayed on PR</td></tr>
+<tr><td>Review &amp; Merge</td><td>GitHub PR</td><td>&ge; 1 approval from designated reviewer</td></tr>
+<tr><td>Manual Approval</td><td>GitHub Environments</td><td>Required for Production</td></tr>
+<tr><td>Apply</td><td>Terraform CLI</td><td>100% resource applied</td></tr>
+<tr><td>Smoke Test</td><td>Custom Python script</td><td>HTTP 200 OK health check</td></tr>
+<tr><td>AMP Validate</td><td>Custom script / PromQL</td><td>Sample ingested, query trả đủ 120-min window</td></tr>
+</tbody>
+</table>
+
+<h3>10.2 Branch Strategy</h3>
+<ul>
+  <li><code>main</code> = Production ổn định (demo chính thức)</li>
+  <li><code>develop</code> = Integration (W11-W12 dev liên tục)</li>
+  <li><code>feature/*</code> = Feature branches tách từ <code>develop</code></li>
+  <li>PR bắt buộc với &ge; 1 approval trước merge</li>
+</ul>
+
+<h3>10.3 Sync Waves (Deployment Order)</h3>
+<table>
+<thead><tr><th>Wave</th><th>Components</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>Networking (VPC, Subnets, SG)</td><td>Hạ tầng mạng cơ bản</td></tr>
+<tr><td>1</td><td>Database &amp; Queue (DynamoDB, SQS)</td><td>Nơi lưu trữ và truyền tin</td></tr>
+<tr><td>2</td><td>Observability Core (CloudWatch, SNS)</td><td>Giám sát và alert sẵn sàng nhận log/metric</td></tr>
+<tr><td>3</td><td>Compute Layer (ECS, Fargate Tasks)</td><td>Môi trường tính toán chứa container</td></tr>
+<tr><td>4</td><td>Ingress + Service Routing</td><td>Public ALB + Service Connect</td></tr>
+</tbody>
+</table>
+
+<h3>10.4 Deployment Strategy</h3>
+<ul>
+  <li><strong>ECS rolling deployment circuit breaker</strong> cho Telemetry API, Prediction Worker và AI Engine.</li>
+  <li><strong>Rollback tự động</strong> nếu deployment mới không steady-state hoặc health check fail.</li>
+  <li><strong>Immutable image tags:</strong> Git SHA (<code>${{ github.sha }}</code>) không bị ghi đè.</li>
+  <li><strong>AI canary abort criteria</strong> (post-MVP): error rate &gt;1%, p99 latency &gt;800ms, capacity exhaustion deviation &gt;15%.</li>
+</ul>
+
+<h3>10.5 Environment Separation</h3>
+<table>
+<thead><tr><th>Env</th><th>Purpose</th><th>Auto-deploy Trigger</th><th>Protection</th></tr></thead>
+<tbody>
+<tr><td>Sandbox</td><td>Thử nghiệm IaC độc lập</td><td>Manual / feature branch</td><td>None</td></tr>
+<tr><td>Staging</td><td>Tích hợp E2E CDO + AI Engine</td><td>Merge PR vào <code>develop</code></td><td>PR review</td></tr>
+<tr><td>Prod</td><td>Demo final trước Panel</td><td>Merge PR vào <code>main</code></td><td>Required Reviewers + Manual Approval</td></tr>
+</tbody>
+</table>
+
+<h3>10.6 Peer Review Matrix</h3>
+<table>
+<thead><tr><th>Reviewer</th><th>Reviews cho</th></tr></thead>
+<tbody>
+<tr><td>Hoàng</td><td>Tín (Security Design), Vinh (Terraform), Ninh (Observability)</td></tr>
+<tr><td>An</td><td>Ninh (Test/Cost), Hoàng (CI/CD Deployment)</td></tr>
+<tr><td>Vinh</td><td>Tuấn (Infrastructure Design)</td></tr>
+<tr><td>An + Hoàng (co-review)</td><td>Final Docs trước code freeze</td></tr>
+</tbody>
+</table>
+
+<h3>10.7 Pipeline Security Features</h3>
+<ul>
+  <li><strong>OIDC</strong> (không static access key): GitHub Actions assume IAM role qua <code>sts:AssumeRoleWithWebIdentity</code>.</li>
+  <li><strong>Permissions block tối thiểu:</strong> <code>id-token: write</code> + <code>contents: read</code>.</li>
+  <li><strong>Gitleaks scan</strong> trên mọi PR: tự động fail nếu phát hiện secret pattern.</li>
+  <li><strong>Concurrency control:</strong> <code>cancel-in-progress: false</code> để tránh đụng độ AWS resource.</li>
+  <li><strong>Dependency caching:</strong> <code>actions/setup-python@v5</code> với <code>cache: pip</code>.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="tong-ket">11. Tổng Kết</h2>
+
+<h3>11.1 Điểm Mạnh Của Thiết Kế</h3>
+<ol>
+  <li><strong>Fit hard budget $200/tháng</strong> với full-month x86 design + 20% buffer ($189.79/tháng).</li>
+  <li><strong>Đáp ứng trực tiếp NFR</strong>: lead time &ge;15 phút, FP rate &le;12%, drift catch &ge;80%, audit every prediction, fallback khi AI unavailable.</li>
+  <li><strong>3-tier evidence model:</strong> AMP metric evidence + CloudWatch visualization evidence + DynamoDB decision evidence.</li>
+  <li><strong>Private AI serving:</strong> Worker &rarr; AI qua ECS Service Connect trong VPC, không public internet.</li>
+  <li><strong>Least-privilege IAM:</strong> Mỗi ECS service có task role riêng, scope theo resource cụ thể.</li>
+  <li><strong>Production-like deployment:</strong> Terraform + GitHub Actions OIDC + ECS rolling deployment circuit breaker.</li>
+  <li><strong>Cost guard 50/80/100:</strong> AWS Budget alarm + rule "không tắt audit/fallback".</li>
+</ol>
+
+<h3>11.2 Rủi Ro &amp; Mitigation</h3>
+<table>
+<thead><tr><th>Rủi ro</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr><td>AMP cardinality tăng đột biến</td><td>Label guardrail; bounded samples/event; PromQL filter tenant/service/metric/time.</td></tr>
+<tr><td>Service Connect proxy headroom</td><td>Monitor proxy CPU/memory; upsize task nếu cần (đã có 20% buffer).</td></tr>
+<tr><td>Static fallback false positive</td><td>Fallback chỉ dùng khi AI unavailable; audit ghi rõ <code>prediction_source=static_threshold_fallback</code>.</td></tr>
+<tr><td>DynamoDB hot partition</td><td>Partition key = tenant_id; GSI tra cứu prediction; capped 3 services in demo.</td></tr>
+<tr><td>50k events/sec ceiling</td><td>Phụ thuộc samples/event và label cardinality; không tự động claim trong demo.</td></tr>
+</tbody>
+</table>
+
+<h3>11.3 Next Steps (W12)</h3>
+<ol>
+  <li>Build &amp; push Docker images (Telemetry API, Prediction Worker, AI Engine) lên ECR.</li>
+  <li>Deploy infrastructure qua Terraform (<code>enable_services = true</code>).</li>
+  <li>Chạy 4 scenario test (SC-01 &rarr; SC-04) trên staging, điền số liệu actual.</li>
+  <li>Integrate với real AI endpoint, enforce SigV4 trong AI Engine middleware.</li>
+  <li>Chạy security tests: cross-tenant isolation, penetration touch points, vulnerability scan.</li>
+  <li>Thu thập evidence: CloudWatch dashboard screenshots, AMP query results, DynamoDB audit records.</li>
+  <li>Code freeze T5 02/07/2026 8h.</li>
+</ol>
+
+<h3>11.4 Related Repo Paths</h3>
+<table>
+<thead><tr><th>Path</th><th>Content</th></tr></thead>
+<tbody>
+<tr><td><code>docs/01_requirements_analysis.md</code></td><td>Requirements, NFR, angle, constraints</td></tr>
+<tr><td><code>docs/02_infra_design.md</code></td><td>Architecture, component table, scaling, failure modes</td></tr>
+<tr><td><code>docs/03_security_design.md</code></td><td>Network SG, IAM, secrets, encryption, audit</td></tr>
+<tr><td><code>docs/04_deployment_design.md</code></td><td>CI/CD, IaC, sync waves, rollback</td></tr>
+<tr><td><code>docs/05_cost_analysis.md</code></td><td>Budget model, guardrails, NAT vs VPCE</td></tr>
+<tr><td><code>docs/07_test_eval_report.md</code></td><td>Test scenarios, SLO evidence, security test plan</td></tr>
+<tr><td><code>docs/08_adrs.md</code></td><td>11 Architecture Decision Records</td></tr>
+<tr><td><code>infra/bootstrap/</code></td><td>Terraform S3 state + GitHub OIDC bootstrap</td></tr>
+<tr><td><code>infra/terraform/</code></td><td>Main Terraform root + 4 modules</td></tr>
+<tr><td><code>src/mock-e2e/app.py</code></td><td>Mock E2E app (api/worker/ai roles)</td></tr>
+<tr><td><code>contracts/</code></td><td>AI contracts (telemetry, api, deployment)</td></tr>
+<tr><td><code>evidence/</code></td><td>Screenshots, logs, reports, curveball responses</td></tr>
+</tbody>
+</table>
+
+<hr style="margin:40px 0 20px;border-color:var(--border)">
+<p style="color:var(--text-muted);font-size:.82rem">
+<strong>TF4 CDO-04 &mdash; Infrastructure Session Document.</strong>
+Ngày tạo: 2026-06-28. Tổng hợp từ toàn bộ source files trong repository
+<code>C:/Users/thanh/Desktop/workspace/phase2-capstone/tf4-cdo04-repo</code>.
+Self-contained HTML/CSS. Tiếng Việt với English technical terms.
+</p>
+
+</main>
+</body>
+</html>

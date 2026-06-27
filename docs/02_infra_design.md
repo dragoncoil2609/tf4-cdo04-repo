@@ -35,7 +35,7 @@ Giả định tính chi phí final: region `us-east-1`, 730 giờ/tháng, 2 AZ, 
 | Bảo mật / cấu hình | Secrets Manager + KMS | Lưu service name/config của AI Engine, webhook/tenant token, mã hóa DynamoDB/SQS/Logs bằng KMS, không hardcode credential. AMP write/query dùng IAM SigV4 nên không cần InfluxDB read/write/admin token. | **$3.40/tháng**: conservative secret/KMS estimate. |
 | Kết nối private subnet | NAT Gateway + S3/DynamoDB Gateway Endpoints | 1 zonal NAT cho outbound AWS API traffic không đi qua Gateway Endpoint; S3/DynamoDB dùng Gateway Endpoint miễn phí hourly. AMP PrivateLink là hardening option, không phải MVP. | **$33.39/tháng tại `us-east-1`** = 1 NAT × 730h × $0.045/h + ~12GB × $0.045/GB. |
 | Container registry | Amazon ECR | Lưu private image cho Telemetry API, Prediction Worker và AI Engine; ECS execution role pull image khi deploy/replace task. | **~$0.50/tháng** cho image demo nhỏ. |
-| Bảo vệ public ingest endpoint + AI rate limit | ALB access log + app token bucket + source allowlist cho test traffic; AI contract-equivalent limiter | Public ALB chỉ expose telemetry ingest path. Với AI `/v1/predict`, FastAPI middleware hoặc internal gateway layer phải enforce đúng contract: 600 req/min/tenant, 6000 req/min global và trả `429 Retry-After`. | **$0 AWS fixed cost thêm** ngoài ALB/CloudWatch/S3 log đã tính. |
+| Bảo vệ public ingest endpoint + AI rate limit | Public ALB path allowlist + app token bucket + source allowlist cho test traffic; AI contract-equivalent limiter | Public ALB chỉ expose telemetry ingest path. ALB access logs được defer khỏi Terraform v1 để tránh thêm S3 log bucket/policy trong MVP; bật khi cần audit HTTP chi tiết. Với AI `/v1/predict`, FastAPI middleware hoặc internal gateway layer phải enforce đúng contract: 600 req/min/tenant, 6000 req/min global và trả `429 Retry-After`. | **$0 AWS fixed cost thêm** ngoài ALB/CloudWatch/S3 log đã tính. |
 | **Tổng chi phí** |  | Network path dùng 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB dùng AMP; private Worker → AI dùng ECS Service Connect. | **~$158.16/tháng tại `us-east-1`** cho full always-on x86 design nếu không phải upsize Fargate task cho Service Connect proxy. Thêm 20% buffer vận hành là **~$189.79/tháng**, vẫn dưới hard budget $200. |
 
 Cost guard:
@@ -151,21 +151,21 @@ Access patterns:
 
 | Access pattern | Cách query |
 |---|---|
-| Get prediction by `prediction_id` | Query GSI1 theo `PRED#<prediction_id>` |
-| List predictions by tenant + service + time range | Query table chính theo `PK` và `SK BETWEEN` |
-| List recent decisions by tenant | Query GSI2 theo tenant + time |
-| Evidence lookup từ alert link | Alert chứa `prediction_id` hoặc `tenant_id/service_id/window_start` |
+| List predictions by tenant + service/time | Query table chính theo `tenant_id` và `service_time BETWEEN` |
+| List prediction decisions by status/time | Query `prediction-index` theo `prediction_status` và `prediction_timestamp` |
+| Evidence lookup từ alert link | Alert chứa `prediction_id` hoặc `tenant_id/service_time` |
 
-Key design:
+Terraform v1 key design:
 
 ```text
-PK     = TENANT#<tenant_id>#SERVICE#<service_id>
-SK     = TS#<window_start>#PRED#<prediction_id>
-GSI1PK = PRED#<prediction_id>
-GSI1SK = TS#<window_start>
-GSI2PK = TENANT#<tenant_id>
-GSI2SK = TS#<window_start>#SERVICE#<service_id>
+PK  = tenant_id
+SK  = service_time
+GSI = prediction-index
+      PK: prediction_status
+      SK: prediction_timestamp
 ```
+
+Composite `TENANT#...` / `GSI1` / `GSI2` format là post-MVP schema option, không phải Terraform v1 hiện tại.
 
 - Worker chỉ delete SQS message sau khi audit write thành công.
 - TTL CDO decision audit: 90 ngày cho hiện tại. AI internal audit log theo AI API/Deployment Contract phải nằm trong CloudWatch Logs/S3 archive riêng, KMS encrypted, retention **365 ngày**.

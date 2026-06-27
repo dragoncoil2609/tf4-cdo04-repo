@@ -58,6 +58,21 @@ output "adot_collector_service_name" {
   value       = module.compute.adot_collector_service_name
 }
 
+output "telemetry_api_ecr_repository_url" {
+  description = "ECR repository URL for Telemetry API"
+  value       = module.compute.telemetry_api_ecr_repository_url
+}
+
+output "prediction_worker_ecr_repository_url" {
+  description = "ECR repository URL for Prediction Worker"
+  value       = module.compute.prediction_worker_ecr_repository_url
+}
+
+output "ai_engine_ecr_repository_url" {
+  description = "ECR repository URL for AI Engine"
+  value       = module.compute.ai_engine_ecr_repository_url
+}
+
 # -----------------------------------------------------------------------------
 # Data
 # -----------------------------------------------------------------------------

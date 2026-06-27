@@ -49,6 +49,11 @@ output "policy_table_name" {
   value       = aws_dynamodb_table.policy.name
 }
 
+output "policy_table_arn" {
+  description = "DynamoDB policy table ARN"
+  value       = aws_dynamodb_table.policy.arn
+}
+
 # -----------------------------------------------------------------------------
 # SQS -- Prediction queue
 # -----------------------------------------------------------------------------

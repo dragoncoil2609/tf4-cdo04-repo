@@ -172,7 +172,13 @@ def run_worker() -> None:
             print("[worker] wrote DynamoDB", file=sys.stderr, flush=True)
 
             key = f"smoke/{item['prediction_id']}.json"
-            s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(item), ContentType="application/json")
+            s3.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=json.dumps(item),
+                ContentType="application/json",
+                ServerSideEncryption="aws:kms",
+            )
             print(f"[worker] wrote s3://{bucket}/{key}", file=sys.stderr, flush=True)
 
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)

@@ -140,6 +140,11 @@ resource "aws_route_table_association" "private" {
 
 # ----------------------------------------------------------------------------
 # VPC Gateway Endpoints -- S3 and DynamoDB (associated with private RT)
+#
+# Interface endpoints for aps-workspaces, aps, ecr.api, ecr.dkr, logs,
+# monitoring, sts, secretsmanager, sqs, and sns are deferred to avoid fixed
+# hourly cost in the capstone sandbox. NAT remains the outbound bridge for
+# those AWS APIs; IAM and security groups still enforce least privilege.
 # ----------------------------------------------------------------------------
 resource "aws_vpc_endpoint" "s3" {
   vpc_id          = aws_vpc.main.id
@@ -175,12 +180,26 @@ resource "aws_security_group" "alb" {
   description = "Public ALB security group (ingress added by compute module)"
   vpc_id      = aws_vpc.main.id
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow all outbound traffic"
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [1] : []
+    content {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Sandbox: allow all outbound traffic"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 8080
+      to_port     = 8080
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "Non-sandbox: allow ALB to ECS API only"
+    }
   }
 
   tags = {
@@ -202,12 +221,37 @@ resource "aws_security_group" "ecs_api" {
     description     = "Allow HTTP from ALB"
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow all outbound traffic"
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [1] : []
+    content {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Sandbox: allow all outbound traffic"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Non-sandbox: allow HTTPS to SQS, AMP, AWS APIs"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 4318
+      to_port     = 4318
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "Non-sandbox: allow OTLP HTTP to ADOT in VPC"
+    }
   }
 
   tags = {
@@ -221,12 +265,48 @@ resource "aws_security_group" "worker" {
   description = "Prediction Worker ECS tasks security group"
   vpc_id      = aws_vpc.main.id
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow all outbound traffic"
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [1] : []
+    content {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Sandbox: allow all outbound traffic"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Non-sandbox: allow HTTPS to SQS, AMP, SNS, Secrets Manager, AWS APIs"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 8080
+      to_port     = 8080
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "Non-sandbox: allow AI Engine Service Connect target port in VPC"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 4318
+      to_port     = 4318
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "Non-sandbox: allow OTLP HTTP to ADOT in VPC"
+    }
   }
 
   tags = {
@@ -248,12 +328,37 @@ resource "aws_security_group" "ai_engine" {
     description     = "Allow HTTP from Prediction Worker"
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow all outbound traffic"
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [1] : []
+    content {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Sandbox: allow all outbound traffic"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Non-sandbox: allow HTTPS to S3, Secrets Manager, CloudWatch, AWS APIs"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 4318
+      to_port     = 4318
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "Non-sandbox: allow OTLP HTTP to ADOT in VPC"
+    }
   }
 
   tags = {

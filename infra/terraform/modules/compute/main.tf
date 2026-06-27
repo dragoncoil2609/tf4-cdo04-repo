@@ -183,6 +183,7 @@ resource "aws_cloudwatch_log_group" "ai_engine" {
 resource "aws_cloudwatch_log_group" "ai_audit" {
   name              = "${local.log_group_prefix}-ai-engine-audit"
   retention_in_days = 365
+  kms_key_id        = var.evidence_kms_key_arn
 }
 
 resource "aws_cloudwatch_log_group" "adot_collector" {
@@ -357,17 +358,12 @@ resource "aws_iam_role_policy" "prediction_worker_task" {
         Resource = var.amp_workspace_arn
       },
       {
-        # DynamoDB table ARNs use wildcard account ID because the compute module
-        # does not have a data.aws_caller_identity source. This still scopes to
-        # specific table names, providing effective table-level isolation.
-        # Tightening to full account-qualified ARN requires plumbing account ID
-        # through module variables (avoided for v1 simplicity).
         Effect = "Allow"
         Action = ["dynamodb:PutItem", "dynamodb:Query", "dynamodb:GetItem"]
         Resource = [
-          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.audit_table_name}",
-          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.policy_table_name}",
-          "arn:aws:dynamodb:${var.aws_region}:*:table/${var.audit_table_name}/index/prediction-index"
+          var.audit_table_arn,
+          var.policy_table_arn,
+          "${var.audit_table_arn}/index/prediction-index"
         ]
       },
       {
@@ -484,12 +480,26 @@ resource "aws_security_group" "adot_collector" {
     description = "Allow OTLP HTTP from app services"
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Allow all outbound traffic"
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [1] : []
+    content {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Sandbox: allow all outbound traffic"
+    }
+  }
+
+  dynamic "egress" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Non-sandbox: allow HTTPS to AMP and AWS APIs"
+    }
   }
 
   tags = {
@@ -967,23 +977,40 @@ resource "aws_security_group_rule" "alb_ingress_https" {
   description       = "Allow HTTPS from allowed ingress CIDRs"
 }
 
-# HTTP listener: route /v1/ingest to Telemetry API, 404 for everything else
+# HTTP listener: sandbox forwards /v1/ingest; non-sandbox redirects all HTTP to HTTPS.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.public.arn
   port              = 80
   protocol          = "HTTP"
 
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "Not Found"
-      status_code  = "404"
+  dynamic "default_action" {
+    for_each = var.environment == "sandbox" ? [1] : []
+    content {
+      type = "fixed-response"
+      fixed_response {
+        content_type = "text/plain"
+        message_body = "Not Found"
+        status_code  = "404"
+      }
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = var.environment == "sandbox" ? [] : [1]
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
     }
   }
 }
 
 resource "aws_lb_listener_rule" "ingest_path_http" {
+  count = var.environment == "sandbox" ? 1 : 0
+
   listener_arn = aws_lb_listener.http.arn
   priority     = 1
 
@@ -1049,6 +1076,8 @@ resource "aws_lb_listener_rule" "ingest_path_https" {
 # EventBridge Scheduler: Prediction Job every 5 minutes
 # -----------------------------------------------------------------------------
 resource "aws_iam_role" "scheduler" {
+  count = var.enable_services ? 1 : 0
+
   name = "${var.project_name}-${var.environment}-scheduler"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -1063,8 +1092,10 @@ resource "aws_iam_role" "scheduler" {
 }
 
 resource "aws_iam_role_policy" "scheduler" {
+  count = var.enable_services ? 1 : 0
+
   name = "${var.project_name}-${var.environment}-scheduler"
-  role = aws_iam_role.scheduler.name
+  role = aws_iam_role.scheduler[0].name
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -1081,6 +1112,8 @@ resource "aws_iam_role_policy" "scheduler" {
 }
 
 resource "aws_scheduler_schedule" "prediction" {
+  count = var.enable_services ? 1 : 0
+
   name       = "${var.project_name}-${var.environment}-prediction-5min"
   group_name = "default"
 
@@ -1093,7 +1126,7 @@ resource "aws_scheduler_schedule" "prediction" {
 
   target {
     arn      = var.prediction_queue_arn
-    role_arn = aws_iam_role.scheduler.arn
+    role_arn = aws_iam_role.scheduler[0].arn
 
     retry_policy {
       maximum_retry_attempts       = 3
@@ -1117,6 +1150,19 @@ resource "terraform_data" "https_check" {
     precondition {
       condition     = var.environment == "sandbox" || var.acm_certificate_arn != ""
       error_message = "acm_certificate_arn is required for non-sandbox environments. Set it to a valid ACM certificate ARN in us-east-1."
+    }
+  }
+}
+
+resource "terraform_data" "image_check" {
+  lifecycle {
+    precondition {
+      condition = !var.enable_services || alltrue([
+        !startswith(var.telemetry_api_image_tag, "MOCK_PLACEHOLDER"),
+        !startswith(var.prediction_worker_image_tag, "MOCK_PLACEHOLDER"),
+        !startswith(var.ai_engine_image_tag, "MOCK_PLACEHOLDER"),
+      ])
+      error_message = "enable_services=true requires real image URIs for telemetry_api_image_tag, prediction_worker_image_tag, and ai_engine_image_tag."
     }
   }
 }
