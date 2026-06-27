@@ -32,22 +32,4 @@ output "dynamodb_endpoint_id" {
   value       = aws_vpc_endpoint.dynamodb.id
 }
 
-output "alb_security_group_id" {
-  description = "ALB security group ID"
-  value       = aws_security_group.alb.id
-}
-
-output "ecs_api_security_group_id" {
-  description = "ECS API (Telemetry) security group ID"
-  value       = aws_security_group.ecs_api.id
-}
-
-output "worker_security_group_id" {
-  description = "Worker security group ID"
-  value       = aws_security_group.worker.id
-}
-
-output "ai_engine_security_group_id" {
-  description = "AI Engine security group ID"
-  value       = aws_security_group.ai_engine.id
-}
+# TODO (CPOA-40): Security group outputs belong to Security Groups owner.
