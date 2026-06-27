@@ -1,0 +1,38 @@
+# -----------------------------------------------------------------------------
+# CDO-04 Platform -- terraform.tfvars.example
+#
+# Copy to terraform.tfvars and fill in real values.
+# -----------------------------------------------------------------------------
+
+project_name = "tf4-cdo04"
+environment  = "sandbox"
+aws_region   = "us-east-1"
+
+# --- CIDRs allowed to hit the public ALB ---
+# Replace with your real source IPs.
+# DO NOT use 0.0.0.0/0 in production; use a VPN CIDR, office CIDR, or
+# synthetic-load runner CIDR.
+allowed_ingress_cidrs = [
+  "10.0.0.0/8",   # Replace with YOUR actual CIDR (e.g. VPN/office)
+]
+
+# --- HTTPS certificate (required for non-sandbox) ---
+# Uncomment and paste a valid ACM certificate ARN in us-east-1 for staging/prod.
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/uuid"
+
+# --- Container images ---
+# Replace with real ECR URIs after CI builds and pushes images.
+# telemetry_api_image_tag    = "123456789012.dkr.ecr.us-east-1.amazonaws.com/tf4-cdo04-telemetry-api:sandbox"
+# prediction_worker_image_tag = "123456789012.dkr.ecr.us-east-1.amazonaws.com/tf4-cdo04-prediction-worker:sandbox"
+# ai_engine_image_tag         = "123456789012.dkr.ecr.us-east-1.amazonaws.com/tf4-cdo04-ai-engine:sandbox"
+adot_collector_image_tag = "public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0"
+
+# --- Feature toggles ---
+# Set to true after images are built and pushed to ECR.
+enable_services = false
+
+# --- Alerting ---
+# alert_email = "sre-team@example.com"    # SNS subscription must be confirmed manually
+
+# --- Budget ---
+budget_limit = 200
