@@ -41,7 +41,7 @@ Platform của CDO không build thêm một dashboard mới. Platform biến tel
 | Metric evidence        | AMP PromQL/query_range reference / saved query reference                     | AMP là primary metric evidence source                             |
 | Visualization evidence | CloudWatch Dashboard first, Grafana optional                           | CloudWatch dùng cho operational view và demo evidence                    |
 | Decision evidence      | DynamoDB audit record / `prediction_id`                                | DynamoDB lưu prediction/fallback decision                                |
-| Security               | Encryption at rest/in transit, least privilege IAM                     | Baseline security cho fintech/SRE context                                |
+| Security               | Encryption at rest/in transit, least privilege IAM                     | Minimum security controls cho fintech/SRE context                                |
 | Fallback               | Static threshold fallback when AI endpoint unavailable                 | Fail-open để không mất monitoring khi AI lỗi                             |
 | Cost                   | ≤ $200/month                                                           | Capstone budget constraint                                               |
 | Deployment             | ECS Fargate for Telemetry API, Prediction Worker and AI Engine Service | Align với client production environment, AI Deployment Contract và DevOps evidence |
@@ -252,7 +252,7 @@ Các contract chính với Team AI đã được freeze trong W11/W12. Phần n�
 * [x] Endpoint chính thức: `POST /v1/predict`.
 * [x] Auth Worker → AI: IAM SigV4; W11 mock có thể optional `Authorization`, W12 final enforce.
 * [x] Telemetry frequency: 1 phút.
-* [x] Prediction cadence baseline: 5 phút.
+* [x] Prediction cadence: 5 phút.
 * [x] Lookback window: `signal_window` phải chứa ≥120 phút gần nhất.
 * [x] AI response fields CDO lưu đúng contract: `anomaly`, `severity`, `reasoning`, `recommendation.action_verb`, `recommendation.target`, `recommendation.from_to`, `recommendation.confidence`, `recommendation.evidence_link`, `audit_id`.
 * [x] CDO derive `risk_level`/`root_cause` từ `severity` và `reasoning`; không yêu cầu AI trả thêm field ngoài contract.

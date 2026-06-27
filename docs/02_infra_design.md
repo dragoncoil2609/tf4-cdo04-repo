@@ -1,7 +1,7 @@
-# Infrastructure Design - Task force 4 · CDO SLO Early-Warning Control Plane
+# Hạ tầng Design - Task force 4 · CDO SLO Early-Warning Control Plane
 
 <!-- Doc owner: Nhóm CDO-04
-     Status: Refined - AMP/us-east-1 accepted baseline
+     Status: Refined - AMP/us-east-1 accepted decision
      Date updated: 2026-06-26 -->
 
 ## 1. Architecture diagram
@@ -17,26 +17,26 @@ _Phân rã chi tiết theo block:_
 | ![Data Layer](assets/02_infra_design/data-layer-block.png) | Data Layer |
 | ![Observability](assets/02_infra_design/observability-block.png) | Observability |
 
-*Caption: Flow bắt đầu từ `payment-gateway`, `ledger-service` và `kyc-worker` gửi telemetry vào public ALB path `/v1/ingest`; k6 chỉ tạo synthetic load cho cùng ingest path. Region triển khai final của CDO-04 là `us-east-1` (US East / N. Virginia), đồng bộ với default `AWS_REGION=us-east-1` trong AI Deployment Contract và vẫn giữ nguyên tính region-agnostic của AI Engine. Layout tách rõ trust boundary: external actors ở ngoài AWS account; public ALB/NAT và private ECS services nằm trong VPC; regional managed services nằm ngoài VPC hoặc đi qua AWS service endpoints. ECS Fargate Telemetry API, Prediction Worker và **AI Engine** chạy trong private subnets của cùng ECS cluster với `assignPublicIp = DISABLED`, runtime baseline Linux/x86. Worker gọi `POST /v1/predict` qua **ECS Service Connect service name** tới AI Engine, nên traffic prediction nằm trong private service-to-service path của VPC. EventBridge Scheduler, SQS, **Amazon Managed Service for Prometheus (AMP)**, DynamoDB, SNS, CloudWatch, S3, Secrets Manager và ECR là managed services. Scheduler dùng execution role có quyền `sqs:SendMessage`, không chạy trong private subnet và không cần security group hoặc NAT. Luồng prediction được tách bằng Scheduler → SQS → Worker để ingestion không bị kẹt khi AI endpoint chậm hoặc lỗi. Mỗi lần dự đoán, worker query metric evidence từ AMP bằng PromQL `query_range` cho đúng tenant/service/metric trong 120 phút gần nhất, đọc service policy, gọi AI internal `/v1/predict`, ghi audit vào DynamoDB, rồi đẩy evidence/alert qua CloudWatch/SNS. Nếu AI không phản hồi hoặc trả sai schema, worker chuyển sang static threshold fallback và vẫn ghi audit. Networking final dùng cost-optimized **1 zonal NAT Gateway** trong public subnet cho outbound AWS API traffic chưa đi qua Gateway Endpoint; đây không phải “regional NAT” và không nằm trên đường gọi AI. S3 và DynamoDB đi qua **Gateway VPC Endpoints** để giảm NAT data processing và giữ đường evidence/audit private. AMP access ở MVP có thể đi HTTPS qua NAT; PrivateLink endpoint `com.amazonaws.us-east-1.aps-workspaces` là production hardening option. Nếu AMP remote-write không nhận sample sau bounded retry, Telemetry API/collector ghi raw payload có idempotency key vào S3 failure buffer để replay theo runbook; S3 buffer không thay thế AMP hot path. Quyết định final ưu tiên cost-security fit cho capstone: giữ 1 zonal NAT + S3/DynamoDB Gateway Endpoints, không triển khai full interface VPCE trong baseline.*
+*Caption: Flow bắt đầu từ `payment-gateway`, `ledger-service` và `kyc-worker` gửi telemetry vào public ALB path `/v1/ingest`; k6 chỉ tạo synthetic load cho cùng ingest path. Region triển khai final của CDO-04 là `us-east-1` (US East / N. Virginia), đồng bộ với default `AWS_REGION=us-east-1` trong AI Deployment Contract và vẫn giữ nguyên tính region-agnostic của AI Engine. Layout tách rõ trust boundary: external actors ở ngoài AWS account; public ALB/NAT và private ECS services nằm trong VPC; regional managed services nằm ngoài VPC hoặc đi qua AWS service endpoints. ECS Fargate Telemetry API, Prediction Worker và **AI Engine** chạy trong private subnets của cùng ECS cluster với `assignPublicIp = DISABLED`, runtime Linux/x86. Worker gọi `POST /v1/predict` qua **ECS Service Connect service name** tới AI Engine, nên traffic prediction nằm trong private service-to-service path của VPC. EventBridge Scheduler, SQS, **Amazon Managed Service for Prometheus (AMP)**, DynamoDB, SNS, CloudWatch, S3, Secrets Manager và ECR là managed services. Scheduler dùng execution role có quyền `sqs:SendMessage`, không chạy trong private subnet và không cần security group hoặc NAT. Luồng prediction được tách bằng Scheduler → SQS → Worker để ingestion không bị kẹt khi AI endpoint chậm hoặc lỗi. Mỗi lần dự đoán, worker query metric evidence từ AMP bằng PromQL `query_range` cho đúng tenant/service/metric trong 120 phút gần nhất, đọc service policy, gọi AI internal `/v1/predict`, ghi audit vào DynamoDB, rồi đẩy evidence/alert qua CloudWatch/SNS. Nếu AI không phản hồi hoặc trả sai schema, worker chuyển sang static threshold fallback và vẫn ghi audit. Networking final dùng cost-optimized **1 NAT Gateway theo một AZ** trong public subnet cho outbound AWS API traffic chưa đi qua Gateway Endpoint; đây không phải “regional NAT” và không nằm trên đường gọi AI. S3 và DynamoDB đi qua **Gateway VPC Endpoints** để giảm NAT data processing và giữ đường evidence/audit private. AMP access ở MVP có thể đi HTTPS qua NAT; PrivateLink endpoint `com.amazonaws.us-east-1.aps-workspaces` là production hardening option. Nếu AMP remote-write không nhận sample sau bounded retry, Telemetry API/collector ghi raw payload có idempotency key vào S3 failure buffer để replay theo runbook; S3 buffer không thay thế AMP hot path. Quyết định final ưu tiên cost-security fit cho capstone: giữ 1 zonal NAT + S3/DynamoDB Gateway Endpoints, không triển khai full interface VPCE trong MVP.*
 
 ## 2. Component table
 
-Giả định tính chi phí final: region `us-east-1`, 730 giờ/tháng, 2 AZ, 3 service demo, prediction mỗi 5 phút, telemetry mỗi 1 phút, app log retention 14 ngày, AI audit log retention 365 ngày, S3 raw failure buffer 7 ngày và telemetry/evidence/baseline retention tối thiểu 90 ngày. Đây là **chi phí platform baseline** cho demo scope, không phải chi phí phân bổ chính xác theo từng tenant. Terraform implementation chưa được resume trong scope cập nhật docs này.
+Giả định tính chi phí final: region `us-east-1`, 730 giờ/tháng, 2 AZ, 3 service demo, prediction mỗi 5 phút, telemetry mỗi 1 phút, app log retention 14 ngày, AI audit log retention 365 ngày, S3 raw failure buffer 7 ngày và telemetry/evidence/baseline retention tối thiểu 90 ngày. Đây là **chi phí platform** cho demo scope, không phải chi phí phân bổ chính xác theo từng tenant. Terraform v1 chỉ bắt đầu sau khi các quyết định MVP trong tài liệu này, security/deployment/cost docs và ADR-011 được chấp nhận làm source of truth.
 
 | Component | AWS Service | Reason | Cost note |
 |---|---|---|---|
 | Tầng compute | ECS Fargate Linux/x86 | Chạy 2 task cho Telemetry API, 1 task cho Prediction Worker và 2 task cho AI Engine trong cùng ECS cluster. Fargate phù hợp vì không phải quản lý EC2, có task role riêng, và chạy được API, worker, AI serving theo cùng mô hình container/private subnet. | **$90.10/tháng tại `us-east-1`** = 5 task × 730h × (0.5 vCPU × $0.04048 + 1GB × $0.004445). |
-| Cổng ingress public | 1× Application Load Balancer + ACM | Public ALB chỉ nhận telemetry `/v1/ingest`. Luồng Worker → AI dùng ECS Service Connect trong private subnets; baseline không cần Route 53/private DNS cho AI path. ACM certificate không tính phí. | **$22.27/tháng tại `us-east-1`** = ALB $16.43 + 1 LCU trung bình $5.84. |
-| Kho metric TSDB | Amazon Managed Service for Prometheus (AMP) | AMP workspace lưu metric dạng Prometheus samples/labels. Telemetry API hoặc ADOT/Prometheus Agent/customer-managed collector remote-writes vào AMP; Prediction Worker query PromQL `query_range` đủ 120 phút theo tenant/service/metric trước khi gọi AI. | **~$0.00/tháng ở demo scope**: 907,200 samples/month và ~21.8M query samples/month nằm trong AMP free tier/current low-volume estimate. AMP không có fixed `db.influx.medium` instance-hour cost. |
+| Cổng ingress public | 1× Application Load Balancer + ACM | Public ALB chỉ nhận telemetry `/v1/ingest`. Terraform phải yêu cầu `allowed_ingress_cidrs` rõ ràng; không dùng default mở `0.0.0.0/0`. Luồng Worker → AI dùng ECS Service Connect trong private subnets; thiết kế không cần Route 53/private DNS cho Luồng AI. ACM certificate ARN tại `us-east-1` là input bắt buộc cho non-sandbox HTTPS. | **$22.27/tháng tại `us-east-1`** = ALB $16.43 + 1 LCU trung bình $5.84. |
+| Kho metric TSDB | Amazon Managed Service for Prometheus (AMP) | AMP workspace lưu metric dạng Prometheus samples/labels. Terraform v1 dùng self-managed ADOT/Prometheus Collector ECS service remote-write vào AMP bằng SigV4; app-direct remote_write chỉ là fallback kỹ thuật nếu app implement protobuf/Snappy/SigV4/retry đầy đủ. Prediction Worker query PromQL `query_range` đủ 120 phút theo tenant/service/metric trước khi gọi AI. | **~$0.00/tháng ở demo scope**: 907,200 samples/month và ~21.8M query samples/month gần bằng 0 nhưng query samples vẫn billed theo usage. AMP không có fixed `db.influx.medium` instance-hour cost. |
 | Audit + service policy database | DynamoDB | Audit log là dữ liệu ghi nối tiếp, cần tra cứu nhanh theo tenant/service/time; service policy chứa metric allowlist, baseline, quota và fallback threshold. DynamoDB gọn hơn RDS cho key-value access pattern này. | **$0.10/tháng**: ~26k audit write/tháng + policy read nhỏ; read và storage rất nhỏ. |
-| Điều phối job | EventBridge Scheduler + SQS + DLQ | Scheduler tạo prediction job mỗi 5 phút; SQS tách worker khỏi độ trễ của AI; DLQ giữ job lỗi để debug. | **$0.05/tháng**: ~26k job/tháng, khoảng 3 SQS request/job. |
-| Lưu trữ baseline + evidence + failure buffer | S3 + KMS | Lưu AI baseline JSON trong bucket KMS theo prefix `baselines/`, evidence/export và raw telemetry buffer khi AMP remote-write fail; không dùng làm audit DB chính. | **$0.35/tháng**: baseline/evidence/telemetry archive giữ tối thiểu 90 ngày, raw failure buffer giữ 7 ngày, request nhỏ. |
+| Điều phối job | EventBridge Scheduler + SQS + 2 DLQ layers | Scheduler tạo prediction job mỗi 5 phút; Scheduler target DLQ giữ event không gửi được vào SQS; source queue DLQ giữ job worker xử lý lỗi sau retry. | **$0.05/tháng**: ~26k job/tháng, khoảng 3 SQS request/job. |
+| Lưu trữ AI baseline + evidence + failure buffer | S3 + KMS | Lưu AI baseline JSON trong bucket KMS theo prefix `baselines/`, evidence/export và raw telemetry buffer khi AMP remote-write fail; không dùng làm audit DB chính. | **$0.35/tháng**: baseline/evidence/telemetry archive giữ tối thiểu 90 ngày, raw failure buffer giữ 7 ngày, request nhỏ. |
 | Quan sát hệ thống | CloudWatch + SNS | Ghi app log task, custom metrics, alarm và dashboard; tách riêng AI audit log group KMS encrypted retention 365 ngày; SNS gửi alert high-risk. | **$8.00/tháng**: 1 dashboard, 10-12 alarm, log ingest/storage demo nhỏ. |
-| Bảo mật / cấu hình | Secrets Manager + KMS | Lưu service name/config của AI Engine, webhook/tenant token, mã hóa DynamoDB/SQS/Logs bằng KMS, không hardcode credential. AMP write/query dùng IAM SigV4 nên không cần InfluxDB read/write/admin token baseline. | **$3.40/tháng**: conservative secret/KMS estimate. |
-| Kết nối private subnet | NAT Gateway + S3/DynamoDB Gateway Endpoints | 1 zonal NAT cho outbound AWS API traffic không đi qua Gateway Endpoint; S3/DynamoDB dùng Gateway Endpoint miễn phí hourly. AMP PrivateLink là hardening option, không phải MVP baseline. | **$33.39/tháng tại `us-east-1`** = 1 NAT × 730h × $0.045/h + ~12GB × $0.045/GB. |
+| Bảo mật / cấu hình | Secrets Manager + KMS | Lưu service name/config của AI Engine, webhook/tenant token, mã hóa DynamoDB/SQS/Logs bằng KMS, không hardcode credential. AMP write/query dùng IAM SigV4 nên không cần InfluxDB read/write/admin token. | **$3.40/tháng**: conservative secret/KMS estimate. |
+| Kết nối private subnet | NAT Gateway + S3/DynamoDB Gateway Endpoints | 1 zonal NAT cho outbound AWS API traffic không đi qua Gateway Endpoint; S3/DynamoDB dùng Gateway Endpoint miễn phí hourly. AMP PrivateLink là hardening option, không phải MVP. | **$33.39/tháng tại `us-east-1`** = 1 NAT × 730h × $0.045/h + ~12GB × $0.045/GB. |
 | Container registry | Amazon ECR | Lưu private image cho Telemetry API, Prediction Worker và AI Engine; ECS execution role pull image khi deploy/replace task. | **~$0.50/tháng** cho image demo nhỏ. |
 | Bảo vệ public ingest endpoint + AI rate limit | ALB access log + app token bucket + source allowlist cho test traffic; AI contract-equivalent limiter | Public ALB chỉ expose telemetry ingest path. Với AI `/v1/predict`, FastAPI middleware hoặc internal gateway layer phải enforce đúng contract: 600 req/min/tenant, 6000 req/min global và trả `429 Retry-After`. | **$0 AWS fixed cost thêm** ngoài ALB/CloudWatch/S3 log đã tính. |
-| **Tổng baseline** |  | Network path dùng 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB dùng AMP; private Worker → AI dùng ECS Service Connect. | **~$158.16/tháng tại `us-east-1`** cho full always-on x86 baseline nếu không phải upsize Fargate task cho Service Connect proxy. Thêm 20% buffer vận hành là **~$189.79/tháng**, vẫn dưới hard budget $200. |
+| **Tổng chi phí** |  | Network path dùng 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB dùng AMP; private Worker → AI dùng ECS Service Connect. | **~$158.16/tháng tại `us-east-1`** cho full always-on x86 design nếu không phải upsize Fargate task cho Service Connect proxy. Thêm 20% buffer vận hành là **~$189.79/tháng**, vẫn dưới hard budget $200. |
 
 Cost guard:
 
@@ -44,7 +44,7 @@ Cost guard:
 - CloudWatch app log retention cố định 14 ngày; AI audit log group retention 365 ngày, KMS encrypted; S3 raw failure buffer 7 ngày, baseline/evidence archive tối thiểu 90 ngày theo lifecycle policy.
 - Synthetic load chỉ bật trong test window đã lên lịch.
 - PromQL query vào AMP bắt buộc filter `tenant_id`, `service_id`, metric name và range 120 phút.
-- Prediction cadence cố định 5 phút cho baseline; không dùng cadence 1 phút trong infra final.
+- Prediction cadence cố định 5 phút cho thiết kế hiện tại; không dùng cadence 1 phút trong infra final.
 - Physical topology chốt **1 public ALB-hour stream + 1 LCU** cho ingest; private Worker → AI dùng ECS Service Connect. Theo AWS docs, Service Connect không có charge riêng và Cloud Map usage trong Service Connect không tính riêng; cost guard cần theo dõi proxy sidecar CPU/memory để tránh upsize Fargate task.
 
 ## 3. Differentiation angle deep-dive
@@ -71,25 +71,25 @@ Dashboard chỉ là nơi xem evidence. Phần chính của CDO là control plane
 
 | Axis | My number | Competing angle estimate |
 |---|---|---|
-| Budget fit | **~$158.16/tháng** full always-on x86 baseline tại `us-east-1` với public ingest ALB + ECS Service Connect cho Worker → AI; **~$189.79** với 20% buffer vẫn dưới hard budget $200 nếu task không cần upsize cho proxy sidecar | Dashboard-only có thể rẻ hơn, nhưng không cover đủ prediction workflow, audit-per-call, fallback, evidence-link requirement và AI serving nội bộ |
-| Cost / service | **~$52.72/service/tháng** baseline cho 3 service | EKS/self-hosted TSDB hoặc observability stack riêng dễ tăng compute + ops overhead |
-| Cost / prediction cycle | 3 services × mỗi 5 phút ≈ **25,920 prediction cycles/tháng**; baseline ≈ **$0.0061/cycle** | Dashboard-only không có prediction cycle/audit decision tương đương |
-| Contract fit | AI ECS Fargate min 2/max 4, 120-minute signal window, IAM SigV4, S3 baseline, AI audit 365 ngày | Nếu dùng auth/window khác với AI contract thì W12 integration có thể fail dù infra chạy được ở demo local |
+| Budget fit | **~$158.16/tháng** full always-on x86 design tại `us-east-1` với public ingest ALB + ECS Service Connect cho Worker → AI; **~$189.79** với 20% buffer vẫn dưới hard budget $200 nếu task không cần upsize cho proxy sidecar | Dashboard-only có thể rẻ hơn, nhưng không cover đủ prediction workflow, audit-per-call, fallback, evidence-link requirement và AI serving nội bộ |
+| Cost / service | **~$52.72/service/tháng** thiết kế cho 3 service | EKS/self-hosted TSDB hoặc observability stack riêng dễ tăng compute + ops overhead |
+| Cost / prediction cycle | 3 services × mỗi 5 phút ≈ **25,920 prediction cycles/tháng**; chi phí ≈ **$0.0061/cycle** | Dashboard-only không có prediction cycle/audit decision tương đương |
+| Contract fit | AI ECS Fargate min 2/max 4, 120-minute signal window, IAM SigV4, S3 AI baseline, AI audit 365 ngày | Nếu dùng auth/window khác với AI contract thì W12 integration có thể fail dù infra chạy được ở demo local |
 | Requirement coverage | Cover trực tiếp: **≥15 phút lead-time target**, per-service baseline, audit log mỗi prediction, static fallback, evidence link, encrypted stores | Dashboard-only fail pain point “không có người nhìn 24/7” |
 | Early-warning cadence | **5 phút** là balanced point: đủ nhanh để còn buffer cho yêu cầu cảnh báo trước ≥15 phút, nhưng chưa tăng query/job/audit volume quá mức | 1 phút nhanh hơn nhưng tăng noise/cost; 10 phút rẻ hơn nhưng giảm buffer cảnh báo sớm |
 | Công vận hành | **2-3 giờ/tuần** nhờ dùng managed services: ECS Fargate, SQS, AMP, DynamoDB | EKS hoặc self-hosted TSDB có thể **6-10 giờ/tuần** cho node, storage, upgrade, retention và incident handling |
 
-Điểm cost của thiết kế này không phải là rẻ nhất tuyệt đối. Rẻ nhất tuyệt đối sẽ là dashboard-only hoặc vài CloudWatch alarm tĩnh, nhưng hai hướng đó không giải quyết đúng pain point client đã nêu: không có người nhìn dashboard 24/7 và threshold tĩnh dễ quá nhạy hoặc quá trễ. Vì vậy tiêu chí tối ưu là **cost-to-requirement coverage**. Sau khi chuyển sang AMP tại `us-east-1` và dùng ECS Service Connect cho luồng Worker → AI, full always-on x86 baseline fit hard budget $200 cả trước và sau 20% buffer nếu proxy sidecar không làm task phải upsize. Dù tối ưu ở đâu, **không tắt audit/fallback**.
+Điểm cost của thiết kế này không phải là rẻ nhất tuyệt đối. Rẻ nhất tuyệt đối sẽ là dashboard-only hoặc vài CloudWatch alarm tĩnh, nhưng hai hướng đó không giải quyết đúng pain point client đã nêu: không có người nhìn dashboard 24/7 và threshold tĩnh dễ quá nhạy hoặc quá trễ. Vì vậy tiêu chí tối ưu là **cost-to-requirement coverage**. Sau khi chuyển sang AMP tại `us-east-1` và dùng ECS Service Connect cho luồng Worker → AI, full always-on x86 design fit hard budget $200 cả trước và sau 20% buffer nếu proxy sidecar không làm task phải upsize. Dù tối ưu ở đâu, **không tắt audit/fallback**.
 
 ### 3.3 Weakness chấp nhận
 
 - **Phức tạp hơn dashboard-only**: cần scheduler, queue, worker, TSDB, audit DB và alert path. Nhóm chấp nhận điểm này vì fallback và audit log là hard requirement.
 - **CDO platform phải host thêm AI serving capacity**: ECS cluster cần AI Engine task, health check, logs, scaling rule và Service Connect config. Đổi lại, đường gọi prediction private hơn và match deployment contract.
-- **AMP remote_write không phải chỉ là HTTP JSON đơn giản**: direct app remote-write cần protobuf, Snappy, SigV4, batching, retry/backoff và request-size control; baseline ưu tiên ADOT Collector/Prometheus Agent/customer-managed collector.
-- **Label cardinality là rủi ro chính**: 50k events/sec chỉ khả thi nếu samples/event và active series được kiểm soát; không dùng `request_id`, `trace_id`, `prediction_id`, `user_id`, raw endpoint path làm label.
-- **Static fallback có false positive**: fallback chỉ dùng khi AI unavailable hoặc response invalid. Audit record luôn ghi `prediction_source = static_threshold_fallback`.
+- **AMP remote_write không phải chỉ là HTTP JSON đơn giản**: direct app remote-write cần protobuf, Snappy, SigV4, batching, retry/backoff và request-size control; thiết kế ưu tiên ADOT Collector/Prometheus Agent/customer-managed collector.
+- **Label cardinality là rủi ro chính**: 50k events/sec chỉ khả thi nếu samples/event và active series được kiểm soát và AMP ingest quota đủ. Với AMP default 70,000 samples/sec, 50k events/sec × 7 samples/event = 350k samples/sec nên cần quota increase hoặc giảm event/sample ceiling; không dùng `request_id`, `trace_id`, `prediction_id`, `user_id`, raw endpoint path làm label.
+- **Static fallback có false positive**: fallback chỉ dùng khi AI unavailable hoặc response không hợp lệ. Audit record luôn ghi `prediction_source = static_threshold_fallback`.
 
-## 4. Multi-tenant approach
+## 4. Hướng tiếp cận multi-tenant
 
 ### 4.1 Tenant model
 
@@ -123,13 +123,13 @@ evidence_link, audit_id, model_version, baseline_version
 
 - Endpoint path chốt cho tài liệu này: `POST /v1/predict`.
 - Deployment topology: AI Engine chạy như ECS Fargate service trong **cùng ECS cluster/VPC** với CDO platform, không gọi qua public URL hoặc external shared service.
-- Worker gọi AI qua **ECS Service Connect service name** trong private subnets, ví dụ `http://ai-engine:8080/v1/predict` hoặc endpoint service-name tương đương do Terraform cấu hình. Baseline không cần Route 53/private DNS cho AI path; Worker lấy service name/timeout từ Secrets Manager/SSM config.
-- Auth giữa Worker và AI dùng **IAM SigV4** theo AI API Contract. Worker task role ký request tới `/v1/predict`; ECS Service Connect chỉ xử lý service discovery/load balancing, **không tự verify SigV4**. W12 final cần AI Engine middleware/sidecar verify SigV4 canonical request, allowed Worker task role/principal, clock skew/replay window và trả `401` khi invalid. `Authorization` optional chỉ trong W11 mock testing, từ W12 final phải enforce. Không dùng API key/service token làm auth chính.
+- Worker gọi AI qua **ECS Service Connect service name** trong private subnets, ví dụ `http://ai-engine:8080/v1/predict` hoặc endpoint service-name tương đương do Terraform cấu hình. Nền tảng không cần Route 53/private DNS cho Luồng AI; Worker lấy service name/timeout từ Secrets Manager/SSM config.
+- Auth giữa Worker và AI dùng **IAM SigV4** theo AI API Contract. Worker task role ký request tới `/v1/predict`; ECS Service Connect chỉ xử lý service discovery/load balancing, **không tự verify SigV4**. W12 final cần AI Engine middleware/sidecar verify SigV4 canonical request, Worker task role/principal được phép, clock skew/replay window và trả `401` khi không hợp lệ. `Authorization` optional chỉ trong W11 mock test, từ W12 final phải enforce. Không dùng API key/service token làm auth chính.
 - Request phải mang `X-Tenant-Id`, `Authorization` SigV4 và tenant context đã verify; `signal_window[].tenant_id` phải match với header `X-Tenant-Id`.
 - **SLA latency AI contract: P99 < 500ms, throughput 100 RPS aggregate, availability 99.5%.** Worker alarm khi AI p99 > 500ms. CDO worker timeout hard limit 2 giây, sau đó fallback.
 - Request body final phải chứa `signal_window` đủ **≥120 phút gần nhất** theo AI API Contract. Worker không gọi final AI endpoint nếu window ngắn hơn 120 phút.
 - Trước khi gọi AI, Worker align dữ liệu thành 1-minute buckets liền mạch cho toàn bộ 120 phút; missing buckets phải forward-fill hoặc zero-fill theo metric policy.
-- Retry/error handling theo contract: `400` invalid input → không retry, fallback + engineering alert; `401` → refresh/re-sign credential và retry once; `429` → exponential backoff `1s → 2s → 4s`; `503/5xx/timeout` → static threshold fallback.
+- Retry/error handling theo contract: `400` không hợp lệ input → không retry, fallback + engineering alert; `401` → refresh/re-sign credential và retry once; `429` → exponential backoff `1s → 2s → 4s`; `503/5xx/timeout` → static threshold fallback.
 - CDO lưu audit record dùng đúng tên field của AI response: `anomaly`, `severity`, `reasoning`, `recommendation.action_verb`, `recommendation.target`, `recommendation.from_to`, `recommendation.confidence`, `recommendation.evidence_link`, `audit_id`.
 
 ### 4.3 Isolation pattern
@@ -168,11 +168,11 @@ GSI2SK = TS#<window_start>#SERVICE#<service_id>
 ```
 
 - Worker chỉ delete SQS message sau khi audit write thành công.
-- TTL CDO decision audit: 90 ngày cho baseline final. AI internal audit log theo AI API/Deployment Contract phải nằm trong CloudWatch Logs/S3 archive riêng, KMS encrypted, retention **365 ngày**.
+- TTL CDO decision audit: 90 ngày cho hiện tại. AI internal audit log theo AI API/Deployment Contract phải nằm trong CloudWatch Logs/S3 archive riêng, KMS encrypted, retention **365 ngày**.
 
 ### 4.5 Service policy database
 
-Service policy được lưu tách logic với audit record trong DynamoDB để worker và Telemetry API cùng đọc một nguồn cấu hình có version. Mỗi tenant/service chỉ có một policy current; thay đổi policy phải tạo version mới để audit record truy vết được baseline và fallback rule nào đã được dùng.
+Service policy được lưu tách logic với audit record trong DynamoDB để worker và Telemetry API cùng đọc một nguồn cấu hình có version. Mỗi tenant/service chỉ có một policy current; thay đổi policy phải tạo version mới để audit record truy vết được baseline version và fallback rule nào đã được dùng.
 
 Policy tối thiểu:
 
@@ -203,7 +203,7 @@ Baseline JSON thực tế lưu trong S3 KMS prefix `baselines/` theo AI Deployme
 
 Phần này bổ sung cách pooled tenant model được biểu diễn trong TSDB hot path. AMP dùng Prometheus metric names, labels và PromQL, không dùng InfluxDB org/bucket/measurement/tags/fields hoặc Flux.
 
-| Khái niệm | Giá trị baseline | Ghi chú |
+| Khái niệm | Giá trị hiện tại | Ghi chú |
 |---|---|---|
 | Workspace | AMP workspace `tf4-cdo04-telemetry` | Regional workspace tại `us-east-1`. |
 | Ingest API | Prometheus `remote_write` | Preferred path: ADOT Collector/Prometheus Agent/customer-managed collector. |
@@ -276,10 +276,10 @@ Nguyên tắc triển khai Fargate:
 
 - Task chạy private subnet, `assignPublicIp=DISABLED`, network mode `awsvpc`.
 - Telemetry API, Prediction Worker và AI Engine dùng cùng ECS cluster nhưng tách ECS service, task role, security group và autoscaling policy.
-- Runtime platform baseline: Linux/x86.
+- Runtime platform: Linux/x86.
 - ALB ở public subnet chỉ cho telemetry ingest; Worker gọi AI bằng ECS Service Connect service name trong private subnets.
 - Ingest ALB target group type `ip`; AI Engine health check dùng ECS container/service health check đúng Deployment Contract: path `/health`, port `8080`, interval 30 giây, healthy threshold 2 consecutive 200, unhealthy threshold 3 consecutive non-200.
-- AI Engine dùng ECS Blue/Green với AWS CodeDeploy canary theo contract: 10% → 50% → 100%.
+- Terraform v1 dùng ECS rolling deployment circuit breaker cho AI Engine. ECS-native blue/green qua Service Connect là post-MVP; CodeDeploy không nằm trong Terraform v1 vì cần thêm target group/listener/test traffic design không có trong CDO design.
 - Secret và config nhạy cảm đặt trong Secrets Manager hoặc SSM Parameter Store.
 
 ### 5.2 Database
@@ -295,14 +295,14 @@ Nguyên tắc triển khai Fargate:
 | Nhóm quyết định | Phương án | Ưu điểm | Nhược điểm | Quyết định |
 |---|---|---|---|---|
 | Metrics store | S3 metric lake | Rẻ cho dữ liệu lịch sử. | Không tối ưu query window 120 phút mỗi 5 phút. | Không chọn cho hot path; chỉ dùng archive/failure buffer. |
-| Metrics store | Amazon Timestream for InfluxDB | Managed InfluxDB, query window tốt. | Fixed instance-hour cost `db.influx.medium` làm full-month baseline vượt $200. | Superseded by ADR-011. |
+| Metrics store | Amazon Timestream for InfluxDB | Managed InfluxDB, query window tốt. | Fixed instance-hour cost `db.influx.medium` làm full-month estimate vượt $200. | Superseded by ADR-011. |
 | Metrics store | Amazon Managed Service for Prometheus (AMP) | Serverless managed Prometheus-compatible store, IAM/SigV4, 150-day default retention, usage-based cost phù hợp demo. | Cần kiểm soát labels/cardinality; direct remote_write phức tạp nếu không dùng collector. | ✅ **Chọn** làm TSDB cho prediction và evidence. |
 | Điều phối prediction | Scheduler gọi worker trực tiếp | Ít thành phần. | AI timeout có thể làm mất job hoặc block luồng xử lý. | Không chọn. |
 | Điều phối prediction | EventBridge Scheduler → SQS → Worker | Có retry, DLQ, scale worker theo backlog, dễ demo failure path. | Thêm queue cần monitor. | ✅ **Chọn** cho control plane. |
 
 ## 6. Scaling strategy
 
-| Thành phần | Sizing mặc định | Khi nào tăng | Giới hạn baseline |
+| Thành phần | Sizing mặc định | Khi nào tăng | Giới hạn |
 |---|---|---|---|
 | Telemetry API | 2 task × 0.5 vCPU / 1GB | CPU >70%, memory >75%, ALB p99 vượt target | Max 5 task |
 | Prediction Worker | 1 task × 0.5 vCPU / 1GB | Queue age >2 phút, visible messages >20 trong 5 phút, worker timeout | Max 5 task |
@@ -313,6 +313,8 @@ Quy tắc xử lý SQS:
 
 ```text
 Queue type: Standard SQS
+Scheduler target DLQ: separate SQS queue for EventBridge target delivery failures
+Worker source DLQ: separate SQS queue for processing failures
 Message retention: 4 ngày
 DLQ retention: 14 ngày
 Visibility timeout: 180 giây
@@ -360,7 +362,7 @@ Alarm tối thiểu:
 | Audit write failure | >0 trong 5 phút | SNS |
 | AMP remote-write/query failure | >0 hoặc 429/throttle tăng | SNS + replay/fallback theo runbook |
 | ALB 5xx / platform p99 latency | platform/API p99 >800ms trong 5 phút hoặc 5xx >1% | SNS + rollback/canary abort nếu đang deploy |
-| Budget | 50%, 80%, 100% của $200 | Email/SNS |
+| Budget | 50%, 80%, 100% của $200 | SNS email; subscriber must confirm email manually |
 | Failure buffer age | S3 raw failure buffer object chưa replay sau >5 phút | SNS + chạy replay runbook |
 
 Evidence link trong alert trỏ đến CloudWatch Dashboard, audit record hoặc PromQL query/runbook tương ứng. Alert failure không làm mất audit; alert có thể replay từ audit record.
@@ -371,7 +373,7 @@ Security group:
 
 | Security group | Inbound | Outbound |
 |---|---|---|
-| Public ALB SG | 443 từ internet hoặc IP range demo; 80 chỉ redirect HTTPS | ECS API SG (ingest path) |
+| Public ALB SG | 443 từ explicit `allowed_ingress_cidrs`; 80 chỉ redirect HTTPS | ECS API SG (ingest path) |
 | ECS API SG | Chỉ từ ALB SG vào app port | HTTPS/443 tới AWS public service endpoints qua 1 zonal NAT; S3 failure buffer qua S3 Gateway Endpoint |
 | Worker SG | Không mở inbound | HTTPS/443 tới SQS/AMP/SNS/Secrets Manager/CloudWatch/ECR control plane qua 1 zonal NAT; DynamoDB audit/policy qua DynamoDB Gateway Endpoint; app port tới AI Engine Service Connect endpoint |
 | AI Engine SG | App port 8080 chỉ từ Worker/service-connect path trong private subnets; health check `/health` | HTTPS/443 tới CloudWatch/Secrets Manager/ECR control plane qua NAT; S3 baseline bucket qua S3 Gateway Endpoint |
@@ -391,7 +393,7 @@ Private subnet egress guardrails:
 
 - NAT Gateway chỉ là outbound path, không được xem là trust boundary hay service/domain firewall.
 - S3 và DynamoDB đi qua Gateway VPC Endpoints với endpoint policy.
-- AMP access qua NAT là MVP baseline; PrivateLink `com.amazonaws.us-east-1.aps-workspaces` là hardening option. Nếu full no-NAT thì cần thêm STS regional endpoint và các runtime endpoints khác.
+- AMP access qua NAT là MVP; PrivateLink `com.amazonaws.us-east-1.aps-workspaces` là hardening option. Nếu full no-NAT thì cần thêm STS regional endpoint và các runtime endpoints khác.
 - AI endpoint đi qua ECS Service Connect trong VPC; Worker không cần NAT để gọi `/v1/predict`.
 - AI service name/base URL lấy từ Secrets Manager hoặc SSM Parameter Store; worker validate host/path cố định trước khi gọi.
 
@@ -418,5 +420,5 @@ Telemetry API trả `200/201` khi AMP write path accepted. Nếu AMP remote-writ
 
 - [`03_security_design.md`](03_security_design.md) - Network Security §4 + IAM §5 + Data Security §6 expand on infra concerns
 - [`04_deployment_design.md`](04_deployment_design.md) - IaC + CI/CD + GitOps cho infra này
-- [`05_cost_analysis.md`](05_cost_analysis.md) - Platform baseline và mô hình phân bổ chi phí per-tenant dựa trên infra này
+- [`05_cost_analysis.md`](05_cost_analysis.md) - Platform và mô hình phân bổ chi phí per-tenant dựa trên infra này
 - [`08_adrs.md`](08_adrs.md) - Infra architecture decisions

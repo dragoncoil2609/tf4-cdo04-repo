@@ -3,13 +3,13 @@
 <!-- Doc owner: Nhóm CDO / QA Lead
      Status: DRAFT v1.3 - chờ review Tech Lead (anh An), số liệu thực tế sẽ điền sau khi chạy W12 -->
 
-> **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi chạy thực tế SC-01 → SC-04 trong Tuần 12 (xem mục 6 - Timeline). Tên service/ARN đồng bộ theo `02_infra_design.md` Baseline v1.0 (AWS ECS Fargate, region `us-east-1`).
+> **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi chạy thực tế SC-01 → SC-04 trong Tuần 12 (xem mục 6 - Timeline). Tên service/ARN đồng bộ theo `02_infra_design.md` Architecture v1.0 (AWS ECS Fargate, region `us-east-1`).
 
 ---
 
 ## 0. Synthetic Test Scenarios (TF4 - Scenario Design cho W12 Build)
 
-> **Lưu ý :** `ledger-service`, `payment-gateway`, `kyc-worker` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API, Prediction Worker và AI Engine. Compute/k6 runner cho các mock service là test-window-only và không nằm trong full-month platform baseline cost.
+> **Lưu ý :** `ledger-service`, `payment-gateway`, `kyc-worker` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API, Prediction Worker và AI Engine. Compute/k6 runner cho các mock service là test-window-only và không nằm trong full-month platform estimate cost.
 
 ### 0.1 Bảng tổng hợp 4 scenario
 
@@ -24,7 +24,7 @@
 
 Tất cả scenario phải tạo hoặc forward thành các signal đúng AI Telemetry Contract trước khi đưa vào `signal_window`: `cpu_usage_percent`, `memory_usage_percent`, `active_connections`, `db_connection_pool_pct`, `queue_depth`, `cache_hit_rate_pct`, `api_latency_ms`. Các metric phụ như `error_rate` hoặc `oldest_message_age_seconds` chỉ dùng cho dashboard/fallback nội bộ.
 
-Baseline mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry vào AMP qua `remote_write`, Prediction Worker query được PromQL `query_range` đủ 120 phút, và AI request vẫn giữ schema contract. Demo acceptance không tự động chứng minh 50k events/sec production ceiling; ceiling đó cần load test riêng với bounded samples/event và label cardinality.
+Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry vào AMP qua `remote_write`, Prediction Worker query được PromQL `query_range` đủ 120 phút, và AI request vẫn giữ schema contract. Demo acceptance không tự động chứng minh 50k events/sec production ceiling; ceiling đó cần load test riêng với bounded samples/event và label cardinality.
 
 **SC-01 - Gradual Drift (`ledger-service`)**
 
@@ -71,7 +71,7 @@ Baseline mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry v
 | API availability | ≥ 99.5% | `<X%>` | 2 weeks build period | `<✓/✗>` |
 | P99 latency (ledger-service / payment-gateway) | < 350ms (SLA cứng theo SC-01/02) | `<Xms>` | Rolling 60s trong test window | `<✓/✗>` |
 | Error rate (5xx, SC-02 spike) | < 5% | `<X%>` | Rolling 30s tại peak | `<✓/✗>` |
-| Budget / cost guard | Platform baseline < $200/month before buffer | `<X USD>` | Full-month estimate + W12 test window actual | `<✓/✗>` |
+| Budget / cost guard | Platform estimate < $200/month before buffer | `<X USD>` | Full-month estimate + W12 test window actual | `<✓/✗>` |
 
 ### 2.1 SLO breach analysis
 
@@ -127,13 +127,13 @@ Baseline mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry v
 - **SC-03 (hypothesis)**: `ledger-service` có thể có memory/thread leak không giải phóng sau GC — nguy cơ OOM ước tính ~4.2 tiếng, cần soak test thực tế xác nhận.
 - **SC-04 (hypothesis)**: AI timeout vượt Worker hard limit 2,000ms có thể làm tắc nghẽn SQS và đẩy message xuống DLQ — cần verify Fallback Engine kích hoạt đúng ngưỡng.
 
-### 3.4 Infrastructure prerequisites (Đồng bộ Architecture Baseline v1.0)
+### 3.4 Infrastructure prerequisites (Đồng bộ Architecture v1.0)
 
 | ECS Service | Task CPU / RAM | Task Count | Ghi chú |
 |---|---|---|---|
-| `ledger-service` mock fixture | 1 vCPU / 2 GB RAM | 3 Tasks trong test window | ECS Auto-scaling **disabled** với SC-01, SC-03; không nằm trong monthly platform baseline |
-| `payment-gateway` mock fixture | 4 vCPU / 8 GB RAM | 2 Tasks trong test window | Rate limiter **disabled** tại ALB để đo raw capacity trong SC-02; không nằm trong monthly platform baseline |
-| `kyc-worker` mock fixture | 2 vCPU / 4 GB RAM | 5 Tasks trong test window | SQS visibility timeout = 30s; AI endpoint mock-timeout cho SC-04; không nằm trong monthly platform baseline |
+| `ledger-service` mock fixture | 1 vCPU / 2 GB RAM | 3 Tasks trong test window | ECS Auto-scaling **disabled** với SC-01, SC-03; không nằm trong monthly platform estimate |
+| `payment-gateway` mock fixture | 4 vCPU / 8 GB RAM | 2 Tasks trong test window | Rate limiter **disabled** tại ALB để đo raw capacity trong SC-02; không nằm trong monthly platform estimate |
+| `kyc-worker` mock fixture | 2 vCPU / 4 GB RAM | 5 Tasks trong test window | SQS visibility timeout = 30s; AI endpoint mock-timeout cho SC-04; không nằm trong monthly platform estimate |
 | k6 Runner | 8 vCPU / 16 GB RAM | 1 EC2 riêng | Tách khỏi ECS Cluster để tránh rủi ro noisy neighbor |
 
 ### 3.5 Khung k6 Load Script Skeletons (Đạt tiêu chí: Sẵn sàng cho W12 Build)
@@ -272,7 +272,7 @@ export default function () {
 ### 6.2 Test gaps acknowledged
 
 - **Gap 1**: Toàn bộ 4 scenario (SC-01 → SC-04) hiện mới ở dạng skeleton/draft, chưa chạy thật trên Staging - số liệu Measured/Achieved trong báo cáo này còn placeholder, sẽ điền sau W12 Day 5.
-- **Gap 2**: Ngưỡng cost/circuit breaker trong scenario là giả định `[Hypothesis/TBD]`, cần calibrate lại theo AWS Pricing thực tế sau Sandbox Run. Full-month platform baseline dùng `05_cost_analysis.md`, còn mock service/k6 cost là test-window-only.
+- **Gap 2**: Ngưỡng cost/circuit breaker trong scenario là giả định `[Hypothesis/TBD]`, cần calibrate lại theo AWS Pricing thực tế sau Sandbox Run. Full-month platform estimate dùng `05_cost_analysis.md`, còn mock service/k6 cost là test-window-only.
 - **Gap 3**: Penetration test và vulnerability scan (mục 4) chưa có lịch chạy cụ thể, cần xác nhận tool và schedule với Security team.
 - **Gap 4**: Multi-tenant isolation test (mục 5) chưa chạy - đây là rủi ro cao nhất vì leak = SEV1, cần ưu tiên trước capstone.
 
@@ -280,6 +280,6 @@ export default function () {
 
 ## Related documents
 
-- [`02_infra_design.md`](02_infra_design.md) - SLO targets và Architecture Baseline v1.0 validated trong §3 doc này
+- [`02_infra_design.md`](02_infra_design.md) - SLO targets và Architecture v1.0 validated trong §3 doc này
 - [`03_security_design.md`](03_security_design.md) §14 - Risk registry mitigated bởi test results §6 doc này
 - [`../../ai/docs/04_eval_report.md`](../../ai/docs/04_eval_report.md) - Joint eval: AI engine quality (Fallback Engine SC-04) + CDO infra integration
