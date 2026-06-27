@@ -1,133 +1,20 @@
 # -----------------------------------------------------------------------------
 # Data module -- Main resources
 #
-# Creates:
-#   - AMP workspace
-#   - DynamoDB audit table (tenant_id / service_time, GSI, TTL, PITR)
-#   - DynamoDB policy table (minimal)
-#   - SQS prediction queue + DLQ (redrive policy)
-#   - SQS scheduler target DLQ (for compute module EventBridge Scheduler)
-#   - S3 evidence bucket (KMS encrypted, versioned, lifecycle)
-#   - SNS alert topic + optional email subscription
-#   - Secrets Manager placeholders (service policy, AI config)
-#   - KMS key for evidence bucket SSE-KMS
+# Vinh-owned scope (CPOA-42): AMP workspace, SQS/DLQ, DynamoDB audit table,
+# and S3 evidence bucket foundation.
 # -----------------------------------------------------------------------------
 
-# -----------------------------------------------------------------------------
-# Current AWS account identity (used by KMS key policy)
-# -----------------------------------------------------------------------------
-data "aws_caller_identity" "current" {}
-
-# -----------------------------------------------------------------------------
-# KMS key for S3 evidence bucket SSE-KMS
-# -----------------------------------------------------------------------------
-resource "aws_kms_key" "evidence" {
-  description             = "KMS key for ${var.project_name} evidence bucket SSE-KMS"
-  deletion_window_in_days = 7
-  enable_key_rotation     = true
-
-  policy = data.aws_iam_policy_document.evidence_kms.json
-}
-
-resource "aws_kms_alias" "evidence" {
-  name          = "alias/${var.project_name}-evidence-${var.environment}"
-  target_key_id = aws_kms_key.evidence.key_id
-}
-
-data "aws_iam_policy_document" "evidence_kms" {
-  # Prevent the key from becoming unmanageable.
-  statement {
-    sid     = "EnableIAMUserPermissions"
-    effect  = "Allow"
-    actions = ["kms:*"]
-    principals {
-      type        = "AWS"
-      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
-    }
-    resources = ["*"]
-  }
-
-  # Evidence data key use should happen through S3 only. IAM policies still scope
-  # which task roles may write evidence objects.
-  statement {
-    sid    = "AllowS3EvidenceKeyUsage"
-    effect = "Allow"
-    actions = [
-      "kms:Encrypt",
-      "kms:Decrypt",
-      "kms:ReEncrypt*",
-      "kms:GenerateDataKey*",
-      "kms:DescribeKey",
-    ]
-    principals {
-      type        = "AWS"
-      identifiers = ["*"]
-    }
-    resources = ["*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "kms:CallerAccount"
-      values   = [data.aws_caller_identity.current.account_id]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "kms:ViaService"
-      values   = ["s3.${var.aws_region}.amazonaws.com"]
-    }
-  }
-
-  statement {
-    sid    = "AllowCloudWatchLogsAuditKeyUsage"
-    effect = "Allow"
-    actions = [
-      "kms:Encrypt",
-      "kms:Decrypt",
-      "kms:ReEncrypt*",
-      "kms:GenerateDataKey*",
-      "kms:DescribeKey",
-    ]
-    principals {
-      type        = "Service"
-      identifiers = ["logs.${var.aws_region}.amazonaws.com"]
-    }
-    resources = ["*"]
-
-    condition {
-      test     = "ArnLike"
-      variable = "kms:EncryptionContext:aws:logs:arn"
-      values   = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.project_name}-${var.environment}-ai-engine-audit"]
-    }
-  }
-}
-
-# -----------------------------------------------------------------------------
-# Amazon Managed Service for Prometheus (AMP) workspace
-# -----------------------------------------------------------------------------
 resource "aws_prometheus_workspace" "this" {
   alias = "${var.project_name}-${var.environment}"
 }
 
-# -----------------------------------------------------------------------------
-# DynamoDB -- Audit table
-#
-# Accepted tenant/service/time model:
-#   - Partition key: tenant_id  (String)
-#   - Sort key:      service_time (String) -- encodes service + time
-#   - GSI:           prediction-index on prediction_status + prediction_timestamp
-#   - TTL:           expires_at_epoch (Number, Unix epoch seconds)
-#   - Billing:       PAY_PER_REQUEST
-#   - PITR:          enabled
-#   - Encryption:    default AWS-owned key (server_side_encryption enabled)
-# -----------------------------------------------------------------------------
 resource "aws_dynamodb_table" "audit" {
   name         = "${var.project_name}-audit-${var.environment}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "tenant_id"
   range_key    = "service_time"
 
-  # Base-table key schema
   attribute {
     name = "tenant_id"
     type = "S"
@@ -138,7 +25,6 @@ resource "aws_dynamodb_table" "audit" {
     type = "S"
   }
 
-  # GSI key attributes
   attribute {
     name = "prediction_status"
     type = "S"
@@ -171,48 +57,22 @@ resource "aws_dynamodb_table" "audit" {
 }
 
 # -----------------------------------------------------------------------------
-# DynamoDB -- Policy table (minimal)
-#
-# Stores service policy configurations.
-# root module references policy_table_name in the compute call,
-# so we provide a minimal table.
+# TODO (CPOA-72): DynamoDB service policy fallback rules -- owned by Phan Minh Tuấn.
+# Placeholder only: add service policy table/items when fallback engine work lands.
 # -----------------------------------------------------------------------------
-resource "aws_dynamodb_table" "policy" {
-  name         = "${var.project_name}-policy-${var.environment}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "policy_id"
 
-  attribute {
-    name = "policy_id"
-    type = "S"
-  }
-
-  server_side_encryption {
-    enabled = true
-  }
-}
-
-# -----------------------------------------------------------------------------
-# SQS -- Prediction queue DLQ (dead-letter queue)
-# -----------------------------------------------------------------------------
 resource "aws_sqs_queue" "prediction_dlq" {
   name                      = "${var.project_name}-prediction-dlq-${var.environment}"
   sqs_managed_sse_enabled   = true
-  message_retention_seconds = 1209600 # 14 days -- max for DLQ best practice
+  message_retention_seconds = 1209600
 }
 
-# -----------------------------------------------------------------------------
-# SQS -- Prediction queue (source queue)
-#
-# Routes messages that fail processing (maxReceiveCount exceeded)
-# to the DLQ above.
-# -----------------------------------------------------------------------------
 resource "aws_sqs_queue" "prediction" {
   name                    = "${var.project_name}-prediction-${var.environment}"
   sqs_managed_sse_enabled = true
 
-  visibility_timeout_seconds = 300    # 5 min; tune to max worker processing time
-  message_retention_seconds  = 345600 # 4 days
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 345600
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.prediction_dlq.arn
@@ -221,25 +81,10 @@ resource "aws_sqs_queue" "prediction" {
 }
 
 # -----------------------------------------------------------------------------
-# SQS -- Scheduler target DLQ
-#
-# EventBridge Scheduler lives in the compute module.
-# This queue serves as the dead-letter target for schedules that exhaust
-# their retries. Expose the ARN so the compute module can wire the
-# scheduler without creating duplicate DLQ resources.
+# TODO (CPOA-44): EventBridge Scheduler DLQ -- owned by Truong An.
+# Placeholder only: create scheduler target DLQ together with scheduler resource.
 # -----------------------------------------------------------------------------
-resource "aws_sqs_queue" "scheduler_dlq" {
-  name                      = "${var.project_name}-scheduler-dlq-${var.environment}"
-  sqs_managed_sse_enabled   = true
-  message_retention_seconds = 1209600 # 14 days
-}
 
-# -----------------------------------------------------------------------------
-# S3 -- Evidence / baseline bucket
-#
-# Private, KMS-encrypted, versioned, lifecycle-managed.
-# baseline_bucket_name output aliases this same bucket.
-# -----------------------------------------------------------------------------
 resource "aws_s3_bucket" "evidence" {
   bucket        = "${var.project_name}-evidence-${var.environment}"
   force_destroy = false
@@ -247,6 +92,7 @@ resource "aws_s3_bucket" "evidence" {
 
 resource "aws_s3_bucket_versioning" "evidence" {
   bucket = aws_s3_bucket.evidence.id
+
   versioning_configuration {
     status = "Enabled"
   }
@@ -257,10 +103,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.evidence.arn
+      sse_algorithm = "AES256"
     }
-    bucket_key_enabled = true # reduces KMS costs
   }
 }
 
@@ -312,81 +156,18 @@ resource "aws_s3_bucket_policy" "evidence" {
             "aws:SecureTransport" = "false"
           }
         }
-      },
-      {
-        Sid    = "DenyUnencryptedObjectUploads"
-        Effect = "Deny"
-        Principal = {
-          AWS = "*"
-        }
-        Action   = "s3:PutObject"
-        Resource = "${aws_s3_bucket.evidence.arn}/*"
-        Condition = {
-          StringNotEquals = {
-            "s3:x-amz-server-side-encryption" = "aws:kms"
-          }
-        }
       }
     ]
   })
 }
 
 # -----------------------------------------------------------------------------
-# SNS -- Alert topic + optional email subscription
-#
-# Email subscription is NOT auto-confirmed by AWS.
-# The recipient MUST click the confirmation link in the subscription email.
-# This resource is only created when alert_email is non-empty.
+# TODO (CPOA-43): KMS + Secrets/SSM config -- owned by Truong An.
+# Placeholder only: replace AES256 bucket encryption with SSE-KMS and add
+# Secrets Manager / SSM config resources in security-owned work.
 # -----------------------------------------------------------------------------
-resource "aws_sns_topic" "alerts" {
-  name              = "${var.project_name}-alerts-${var.environment}"
-  kms_master_key_id = "alias/aws/sns" # SNS-managed key; no added cost
-}
-
-resource "aws_sns_topic_subscription" "alerts_email" {
-  count     = var.alert_email != "" ? 1 : 0
-  topic_arn = aws_sns_topic.alerts.arn
-  protocol  = "email"
-  endpoint  = var.alert_email
-}
 
 # -----------------------------------------------------------------------------
-# Secrets Manager -- Service policy config (placeholder, no real secrets)
+# TODO (CPOA-69/CPOA-91): SNS alert channels -- owned by Nguyen Huy Hoang /
+# Nguyen Quach Khang Ninh. Placeholder only; no alert topic here.
 # -----------------------------------------------------------------------------
-resource "aws_secretsmanager_secret" "service_policy" {
-  name                    = "${var.project_name}-service-policy-${var.environment}"
-  description             = "Service policy configuration for ${var.project_name} (${var.environment})"
-  recovery_window_in_days = var.environment == "sandbox" ? 0 : 30
-}
-
-resource "aws_secretsmanager_secret_version" "service_policy" {
-  secret_id = aws_secretsmanager_secret.service_policy.id
-  secret_string = jsonencode({
-    _placeholder = true
-    _note        = "Replace with real service policy configuration before production use."
-    version      = "0.0.0"
-    policies     = {}
-  })
-}
-
-# -----------------------------------------------------------------------------
-# Secrets Manager -- AI service config (placeholder, no real secrets)
-# -----------------------------------------------------------------------------
-resource "aws_secretsmanager_secret" "ai_service_config" {
-  name                    = "${var.project_name}-ai-service-config-${var.environment}"
-  description             = "AI service configuration for ${var.project_name} (${var.environment}) -- no real secrets in this placeholder"
-  recovery_window_in_days = var.environment == "sandbox" ? 0 : 30
-}
-
-resource "aws_secretsmanager_secret_version" "ai_service_config" {
-  secret_id = aws_secretsmanager_secret.ai_service_config.id
-  secret_string = jsonencode({
-    _placeholder = true
-    _note        = "Replace with real AI service configuration before production use."
-    model_id     = "PLACEHOLDER"
-    region       = var.aws_region
-    endpoint     = "https://PLACEHOLDER.amazonaws.com"
-    max_tokens   = 4096
-    temperature  = 0.7
-  })
-}

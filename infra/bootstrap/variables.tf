@@ -3,49 +3,31 @@
 # -----------------------------------------------------------------------------
 
 variable "aws_region" {
-  description = "AWS region for all bootstrap resources (state bucket, OIDC provider, IAM)"
+  description = "AWS region for bootstrap resources"
   type        = string
   default     = "us-east-1"
 }
 
 variable "project_name" {
-  description = "Project name used in resource naming (e.g. tf4-cdo04)"
+  description = "Project name used in resource naming"
   type        = string
   default     = "tf4-cdo04"
 }
 
 variable "environment" {
-  description = "Environment name (bootstrap is account-level; use 'bootstrap' or 'shared')"
+  description = "Environment name for bootstrap tags"
   type        = string
   default     = "bootstrap"
 }
 
 variable "state_bucket_name_prefix" {
-  description = "Prefix for the S3 state bucket. A random suffix is appended for global uniqueness."
+  description = "Prefix for S3 state bucket. A random suffix is appended for global uniqueness."
   type        = string
   default     = "tf4-cdo04-terraform-state"
 }
 
-variable "github_org" {
-  description = "GitHub organization that owns the repository"
-  type        = string
-  default     = "pho-veteran"
-}
-
-variable "github_repo" {
-  description = "GitHub repository name"
-  type        = string
-  default     = "tf4-cdo04-repo"
-}
-
-variable "github_branch" {
-  description = "GitHub branch allowed to assume the deploy role. Use 'main' or a specific branch name."
-  type        = string
-  default     = "main"
-}
-
 variable "tags" {
-  description = "Common tags applied to all bootstrap resources"
+  description = "Common tags applied to bootstrap resources"
   type        = map(string)
   default = {
     Project     = "tf4-cdo04"
@@ -53,3 +35,5 @@ variable "tags" {
     ManagedBy   = "terraform"
   }
 }
+
+# TODO (CPOA-38): GitHub org/repo/branch variables belong to CI/CD OIDC setup.
