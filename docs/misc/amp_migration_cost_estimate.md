@@ -7,10 +7,10 @@
 
 ## 1. Executive summary
 
-> **Accepted-docs note (2026-06-26):** Main docs now use public ingest ALB plus ECS Service Connect for private Worker → AI routing. That makes the accepted physical baseline about **$158.16/month** before buffer and **$189.79/month** with 20% buffer, assuming Service Connect proxy headroom does not force Fargate task upsize. Current source of truth is `02_infra_design.md`, `05_cost_analysis.md`, and ADR-011.
+> **Accepted-docs note (2026-06-26):** Main docs now use public ingest ALB plus ECS Service Connect for private Worker → AI routing. That makes the accepted physical design about **$158.16/month** before buffer and **$189.79/month** with 20% buffer, assuming Service Connect proxy headroom does not force Fargate task upsize. Current source of truth is `02_infra_design.md`, `05_cost_analysis.md`, and ADR-011.
 
 
-This file estimates the impact of changing the current CDO-04 infrastructure baseline from:
+This file estimates the impact of changing the current CDO-04 infrastructure decision from:
 
 ```text
 Region: ap-southeast-1 / Singapore
@@ -24,7 +24,7 @@ Region: us-east-1 / US East (N. Virginia)
 TSDB  : Amazon Managed Service for Prometheus (AMP)
 ```
 
-The estimate uses the current CDO docs as the functional baseline, especially:
+The estimate uses the current CDO docs as the functional design, especially:
 
 - `docs/02_infra_design.md`
 - `docs/03_security_design.md`
@@ -38,7 +38,7 @@ The estimate uses the current CDO docs as the functional baseline, especially:
 | Question | Answer |
 |---|---|
 | Does moving to `us-east-1` + AMP reduce cost? | **Yes.** The largest saving is replacing fixed `db.influx.medium` InfluxDB cost (~$103.66/month) with AMP usage-based pricing that is effectively near-zero for the current demo volume. |
-| Estimated full-month always-on cost after migration | **~$158.16/month** using the same doc-priced one-ALB baseline and x86 Fargate. |
+| Estimated full-month always-on cost after migration | **~$158.16/month** using the same doc-priced one-ALB design and x86 Fargate. |
 | Estimated full-month cost with 20% ops buffer | **~$189.79/month**, still under the $200/month target. |
 | Can it still meet AI lead-time requirement ≥15 minutes? | **Yes, if all CDO runtime components and AI Engine are co-located in `us-east-1` and the Worker still keeps 1-minute telemetry, 5-minute prediction cadence, and a complete 120-minute signal window.** |
 | Does it require contract/doc changes? | **CDO docs/ADRs yes; frozen AI contracts no.** Contract review found the AI deployment contract already defaults `AWS_REGION` to `us-east-1` and treats the engine as region-agnostic by CDO deployment region. The API schema/auth/SLA do not change. |
@@ -50,9 +50,9 @@ Recommendation:
 
 ---
 
-## 2. Source-of-truth baseline before migration
+## 2. Source-of-truth design before migration
 
-Current CDO baseline from `02_infra_design.md` and `05_cost_analysis.md`:
+Current CDO design from `02_infra_design.md` and `05_cost_analysis.md`:
 
 | Area | Current decision |
 |---|---|
@@ -79,7 +79,7 @@ Timestream for InfluxDB db.influx.medium Single-AZ
 = ~$103.66/month
 ```
 
-That fixed instance-hour cost is why the current full-month baseline no longer fits the $200/month target.
+That fixed instance-hour cost is why the current full-month estimate no longer fits the $200/month target.
 
 ---
 
@@ -138,7 +138,7 @@ Required application/platform changes:
    - New: PromQL query reference / AMP workspace query / Grafana panel link.
 
 4. **IAM/secrets**
-   - Remove InfluxDB write/read/admin token secrets from the app baseline.
+   - Remove InfluxDB write/read/admin token secrets from the app config.
    - Add IAM permissions for AMP remote write/query.
    - Keep Secrets Manager for tenant ingest token, AI endpoint config, webhook secret, and other app config.
 
@@ -204,7 +204,7 @@ AWS docs also state:
 
 ## 5. AMP volume model for CDO-04
 
-### 5.1 Demo/current baseline volume
+### 5.1 Demo/current decision volume
 
 Current required AI signals from the AI telemetry contract:
 
@@ -245,7 +245,7 @@ Each prediction query ~= 7 metrics × 120 one-minute samples = 840 query samples
 | Ingested samples | 907,200 samples/month | Under 40M free tier | **$0.00** |
 | Storage | Far below 10GB/month at demo scope | Under 10GB free tier | **$0.00** |
 | Query samples processed | ~21.8M/month for Worker hot path | Under 200B free tier; raw price $0.10/1B | **$0.00** |
-| AMP managed collector | Not used in baseline; use app remote-write or customer-managed ADOT sidecar | $0.04/collector-hour only if enabled | **$0.00** |
+| AMP managed collector | Not used in MVP; use app remote-write or customer-managed ADOT sidecar | $0.04/collector-hour only if enabled | **$0.00** |
 | **AMP total, current demo scope** |  |  | **~$0.00/month** |
 
 Conservative no-free-tier view:
@@ -332,11 +332,11 @@ If the proxy forces one or more tasks to move to the next Fargate size, re-estim
 
 ---
 
-## 7. Cost comparison against current Singapore + InfluxDB baseline
+## 7. Cost comparison against current Singapore + InfluxDB decision
 
 | Scenario | Monthly estimate | 20% buffer | Budget fit |
 |---|---:|---:|---|
-| Current `ap-southeast-1` + Timestream for InfluxDB | **~$296.04** | **~$355.25** | Does not fit $200/month |
+| `ap-southeast-1` + Timestream for InfluxDB | **~$296.04** | **~$355.25** | Does not fit $200/month |
 | Migrated `us-east-1` + AMP, x86 Fargate + Service Connect | **~$158.16** | **~$189.79** | Fits $200/month if Service Connect proxy does not force task upsize |
 | Migrated `us-east-1` + AMP, ARM64 Fargate | **~$140.15** | **~$168.18** | Stronger budget fit |
 
@@ -404,7 +404,7 @@ Therefore:
 | AMP query is written too broadly | More query samples, slower Worker, higher cost | PromQL must filter by `tenant_id`, `service_id`, metric name, and exact time range |
 | Prometheus label cardinality explodes | Higher cost, query latency, active-series risk | Do not label by `request_id`, `trace_id`, `prediction_id`, raw endpoint path with IDs, or user identifiers |
 | ADOT/remote-write batching misconfigured | Metric gaps; AI rejects gap >1 minute or <120 points | Configure retries/queue/batch, and keep S3 failure buffer/replay path |
-| AI Engine remains in old region while Worker moves | Worker -> AI path becomes cross-region/public/private-complex, not current Service Connect baseline | Migrate AI Engine with CDO platform, or treat as a formal contract exception |
+| AI Engine remains in old region while Worker moves | Worker -> AI path becomes cross-region/public/private-complex, not current Service Connect design | Migrate AI Engine with CDO platform, or treat as a formal contract exception |
 | CDO docs still say Singapore is official | Governance/review failure even if infra works | Update CDO docs/ADR before claiming final compliance; frozen AI contracts do not need edits |
 
 ### 8.4 Contract compatibility verdict
@@ -418,7 +418,7 @@ Therefore:
 | 15-minute lead time | **Compatible** if all runtime components are co-located in `us-east-1` |
 | 90-day retention | **Compatible**; AMP default retention is 150 days |
 | AI deployment on ECS Fargate | **Compatible** if AI Engine is also deployed in `us-east-1` private subnets |
-| Current CDO region wording | **Not compatible without CDO doc/ADR update** because current CDO docs lock `ap-southeast-1`; frozen AI contracts remain compatible |
+| CDO region wording | **Not compatible without CDO doc/ADR update** because current CDO docs lock `ap-southeast-1`; frozen AI contracts remain compatible |
 
 ---
 
@@ -458,7 +458,7 @@ Minimum documentation changes:
    - Update failure mode wording from InfluxDB write/query to AMP remote write/query.
 
 2. **`docs/03_security_design.md`**
-   - Remove InfluxDB token model from baseline.
+   - Remove InfluxDB token model from app config.
    - Add AMP IAM/SigV4 permissions and label-based tenant isolation.
    - Add Prometheus label cardinality/PII guardrails.
 
@@ -517,7 +517,7 @@ It should be treated as an architecture migration:
 Region change + TSDB product change + query language change + IAM model change + evidence format change
 ```
 
-Now that this migration is accepted, the next step is to keep the main CDO docs/ADR as the source of truth, then update Terraform only after the documentation baseline is accepted. Do not implement Terraform directly from this analysis file.
+Now that this migration is accepted, the next step is to keep the main CDO docs/ADR as the source of truth, then update Terraform only after the documentation decision is accepted. Do not implement Terraform directly from this analysis file.
 
 ---
 

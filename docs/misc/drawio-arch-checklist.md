@@ -41,7 +41,7 @@
   - EventBridge Scheduler
   - SQS + DLQ
   - DynamoDB audit/policy
-  - S3 evidence/failure buffer/baseline
+  - S3 evidence/failure buffer/AI baseline
   - Secrets Manager / SSM
   - CloudWatch Logs/Metrics/Dashboard/Alarms
   - SNS alert topic
@@ -73,14 +73,14 @@
 - [ ] 1 zonal NAT Gateway for outbound AWS API traffic not using Gateway Endpoints.
 - [ ] S3 Gateway VPC Endpoint.
 - [ ] DynamoDB Gateway VPC Endpoint.
-- [ ] Optional hardening note, not baseline: AMP `aps-workspaces` Interface Endpoint.
+- [ ] Optional hardening note, not MVP: AMP `aps-workspaces` Interface Endpoint.
 
 ### Compute / ECS
 
 - [ ] ECS Cluster: `tf4-cdo04-cluster`.
 - [ ] ECS Fargate service: `telemetry-api`, 2 tasks, private subnet, no public IP.
-- [ ] ECS Fargate service: `prediction-worker`, 1 task baseline, private subnet, no public IP.
-- [ ] ECS Fargate service: `ai-engine`, 2 tasks baseline / max 4, private subnet, no public IP, port 8080.
+- [ ] ECS Fargate service: `prediction-worker`, 1 task, private subnet, no public IP.
+- [ ] ECS Fargate service: `ai-engine`, 2 tasks / max 4, private subnet, no public IP, port 8080.
 - [ ] ECS Service Connect namespace/service for AI path, label it `ai-engine:8080`.
 - [ ] ADOT Collector / Prometheus Agent / app remote_write component near Telemetry API.
 
@@ -111,7 +111,7 @@
   - ECS task execution role
   - Telemetry/collector task role with `aps:RemoteWrite`
   - Prediction Worker task role with SQS, `aps:QueryMetrics`, DynamoDB, SNS, S3, Secrets access
-  - AI Engine task role with S3 baseline + logs/config access
+  - AI Engine task role with S3 AI baseline + logs/config access
   - EventBridge Scheduler execution role with `sqs:SendMessage`
 
 ## 4. Luồng chính A → B cần vẽ và caption ngắn
@@ -184,7 +184,7 @@
 - [ ] Service Connect: **Private service discovery/load balancing only; does not verify SigV4.**
 - [ ] AI Engine: **Middleware/sidecar verifies Worker SigV4 request in W12 final.**
 - [ ] DynamoDB: **Audit is source of truth; encrypted; TTL 90 days.**
-- [ ] S3: **Evidence/baseline/failure buffer; lifecycle policy; encrypted.**
+- [ ] S3: **Evidence/AI baseline/failure buffer; lifecycle policy; encrypted.**
 - [ ] Secrets Manager/SSM: **No API key for Worker → AI; stores config/service name/webhooks/tokens only.**
 - [ ] Labels: **Do not use `request_id`, `trace_id`, `prediction_id`, `user_id`, raw endpoint path as AMP labels.**
 - [ ] Cost note: **Service Connect has no direct charge; watch proxy CPU/memory headroom.**
@@ -202,7 +202,7 @@
 - [ ] Show Worker → AI through ECS Service Connect inside private subnets.
 - [ ] Show S3 and DynamoDB Gateway Endpoints connected to private route tables.
 - [ ] Show NAT only for outbound AWS API calls not covered by Gateway Endpoints.
-- [ ] Add small note: **AMP PrivateLink is hardening option, not MVP baseline.**
+- [ ] Add small note: **AMP PrivateLink is hardening option, not MVP.**
 - [ ] Add small note: **Terraform implementation can follow this diagram; docs are current source of truth.**
 
 ## 7. Suggested caption for final diagram
