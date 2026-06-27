@@ -433,16 +433,14 @@ Billing mode : PAY_PER_REQUEST
 Encryption   : SSE enabled
 TTL          : expires_at_epoch, 90-day retention eligibility
 
-PK: TENANT#<tenant_id>#SERVICE#<service_id>
-SK: TS#<window_start>#PRED#<prediction_id>
+PK: tenant_id
+SK: service_time
 
-GSI1 tra cứu prediction:
-  GSI1PK: PRED#<prediction_id>
-  GSI1SK: TS#<window_start>
+GSI prediction-index:
+  PK: prediction_status
+  SK: prediction_timestamp
 
-GSI2 tenant timeline:
-  GSI2PK: TENANT#<tenant_id>
-  GSI2SK: TS#<window_start>#SERVICE#<service_id>
+Composite TENANT#/GSI1/GSI2 schema là post-MVP option; Terraform v1 dùng schema ở trên để khớp mock E2E và IAM scope hiện tại.
 ```
 
 Optional evidence snapshot:

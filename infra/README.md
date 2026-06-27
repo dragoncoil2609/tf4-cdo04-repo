@@ -1,75 +1,98 @@
-# Hạ tầng
+# CDO-04 Infrastructure -- Terraform ownership slice
 
-Thư mục gốc cho Terraform IaC của CDO-04 SLO Early-Warning Control Plane.
+This folder now tracks only Nguyễn Thành Vinh's assignee-owned Terraform work.
+Reviewer-only responsibilities and teammate-owned implementation are intentionally
+left as `TODO (CPOA-xx)` placeholders in Terraform files.
 
-## Snapshot quyết định MVP cho Terraform v1
+## Kept Vinh-owned scope
 
-Terraform v1 phải triển khai các quyết định này trước mọi hardening tùy chọn:
+| Jira | Scope | Location |
+|---|---|---|
+| CPOA-37 | Terraform S3 backend | `bootstrap/` |
+| CPOA-39 | Networking module | `terraform/modules/networking/` |
+| CPOA-41 | ECS Cluster + Service Connect namespace | `terraform/modules/compute/` |
+| CPOA-42 | Data module foundation: AMP, SQS/DLQ, DynamoDB audit, S3 evidence | `terraform/modules/data/` |
+| CPOA-46 | Telemetry API task definition | `terraform/modules/compute/` |
+| CPOA-50 | ECS autoscaling policy | placeholder only, not implemented yet |
 
-| Hạng mục | Quyết định đã chốt |
-|---|---|
-| Region/account | Một region `us-east-1`; một account với tên resource và state key tách theo môi trường. |
-| Cổng vào public | Một public ALB cho `/v1/ingest`; bắt buộc có `allowed_ingress_cidrs` và không có giá trị mặc định mở. |
-| HTTPS | HTTPS cho non-sandbox bắt buộc có `acm_certificate_arn` sẵn tại `us-east-1`; Terraform mặc định không tạo Route 53/ACM. |
-| Runtime | ECS Fargate Linux/x86 private tasks, `awsvpc`, `assignPublicIp = DISABLED`. |
-| Luồng AI | Worker gọi AI qua ECS Service Connect service name; Terraform v1 không tạo internal AI ALB. |
-| Ghi metric | ADOT/Prometheus Collector ECS service tự quản lý, scrape 60 giây, SigV4 `remote_write` tới AMP. |
-| AMP endpoints | MVP dùng NAT cho AMP HTTPS. Nếu bật `aps-workspaces` PrivateLink cho data-plane remote_write/query thì phải bật thêm regional STS endpoint. `aps` chỉ là control-plane. |
-| Queue | EventBridge Scheduler target DLQ và DLQ của prediction source queue. |
-| Audit | DynamoDB primary key tenant/service/time, tra cứu prediction GSI, TTL `expires_at_epoch`. |
-| Evidence | Ghi audit row cho mọi prediction; S3 evidence object chỉ lưu cho high-risk, fallback hoặc các trường hợp failure/replay. |
-| Alerts | CloudWatch alarms gửi tới SNS email; xác nhận subscription làm thủ công. |
-| Deployment | ECS rolling deployment circuit breaker cho API, Worker và AI trong v1. ECS-native blue/green là post-MVP; CodeDeploy không thuộc v1. |
-| Ngoài phạm vi | WAF, Service Connect TLS/Private CA, bộ interface endpoint đầy đủ, multi-account, multi-region DR. |
+## Removed / placeholder teammate-owned scope
 
-### Guardrail quota AMP
+| Jira | Owner | Placeholder |
+|---|---|---|
+| CPOA-38 | Truong An | GitHub OIDC deploy role |
+| CPOA-40 | Truong An | Security Groups module/rules |
+| CPOA-43 | Truong An | KMS + Secrets/SSM config |
+| CPOA-44 | Truong An | EventBridge Scheduler |
+| CPOA-47..CPOA-49/CPOA-51 | Truong An | Worker/AI task defs, AI Service Connect, AI S3 access |
+| CPOA-78 | Nguyen Huy Hoang | CI/CD, deployment, ECR push, smoke deploy |
+| CPOA-88 | Nguyen Quach Khang Ninh | Observability dashboards/alarms/tests |
+| CPOA-98 | Huy Tạ Hoàng | Cost & operations budget/reporting |
 
-Mức 50k events/sec là mục tiêu stress design, không phải mặc định cho Terraform demo. AMP remote_write quota tính theo sample. Docs và test phải đổi events/sec thành samples/sec:
-
-```text
-samples/sec = events/sec × số sample phát sinh trên mỗi event
-```
-
-Nếu kết quả vượt quota ingest mặc định của AMP, kế hoạch phải yêu cầu tăng quota AMP hoặc giảm trần load test. Ví dụ 50k events/sec × 7 samples/event = 350k samples/sec, cao hơn ingest rate mặc định 70k samples/sec.
-
-### Ghi chú topology theo contract
-
-`deployment-contract.md` mô tả lựa chọn internal ALB/private DNS cho AI Engine. CDO Terraform v1 cố ý dùng ECS Service Connect thay thế. Cách này vẫn giữ đúng ý định đã chốt của contract: AI Engine private, không public, giới hạn bằng SG và chỉ CDO Worker được gọi. Không sửa contract file.
-
-## Tài liệu nguồn bắt buộc đọc
-
-Đọc các tài liệu này trước khi viết Terraform:
-
-- [`../docs/01_requirements_analysis.md`](../docs/01_requirements_analysis.md)
-- [`../docs/02_infra_design.md`](../docs/02_infra_design.md)
-- [`../docs/03_security_design.md`](../docs/03_security_design.md)
-- [`../docs/04_deployment_design.md`](../docs/04_deployment_design.md)
-- [`../docs/05_cost_analysis.md`](../docs/05_cost_analysis.md)
-- [`../docs/08_adrs.md`](../docs/08_adrs.md)
-- [`../docs/vpce_vs_nat_cost_notes.md`](../docs/vpce_vs_nat_cost_notes.md)
-- [`../contracts/ai-api-contract.md`](../contracts/ai-api-contract.md)
-- [`../contracts/telemetry-contract.md`](../contracts/telemetry-contract.md)
-- [`../contracts/deployment-contract.md`](../contracts/deployment-contract.md)
-
-`deployment-contract.md` mô tả pattern internal ALB/private DNS cho AI Engine. CDO Terraform v1 cố ý giữ cùng mục tiêu private/không public bằng ECS Service Connect để tránh thêm chi phí ALB và khớp thiết kế CDO hiện tại.
-
-## Layout dự kiến
+## Layout
 
 ```text
 infra/
-├── bootstrap/             # S3 backend, KMS nếu dùng, GitHub OIDC provider, Terraform deploy role
-├── terraform/             # Terraform root chính
-│   ├── modules/
-│   │   ├── networking/    # VPC, subnets, SGs, 1 NAT, S3/DynamoDB Gateway Endpoints
-│   │   ├── data/          # AMP, DynamoDB, SQS/DLQs, S3 evidence, SSM/Secrets/SNS
-│   │   ├── compute/       # ALB, ECR, ECS Cluster/Services, Service Connect, Scheduler
-│   │   └── observability/ # CloudWatch Logs/Metrics/Dashboard/Alarms, Budget
-│   ├── versions.tf
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfvars.example
-└── README.md
+├── bootstrap/             # CPOA-37 backend bucket only
+└── terraform/
+    ├── main.tf            # wires Vinh-owned modules only
+    ├── backend.tf         # S3 backend config
+    ├── variables.tf
+    ├── outputs.tf
+    ├── terraform.tfvars.example
+    └── modules/
+        ├── networking/    # CPOA-39
+        ├── data/          # CPOA-42
+        ├── compute/       # CPOA-41/CPOA-46/CPOA-50 placeholder
+        └── observability/ # placeholder for CPOA-88 owner
 ```
 
-Hiện chưa có file Terraform. Chỉ tạo skeleton sau khi các quyết định ở trên được chấp nhận.
+## Bootstrap
+
+```bash
+cd infra/bootstrap
+terraform init
+terraform fmt -recursive
+terraform validate
+terraform plan
+```
+
+Apply only when backend bucket needs creation:
+
+```bash
+terraform apply
+```
+
+## Main Terraform
+
+```bash
+cd infra/terraform
+terraform init
+terraform fmt -recursive
+terraform validate
+terraform plan
+```
+
+Current main root should create only foundational resources from Vinh scope.
+It does not expose public ALB ingress, deploy ECS services, schedule jobs, or
+create dashboards/budgets until teammate-owned placeholders are implemented.
+
+## Current interaction points
+
+- `terraform output vpc_id`
+- `terraform output private_subnet_ids`
+- `terraform output public_subnet_ids`
+- `terraform output amp_workspace_id`
+- `terraform output prediction_queue_url`
+- `terraform output audit_table_name`
+- `terraform output evidence_bucket_name`
+- `terraform output ecs_cluster_name`
+- `terraform output service_connect_namespace_name`
+- `terraform output telemetry_api_task_definition_arn`
+
+## Mock/E2E note
+
+Full mock E2E through ALB -> API -> SQS -> Worker -> AI -> DynamoDB/S3 is no
+longer represented as completed Terraform because Worker, AI, ALB, Scheduler,
+Security Groups, and Observability are teammate-owned placeholders.
+
+Keep future smoke tests scoped to whichever assignee-owned resources are present.
