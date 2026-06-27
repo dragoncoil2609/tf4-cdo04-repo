@@ -106,8 +106,18 @@ variable "audit_table_name" {
   type        = string
 }
 
+variable "audit_table_arn" {
+  description = "DynamoDB audit table ARN"
+  type        = string
+}
+
 variable "policy_table_name" {
   description = "DynamoDB service policy table name"
+  type        = string
+}
+
+variable "policy_table_arn" {
+  description = "DynamoDB service policy table ARN"
   type        = string
 }
 

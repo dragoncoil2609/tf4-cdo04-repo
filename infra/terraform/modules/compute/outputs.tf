@@ -49,5 +49,20 @@ output "adot_collector_service_name" {
 
 output "prediction_scheduler_arn" {
   description = "EventBridge Scheduler ARN for prediction jobs"
-  value       = aws_scheduler_schedule.prediction.arn
+  value       = try(aws_scheduler_schedule.prediction[0].arn, "")
+}
+
+output "telemetry_api_ecr_repository_url" {
+  description = "ECR repository URL for Telemetry API"
+  value       = aws_ecr_repository.telemetry_api.repository_url
+}
+
+output "prediction_worker_ecr_repository_url" {
+  description = "ECR repository URL for Prediction Worker"
+  value       = aws_ecr_repository.prediction_worker.repository_url
+}
+
+output "ai_engine_ecr_repository_url" {
+  description = "ECR repository URL for AI Engine"
+  value       = aws_ecr_repository.ai_engine.repository_url
 }

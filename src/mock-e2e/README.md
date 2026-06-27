@@ -18,6 +18,7 @@ Required environment:
 
 - API: `PREDICTION_QUEUE_URL`
 - Worker: `PREDICTION_QUEUE_URL`, `AI_ENGINE_URL`, `AUDIT_TABLE_NAME`, `EVIDENCE_BUCKET_NAME`
+  (S3 writes set `ServerSideEncryption=aws:kms` to match bucket policy)
 - AI: none beyond optional `PORT`
 
 Data path:

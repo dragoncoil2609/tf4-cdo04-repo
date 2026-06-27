@@ -35,7 +35,7 @@ resource "aws_kms_alias" "evidence" {
 }
 
 data "aws_iam_policy_document" "evidence_kms" {
-  # Prevent the key from becoming unmanageable
+  # Prevent the key from becoming unmanageable.
   statement {
     sid     = "EnableIAMUserPermissions"
     effect  = "Allow"
@@ -45,6 +45,60 @@ data "aws_iam_policy_document" "evidence_kms" {
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
     resources = ["*"]
+  }
+
+  # Evidence data key use should happen through S3 only. IAM policies still scope
+  # which task roles may write evidence objects.
+  statement {
+    sid    = "AllowS3EvidenceKeyUsage"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+    ]
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:CallerAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["s3.${var.aws_region}.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid    = "AllowCloudWatchLogsAuditKeyUsage"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+    ]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${var.aws_region}.amazonaws.com"]
+    }
+    resources = ["*"]
+
+    condition {
+      test     = "ArnLike"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.project_name}-${var.environment}-ai-engine-audit"]
+    }
   }
 }
 
@@ -236,6 +290,47 @@ resource "aws_s3_bucket_public_access_block" "evidence" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_policy" "evidence" {
+  bucket = aws_s3_bucket.evidence.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyNonTLS"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action = "s3:*"
+        Resource = [
+          aws_s3_bucket.evidence.arn,
+          "${aws_s3_bucket.evidence.arn}/*",
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      },
+      {
+        Sid    = "DenyUnencryptedObjectUploads"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.evidence.arn}/*"
+        Condition = {
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # -----------------------------------------------------------------------------
 # SNS -- Alert topic + optional email subscription
 #
@@ -261,7 +356,7 @@ resource "aws_sns_topic_subscription" "alerts_email" {
 resource "aws_secretsmanager_secret" "service_policy" {
   name                    = "${var.project_name}-service-policy-${var.environment}"
   description             = "Service policy configuration for ${var.project_name} (${var.environment})"
-  recovery_window_in_days = 0 # immediate delete; increase for prod
+  recovery_window_in_days = var.environment == "sandbox" ? 0 : 30
 }
 
 resource "aws_secretsmanager_secret_version" "service_policy" {
@@ -280,7 +375,7 @@ resource "aws_secretsmanager_secret_version" "service_policy" {
 resource "aws_secretsmanager_secret" "ai_service_config" {
   name                    = "${var.project_name}-ai-service-config-${var.environment}"
   description             = "AI service configuration for ${var.project_name} (${var.environment}) -- no real secrets in this placeholder"
-  recovery_window_in_days = 0
+  recovery_window_in_days = var.environment == "sandbox" ? 0 : 30
 }
 
 resource "aws_secretsmanager_secret_version" "ai_service_config" {

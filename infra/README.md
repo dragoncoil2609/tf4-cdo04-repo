@@ -45,9 +45,10 @@ Bootstrap creates:
   (30 days) and expires them (180 days). `lifecycle.prevent_destroy = true`.
 - **GitHub OIDC provider** -- trusts `token.actions.githubusercontent.com`,
   audience `sts.amazonaws.com`.
-- **Terraform deploy role** (`/github-actions/`) -- least-privilege trust policy
+- **Terraform backend role** (`/github-actions/`) -- least-privilege trust policy
   restricted to `repo:<org>/<repo>:ref:refs/heads/<branch>`. Inline policy
-  grants only S3 state bucket CRUD + `sts:GetCallerIdentity`.
+  grants only S3 state bucket CRUD + `sts:GetCallerIdentity`; broader main
+  deploy role is environment-specific and separate.
 
 Override defaults:
 ```bash
@@ -114,12 +115,15 @@ Four modules wired by `infra/terraform/main.tf`:
 - **AMP** reachable via NAT for MVP. PrivateLink endpoints (`aps-workspaces` for
   data-plane, regional STS) are post-MVP.
 - **EventBridge Scheduler** for periodic prediction jobs, with SQS DLQ for
-  failed scheduler targets.
+  failed scheduler targets. Scheduler resources are created only when
+  `enable_services = true`.
 - **ECS rolling deployment** with circuit breaker for Telemetry API, Prediction Worker, and AI Engine. ADOT Collector uses ECS rolling deploy without circuit breaker. Blue/green
   and CodeDeploy are post-MVP.
-- **HTTPS** enforced for non-sandbox via `acm_certificate_arn`. Sandbox may use
-  HTTP-only. Terraform does **not** create Route53 or ACM resources -- you must
-  provision the certificate separately at `us-east-1`.
+- **HTTPS** enforced for non-sandbox via `acm_certificate_arn`; HTTP redirects
+  to HTTPS outside sandbox. Sandbox may use HTTP-only. Terraform rejects
+  `0.0.0.0/0` and `::/0` ingress outside sandbox. Terraform does **not** create
+  Route53 or ACM resources -- you must provision the certificate separately at
+  `us-east-1`.
 
 ### Required variables
 
@@ -165,8 +169,8 @@ before mutating AWS resources.
 - **Single NAT Gateway** in the first public AZ (not one per AZ).
 - **S3 and DynamoDB Gateway VPC Endpoints** (free tier) route private subnet
   traffic to S3 and DynamoDB without traversing the NAT.
-- **AWS Budget** (`budget_limit`, default $200/month) with alert to
-  `alert_email`.
+- **AWS Budget** (`budget_limit`, default $200/month) with 50%, 80%, and
+  100% alerts to `alert_email`.
 
 ## SNS email confirmation
 
@@ -241,6 +245,16 @@ terraform apply \
 ```
 
 The task definitions set `MOCK_ROLE` per service: `api`, `worker`, `ai`.
+Terraform also outputs ECR repository URLs:
+
+```bash
+terraform output telemetry_api_ecr_repository_url
+terraform output prediction_worker_ecr_repository_url
+terraform output ai_engine_ecr_repository_url
+```
+
+Evidence bucket policy denies non-TLS and unencrypted uploads. Mock worker writes
+S3 evidence with `ServerSideEncryption=aws:kms`.
 
 ### Post-apply E2E smoke
 
