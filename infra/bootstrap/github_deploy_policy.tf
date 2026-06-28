@@ -234,6 +234,25 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "arn:aws:s3:::tf4-cdo04-terraform-state-*/*"
     ]
   }
+
+  statement {
+    sid    = "AllowECRPushAccess"
+    effect = "Allow"
+
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage"
+    ]
+
+    resources = [
+      "arn:aws:ecr:*:*:repository/foresight-lens/*"
+    ]
+  }
 }
 
 resource "aws_iam_policy" "github_deploy_policy" {
