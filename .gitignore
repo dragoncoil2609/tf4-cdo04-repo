@@ -10,6 +10,8 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+local-store/*.jsonl
+!local-store/.gitkeep
 
 # Terraform
 *.tfstate
