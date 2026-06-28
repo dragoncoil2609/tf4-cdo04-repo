@@ -84,3 +84,61 @@ output "telemetry_api_task_definition_arn" {
 
 # TODO: ALB, ECS service, ECR, scheduler, dashboard, alarm, budget, and SNS
 # outputs belong to teammate-owned work and are intentionally placeholders now.
+output "alb_sg_id" {
+  description = "Security group ID for the public ALB"
+  value       = module.networking.alb_sg_id
+}
+
+output "telemetry_api_sg_id" {
+  description = "Security group ID for the Telemetry API ECS service"
+  value       = module.networking.telemetry_api_sg_id
+}
+
+output "prediction_worker_sg_id" {
+  description = "Security group ID for the Prediction Worker ECS service"
+  value       = module.networking.prediction_worker_sg_id
+}
+
+output "ai_engine_sg_id" {
+  description = "Security group ID for the AI Engine ECS service"
+  value       = module.networking.ai_engine_sg_id
+}
+output "kms_key_arn" {
+  description = "Project KMS key ARN"
+  value       = module.data.kms_key_arn
+}
+
+output "kms_key_alias" {
+  description = "Project KMS key alias"
+  value       = module.data.kms_key_alias
+}
+
+output "ssm_ai_service_name_parameter" {
+  description = "SSM parameter name for AI service name"
+  value       = module.data.ssm_ai_service_name_parameter
+}
+
+output "ssm_ai_predict_path_parameter" {
+  description = "SSM parameter name for AI predict path"
+  value       = module.data.ssm_ai_predict_path_parameter
+}
+
+output "ssm_lookback_window_parameter" {
+  description = "SSM parameter name for prediction lookback window"
+  value       = module.data.ssm_lookback_window_parameter
+}
+
+output "tenant_ingest_token_secret_arn" {
+  description = "Secrets Manager ARN for tenant ingest token"
+  value       = module.data.tenant_ingest_token_secret_arn
+}
+
+output "slack_webhook_secret_arn" {
+  description = "Secrets Manager ARN for Slack webhook"
+  value       = module.data.slack_webhook_secret_arn
+}
+
+output "ai_sigv4_config_secret_arn" {
+  description = "Secrets Manager ARN for AI SigV4 config"
+  value       = module.data.ai_sigv4_config_secret_arn
+}

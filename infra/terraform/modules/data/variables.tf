@@ -27,3 +27,32 @@ variable "aws_region" {
   type        = string
   default     = "us-east-1"
 }
+variable "tags" {
+  description = "Common resource tags"
+  type        = map(string)
+  default     = {}
+}
+
+variable "ai_service_name" {
+  description = "ECS Service Connect service name for AI Engine"
+  type        = string
+  default     = "ai-engine"
+}
+
+variable "ai_predict_path" {
+  description = "AI prediction endpoint path"
+  type        = string
+  default     = "/v1/predict"
+}
+
+variable "lookback_window_minutes" {
+  description = "Default lookback window for Prediction Worker PromQL query"
+  type        = number
+  default     = 120
+}
+
+variable "baseline_s3_prefix" {
+  description = "S3 prefix for AI Engine baseline files"
+  type        = string
+  default     = "baselines/"
+}

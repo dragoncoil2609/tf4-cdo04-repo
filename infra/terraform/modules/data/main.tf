@@ -162,9 +162,9 @@ resource "aws_s3_bucket_policy" "evidence" {
 }
 
 # -----------------------------------------------------------------------------
-# TODO (CPOA-43): KMS + Secrets/SSM config -- owned by Truong An.
-# Placeholder only: replace AES256 bucket encryption with SSE-KMS and add
-# Secrets Manager / SSM config resources in security-owned work.
+# KMS + Secrets/SSM config is implemented in kms_secrets_ssm.tf.
+# Evidence bucket currently uses AES256 encryption; migration to project KMS
+# can be handled separately if required by security review.
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------

@@ -31,3 +31,20 @@ variable "az_count" {
     error_message = "At least 2 AZs are required for ALB and ECS service availability."
   }
 }
+variable "app_port" {
+  description = "Application container port used by Telemetry API and AI Engine"
+  type        = number
+  default     = 8080
+}
+
+variable "alb_ingress_cidr" {
+  description = "CIDR allowed to reach the public ALB HTTPS listener"
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "tags" {
+  description = "Common resource tags"
+  type        = map(string)
+  default     = {}
+}
