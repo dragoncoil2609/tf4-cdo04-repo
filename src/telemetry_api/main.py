@@ -18,6 +18,7 @@ from telemetry_api.core.logging import configure_logging, log_structured, now_ut
 from telemetry_api.middleware.correlation_id import CorrelationIdMiddleware, get_or_create_correlation_id
 from telemetry_api.middleware.payload_size_limit import PayloadSizeLimitMiddleware
 from telemetry_api.observability.metrics import record_ingest_rejected
+from telemetry_api.routes.health import router as health_router
 from telemetry_api.routes.ingest import router as ingest_router
 from telemetry_api.services.ingest_service import IngestService
 
@@ -41,18 +42,12 @@ def create_app(
 
     app.add_middleware(PayloadSizeLimitMiddleware, max_payload_bytes=resolved_settings.max_ingest_payload_bytes)
     app.add_middleware(CorrelationIdMiddleware)
+
+    # Đăng ký các router hoạt động
+    app.include_router(health_router)
     app.include_router(ingest_router)
+
     _register_exception_handlers(app)
-
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        """Trả về health cơ bản của service và storage backend đang dùng."""
-
-        return {
-            "status": "ok",
-            "service": resolved_settings.app_name,
-            "storage_backend": resolved_settings.telemetry_storage_backend,
-        }
 
     @app.get("/metrics")
     async def metrics() -> dict[str, Any]:

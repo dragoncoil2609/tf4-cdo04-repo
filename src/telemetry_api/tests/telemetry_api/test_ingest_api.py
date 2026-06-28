@@ -394,16 +394,47 @@ def test_error_response_always_includes_correlation_id(client: TestClient) -> No
 
 
 def test_health_endpoint_returns_200(client: TestClient) -> None:
-    """Health endpoint trả trạng thái service và backend cơ bản."""
+    """Health endpoint trả trạng thái service và metadata tối giản an toàn."""
 
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ok",
-        "service": "telemetry-api",
-        "storage_backend": "local_jsonl",
-    }
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "telemetry-api"
+    assert body["version"] == "0.1.0"
+    assert "build_id" in body or "commit_sha" in body
+    assert body["environment"] == "local"
+
+
+def test_health_does_not_leak_secrets(client: TestClient) -> None:
+    """Đảm bảo /health tuyệt đối không rò rỉ bất kỳ thông tin nhạy cảm hay bí mật nào."""
+
+    response = client.get("/health")
+    body_text = response.text.lower()
+
+    forbidden_terms = [
+        "secret",
+        "token",
+        "password",
+        "authorization",
+        "aws_secret_access_key",
+        "database_url",
+        "api_key",
+    ]
+
+    for term in forbidden_terms:
+        assert term not in body_text
+
+
+def test_health_does_not_mutate_storage(client: TestClient, telemetry_file: Path) -> None:
+    """Gọi /health tuyệt đối không ghi file hay gọi storage adapter."""
+
+    response = client.get("/health")
+    assert response.status_code == 200
+
+    if telemetry_file.exists():
+        assert telemetry_file.read_text(encoding="utf-8") == ""
 
 
 def test_structured_logs_include_correlation_id(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:

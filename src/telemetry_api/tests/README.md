@@ -1,6 +1,6 @@
 # Hướng Dẫn Chạy Kiểm Thử (Unit Tests) & Metrics - Telemetry API
 
-Tài liệu này hướng dẫn cách chạy các ca kiểm thử tự động (unit tests) và kiểm thử thủ công cho ứng dụng Telemetry API bao gồm các tính năng nâng cấp Schema Validation (CDO-W12-016), PII / Label Denylist (CDO-W12-017) và Metric Allowlist (CDO-W12-018).
+Tài liệu này hướng dẫn cách chạy các ca kiểm thử tự động (unit tests) và kiểm thử thủ công cho ứng dụng Telemetry API bao gồm các tính năng nâng cấp Schema Validation (CDO-W12-016), PII / Label Denylist (CDO-W12-017), Metric Allowlist (CDO-W12-018) và /health endpoint (CDO-W12-021).
 
 ---
 
@@ -39,7 +39,6 @@ Vì mã nguồn ứng dụng nằm trong thư mục `src`, bạn cần thiết l
   ```
 * **Chạy chi tiết + In cả log/print ra console (giống chạy thủ công):**
   ```powershell
-  ```powershell
   $env:PYTHONPATH="src"
   pytest -sv src/telemetry_api
   ```
@@ -53,9 +52,9 @@ Vì mã nguồn ứng dụng nằm trong thư mục `src`, bạn cần thiết l
 
 ---
 
-## 3. Các kịch bản kiểm thử đã được tự động hóa (92 Test Cases)
+## 3. Các kịch bản kiểm thử đã được tự động hóa (94 Test Cases)
 
-Bộ mã nguồn kiểm thử nằm tại `src/telemetry_api/tests/telemetry_api/test_ingest_api.py` bao gồm 92 kịch bản quan trọng sau:
+Bộ mã nguồn kiểm thử nằm tại `src/telemetry_api/tests/telemetry_api/test_ingest_api.py` bao gồm 94 kịch bản quan trọng sau:
 
 1. **`test_valid_payload_returns_201_and_writes_jsonl`**: Kiểm tra gói tin hợp lệ được chấp nhận và ghi đúng định dạng vào file log cục bộ (`telemetry.jsonl`).
 2. **`test_metrics_endpoint_initial_state` / `test_accepted_request_increments_metric`**: Đảm bảo bộ đếm `/metrics` phản ánh đúng các request thành công và thất bại.
@@ -76,6 +75,9 @@ Bộ mã nguồn kiểm thử nằm tại `src/telemetry_api/tests/telemetry_api
 17. **`test_required_label_empty_or_whitespace`**: Nhãn bắt buộc truyền lên nhưng giá trị rỗng/khoảng trắng bị từ chối.
 18. **`test_metric_rejections_do_not_write_to_storage`**: Đảm bảo các request bị chặn do chính sách metric/nhãn tuyệt đối không ghi file.
 19. **`test_metric_rejection_logging_structured`**: Kiểm tra logs ghi nhận đầy đủ lý do từ chối metric/labels và correlation_id kèm trường `missing_label`.
+20. **`test_health_endpoint_returns_200`**: Kiểm tra endpoint `/health` trả HTTP 200 kèm các thông tin metadata tối giản: status, service, version, environment, build_id hoặc commit_sha.
+21. **`test_health_does_not_leak_secrets`**: Xác nhận response của `/health` không rò rỉ bất kỳ thông tin nhạy cảm nào (secret, token, password, authorization, credentials, database urls, api keys).
+22. **`test_health_does_not_mutate_storage`**: Xác nhận gọi `/health` hoàn toàn độc lập và không thay đổi/ghi dữ liệu vào file lưu trữ.
 
 ---
 
@@ -88,26 +90,24 @@ python -m uvicorn telemetry_api.main:app --reload --port 8000
 ```
 *Server sẽ lắng nghe tại: `http://127.0.0.1:8000`*
 
-### Bước 2: Kiểm tra trạng thái Metrics ban đầu
-Gửi request GET đến `/metrics` để xem bộ đếm ban đầu:
+### Bước 2: Kiểm tra Health Endpoint
+Gửi request GET đến `/health`:
 ```powershell
-Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/health"
 ```
 **Phản hồi kỳ vọng:**
 ```json
 {
-  "telemetry_ingest_accepted_total": 0,
-  "telemetry_ingest_rejected_total": 0,
-  "telemetry_ingest_pii_rejected_total": 0,
-  "telemetry_ingest_cardinality_rejected_total": 0,
-  "telemetry_ingest_unsupported_metric_rejected_total": 0,
-  "telemetry_ingest_internal_only_metric_rejected_total": 0,
-  "telemetry_ingest_metric_label_rejected_total": 0,
-  "telemetry_ingest_rejected_by_reason": {}
+  "status": "ok",
+  "service": "telemetry-api",
+  "version": "0.1.0",
+  "build_id": "local",
+  "commit_sha": "unknown",
+  "environment": "local"
 }
 ```
 
-### Bước 3: Gửi Request kiểm thử
+### Bước 3: Gửi Request kiểm thử Ingest & Metrics
 
 * **Gửi Request hợp lệ (PowerShell):**
   ```powershell
@@ -142,64 +142,7 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
   ```
   *(Trả về HTTP 400: "metric_type is not in AI signal allowlist: random_metric")*
 
-* **Gửi Request lỗi (Metric nội bộ - `error_rate` - PowerShell):**
-  ```powershell
-  try {
-      Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
-        -Headers @{ "X-Tenant-Id" = "demo-tenant-001"; "Content-Type" = "application/json" } `
-        -Body '{
-          "ts": "2026-06-25T10:30:00Z",
-          "tenant_id": "demo-tenant-001",
-          "service_id": "payment-gateway",
-          "metric_type": "error_rate",
-          "value": 0.03,
-          "labels": { "region": "us-east-1" }
-        }'
-  } catch {
-      $_.Exception.Response
-  }
-  ```
-  *(Trả về HTTP 400: "metric_type is internal-only and must not be sent as AI signal: error_rate")*
-
-* **Gửi Request lỗi (Thiếu nhãn bắt buộc `db_type` cho `db_connection_pool_pct` - PowerShell):**
-  ```powershell
-  try {
-      Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
-        -Headers @{ "X-Tenant-Id" = "demo-tenant-001"; "Content-Type" = "application/json" } `
-        -Body '{
-          "ts": "2026-06-25T10:30:00Z",
-          "tenant_id": "demo-tenant-001",
-          "service_id": "payment-gateway",
-          "metric_type": "db_connection_pool_pct",
-          "value": 85.0,
-          "labels": {
-            "region": "us-east-1"
-          }
-        }'
-  } catch {
-      $_.Exception.Response
-  }
-  ```
-  *(Trả về HTTP 400: "metric_type db_connection_pool_pct requires label: db_type")*
-
 ### Bước 4: Kiểm tra lại Metrics sau khi gửi các request
 ```powershell
 Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
-```
-**Phản hồi kỳ vọng:**
-```json
-{
-  "telemetry_ingest_accepted_total": 1,
-  "telemetry_ingest_rejected_total": 3,
-  "telemetry_ingest_pii_rejected_total": 0,
-  "telemetry_ingest_cardinality_rejected_total": 0,
-  "telemetry_ingest_unsupported_metric_rejected_total": 1,
-  "telemetry_ingest_internal_only_metric_rejected_total": 1,
-  "telemetry_ingest_metric_label_rejected_total": 1,
-  "telemetry_ingest_rejected_by_reason": {
-    "unsupported_metric_type": 1,
-    "internal_only_metric_not_ai_signal": 1,
-    "missing_required_label": 1
-  }
-}
 ```

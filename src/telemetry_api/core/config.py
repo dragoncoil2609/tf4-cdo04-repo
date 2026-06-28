@@ -15,6 +15,9 @@ class Settings:
     """
 
     app_name: str = "telemetry-api"
+    app_version: str = "0.1.0"
+    build_id: str = "local"
+    git_commit_sha: str = "unknown"
     env: str = "local"
     port: int = 8000
     # Kích thước tối đa của JSON body cho POST /v1/ingest.
@@ -42,6 +45,9 @@ def load_settings() -> Settings:
 
     return Settings(
         app_name=os.getenv("APP_NAME", Settings.app_name),
+        app_version=os.getenv("APP_VERSION", Settings.app_version),
+        build_id=os.getenv("BUILD_ID", Settings.build_id),
+        git_commit_sha=os.getenv("GIT_COMMIT_SHA", Settings.git_commit_sha),
         env=os.getenv("ENV", Settings.env),
         port=_read_int("PORT", Settings.port),
         max_ingest_payload_bytes=_read_int(
