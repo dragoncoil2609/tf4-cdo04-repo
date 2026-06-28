@@ -1,4 +1,4 @@
-"""Kiểm thử endpoint POST /v1/ingest và các quy tắc Schema Validation."""
+"""Kiểm thử endpoint POST /v1/ingest và các quy tắc Schema Validation + PII & Cardinality Denylist."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def post_ingest(client: TestClient, payload: dict[str, object], headers: dict[st
     return client.post("/v1/ingest", json=payload, headers=headers or tenant_headers())
 
 
-# --- 1. KIỂM THỬ PAYLOAD HỢP LỆ VÀ GHI FILE ---
+# --- 1. KIỂM THỬ PAYLOAD HỢP LỆ VÀ GHI FILE (CDO-W12-015) ---
 
 def test_valid_payload_returns_201_and_writes_jsonl(client: TestClient, telemetry_file: Path) -> None:
     """Datapoint telemetry hợp lệ được chấp nhận và ghi nối tiếp vào JSONL local."""
@@ -147,7 +147,7 @@ def test_missing_required_fields_return_400(client: TestClient, missing_field: s
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["missing_required_field"] == 1
 
 
-# --- 3. KIỂM THỬ VALIDATE TIMESTAMP (ts) ---
+# --- 3. KIỂM THỬ VALIDATE TIMESTAMP (ts) (CDO-W12-016) ---
 
 @pytest.mark.parametrize("ts_val, expected_status, expected_reason", [
     ("2026-06-25T10:30:00Z", 201, None),
@@ -260,9 +260,9 @@ def test_unsupported_metric_type_returns_400(client: TestClient) -> None:
     (["region", "us-east-1"], 400, "invalid_labels_type"),
     ({"region": {"name": "us-east-1"}}, 400, "nested_label_object"),
     ({"regions": ["us-east-1"]}, 400, "nested_label_object"),
-    ({"request_id": "req-123"}, 400, "high_cardinality_label"),
-    ({"token": "abc"}, 400, "sensitive_label"),
-    ({"my_label": "my-secret-password"}, 400, "sensitive_label"),
+    ({"request_id": "req-123"}, 400, "pii_denylist_label"),  # request_id thuộc PII và high cardinality
+    ({"token": "abc"}, 400, "pii_denylist_label"),
+    ({"my_label": "my-secret-password"}, 400, "pii_denylist_label"),
 ])
 def test_labels_validation(client: TestClient, labels_val: Any, expected_status: int, expected_reason: str | None) -> None:
     """Kiểm tra các ràng buộc kiểu nhãn labels phẳng, PII và High-cardinality."""
@@ -431,3 +431,194 @@ def test_structured_logs_include_correlation_id(client: TestClient, caplog: pyte
     assert response.status_code == 201
     assert any("log-correlation" in record.message for record in caplog.records)
     assert any("telemetry_ingest_accepted" in record.message for record in caplog.records)
+
+
+# --- 10. KIỂM THỬ PHÁT HIỆN PII & CARDINALITY DENYLIST (CDO-W12-017) ---
+
+def test_valid_safe_labels_success(client: TestClient, telemetry_file: Path) -> None:
+    """Kiểm tra các label an toàn được chấp nhận 201 và ghi file."""
+
+    payload = valid_payload()
+    payload["labels"] = {
+        "region": "us-east-1",
+        "env": "local",
+        "service_tier": "tier-1",
+        "db_type": "postgres",
+        "queue_name": "prediction-queue",
+        "cache_type": "redis",
+        "source": "api_gateway",
+        "aws_namespace": "ForesightLens",
+    }
+    response = post_ingest(client, payload)
+    assert response.status_code == 201
+
+    lines = telemetry_file.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    stored = json.loads(lines[0])
+    assert stored["labels"]["region"] == "us-east-1"
+    assert stored["labels"]["env"] == "local"
+
+
+@pytest.mark.parametrize("denied_key", [
+    "email",
+    "phone",
+    "name",
+    "transaction_id",
+    "account_id",
+    "card_pan",
+    "user_id",
+    "request_id",
+    "trace_id",
+    "prediction_id",
+])
+def test_pii_denylist_keys(client: TestClient, denied_key: str) -> None:
+    """Kiểm tra từng key trong denylist của PII đều bị từ chối 400."""
+
+    payload = valid_payload()
+    payload["labels"] = {denied_key: "value"}
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+    assert "denied by PII policy" in response.json()["message"]
+
+    # Kể cả viết hoa/thường lẫn lộn
+    payload_upper = valid_payload()
+    payload_upper["labels"] = {denied_key.upper(): "value"}
+    response_upper = post_ingest(client, payload_upper)
+    assert response_upper.status_code == 400
+    assert response_upper.json()["error"] == "bad_request"
+
+
+@pytest.mark.parametrize("cardinality_key", [
+    "session_id",
+    "raw_path",
+])
+def test_high_cardinality_keys(client: TestClient, cardinality_key: str) -> None:
+    """Kiểm tra các key có cardinality cao bị từ chối 400."""
+
+    payload = valid_payload()
+    payload["labels"] = {cardinality_key: "value"}
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+    assert "denied by high-cardinality policy" in response.json()["message"]
+
+
+@pytest.mark.parametrize("raw_path_val", [
+    "/users/12345/orders/98765",
+    "/accounts/acc_123/transactions/txn_999",
+    "/payment/transaction/abc-123-def",
+    "/api/v1/users/550e8400-e29b-41d4-a716-446655440000",
+])
+def test_raw_path_with_ids_values(client: TestClient, raw_path_val: str) -> None:
+    """Kiểm tra các giá trị path chứa dynamic ID bị từ chối 400."""
+
+    payload = valid_payload()
+    payload["labels"] = {"path": raw_path_val}
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+    assert "looks like raw endpoint path with IDs" in response.json()["message"]
+
+
+def test_pii_and_cardinality_rejection_storage_protection(client: TestClient, telemetry_file: Path) -> None:
+    """Các request bị PII và cardinality rejection tuyệt đối không được ghi vào file lưu trữ."""
+
+    # 1. Gửi request bị PII reject
+    payload1 = valid_payload()
+    payload1["labels"] = {"email": "user@example.com"}
+    response1 = post_ingest(client, payload1)
+    assert response1.status_code == 400
+
+    # 2. Gửi request bị cardinality reject
+    payload2 = valid_payload()
+    payload2["labels"] = {"session_id": "session-12345"}
+    response2 = post_ingest(client, payload2)
+    assert response2.status_code == 400
+
+    # 3. File local-store phải không tồn tại hoặc hoàn toàn rỗng
+    if telemetry_file.exists():
+        assert telemetry_file.read_text(encoding="utf-8") == ""
+
+
+def test_pii_and_cardinality_metrics_increments(client: TestClient) -> None:
+    """Kiểm tra PII và Cardinality rejection tăng đúng các bộ đếm metrics chuyên biệt."""
+
+    # Ban đầu
+    m0 = client.get("/metrics").json()
+    assert m0["telemetry_ingest_pii_rejected_total"] == 0
+    assert m0["telemetry_ingest_cardinality_rejected_total"] == 0
+
+    # 1. Gây lỗi PII
+    payload1 = valid_payload()
+    payload1["labels"] = {"email": "user@example.com"}
+    post_ingest(client, payload1)
+
+    m1 = client.get("/metrics").json()
+    assert m1["telemetry_ingest_pii_rejected_total"] == 1
+    assert m1["telemetry_ingest_cardinality_rejected_total"] == 0
+    assert m1["telemetry_ingest_rejected_by_reason"]["pii_denylist_label"] == 1
+
+    # 2. Gây lỗi cardinality
+    payload2 = valid_payload()
+    payload2["labels"] = {"session_id": "session-12345"}
+    post_ingest(client, payload2)
+
+    # 3. Gây lỗi raw path with IDs
+    payload3 = valid_payload()
+    payload3["labels"] = {"path": "/users/123/orders"}
+    post_ingest(client, payload3)
+
+    m2 = client.get("/metrics").json()
+    assert m2["telemetry_ingest_pii_rejected_total"] == 1
+    assert m2["telemetry_ingest_cardinality_rejected_total"] == 2
+    assert m2["telemetry_ingest_rejected_by_reason"]["high_cardinality_label"] == 1
+    assert m2["telemetry_ingest_rejected_by_reason"]["raw_endpoint_path_with_ids"] == 1
+    assert m2["telemetry_ingest_rejected_total"] == 3
+
+
+def test_pii_denylist_logging_and_response_no_leak(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Kiểm tra log và response của PII rejection không được rò rỉ dữ liệu nhạy cảm."""
+
+    caplog.set_level(logging.WARNING, logger="telemetry_api.ingest")
+
+    payload = valid_payload()
+    payload["labels"] = {"email": "sensitive-user-email@domain.com"}
+
+    response = post_ingest(client, payload, headers=tenant_headers("leak-test-001"))
+
+    assert response.status_code == 400
+    res_data = response.json()
+    assert res_data["correlation_id"] == "leak-test-001"
+    # Response message không được chứa email thực tế
+    assert "sensitive-user-email@domain.com" not in res_data["message"]
+    assert "email" in res_data["message"]
+
+    # Log không được chứa email thực tế nhưng phải có correlation_id, reason, denied_key
+    log_messages = [record.message for record in caplog.records]
+    assert any("leak-test-001" in msg for msg in log_messages)
+    assert any("pii_denylist_label" in msg for msg in log_messages)
+    assert any("email" in msg for msg in log_messages)
+    assert not any("sensitive-user-email@domain.com" in msg for msg in log_messages)
+
+
+def test_raw_path_with_ids_logging_and_response_no_leak(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Kiểm tra log và response của raw path with IDs không rò rỉ path thực tế."""
+
+    caplog.set_level(logging.WARNING, logger="telemetry_api.ingest")
+
+    payload = valid_payload()
+    payload["labels"] = {"path": "/api/v1/users/550e8400-e29b-41d4-a716-446655440000"}
+
+    response = post_ingest(client, payload, headers=tenant_headers("path-test-002"))
+
+    assert response.status_code == 400
+    res_data = response.json()
+    assert res_data["correlation_id"] == "path-test-002"
+    assert "/api/v1/users/550e8400-e29b-41d4-a716-446655440000" not in res_data["message"]
+
+    log_messages = [record.message for record in caplog.records]
+    assert any("path-test-002" in msg for msg in log_messages)
+    assert any("raw_endpoint_path_with_ids" in msg for msg in log_messages)
+    assert any("path" in msg for msg in log_messages)
+    assert not any("550e8400-e29b-41d4-a716-446655440000" in msg for msg in log_messages)

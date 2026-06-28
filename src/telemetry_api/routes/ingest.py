@@ -55,7 +55,24 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
         payload = TelemetryPayload.model_validate(payload_data)
     except ValidationError as exc:
         reason = _determine_rejection_reason_from_exc(exc)
-        raise BadRequestError(_validation_message(exc), reason=reason) from exc
+        # Xác định denied_key nếu lỗi phát sinh từ trường labels
+        denied_key = None
+        first_error = exc.errors()[0]
+        loc = first_error.get("loc", ())
+        if loc and loc[0] == "labels":
+            msg = first_error.get("msg", "")
+            if ": " in msg:
+                denied_key = msg.split(": ")[-1].strip()
+            else:
+                # Quét tìm từ labels trong payload_data
+                labels_dict = payload_data.get("labels")
+                if isinstance(labels_dict, dict):
+                    from telemetry_api.validators.labels import looks_like_raw_path_with_ids
+                    for k, v in labels_dict.items():
+                        if isinstance(v, str) and looks_like_raw_path_with_ids(v):
+                            denied_key = k
+                            break
+        raise BadRequestError(_validation_message(exc), reason=reason, denied_key=denied_key) from exc
 
     # 5. So khớp chéo Tenant ID header và body
     if header_tenant_id != payload.tenant_id:
@@ -132,10 +149,12 @@ def _determine_rejection_reason_from_exc(error: ValidationError) -> str:
             return "nested_label_object"
         if "must be string, number, boolean or null" in msg:
             return "invalid_label_value_type"
-        if "high-cardinality" in msg:
+        if "pii policy" in msg or "sensitive" in msg:
+            return "pii_denylist_label"
+        if "high-cardinality policy" in msg:
             return "high_cardinality_label"
-        if "sensitive" in msg:
-            return "sensitive_label"
+        if "raw endpoint path with ids" in msg:
+            return "raw_endpoint_path_with_ids"
         return "invalid_labels_type"
 
     return "bad_request"

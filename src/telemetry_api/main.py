@@ -82,8 +82,29 @@ def _register_exception_handlers(app: FastAPI) -> None:
         """Trả JSON lỗi theo contract và log ingest request bị reject."""
 
         correlation_id = get_or_create_correlation_id(request)
-        record_ingest_rejected(exc.reason)
-        _log_rejected_request(request, exc.status_code, exc.message, correlation_id, exc.reason)
+
+        # Định tuyến tăng bộ đếm metric theo lý do và phân loại
+        from telemetry_api.observability.metrics import (
+            record_cardinality_rejection,
+            record_ingest_rejected,
+            record_pii_rejection,
+        )
+
+        if exc.reason == "pii_denylist_label":
+            record_pii_rejection(exc.reason)
+        elif exc.reason in ("high_cardinality_label", "raw_endpoint_path_with_ids"):
+            record_cardinality_rejection(exc.reason)
+        else:
+            record_ingest_rejected(exc.reason)
+
+        _log_rejected_request(
+            request,
+            exc.status_code,
+            exc.message,
+            correlation_id,
+            exc.reason,
+            denied_key=exc.denied_key,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -146,19 +167,32 @@ def _register_exception_handlers(app: FastAPI) -> None:
         )
 
 
-def _log_rejected_request(request: Request, status_code: int, error: str, correlation_id: str, reason: str) -> None:
+def _log_rejected_request(
+    request: Request,
+    status_code: int,
+    error: str,
+    correlation_id: str,
+    reason: str,
+    denied_key: str | None = None,
+) -> None:
     """Ghi log có cấu trúc cho các lần ingest thất bại."""
+
+    log_fields: dict[str, Any] = {
+        "correlation_id": correlation_id,
+        "status_code": status_code,
+        "reason": reason,
+        "received_at": now_utc_iso(),
+        "path": request.url.path,
+        "method": request.method,
+    }
+    if denied_key is not None:
+        log_fields["denied_key"] = denied_key
 
     log_structured(
         logger,
         logging.WARNING,
         "telemetry_ingest_rejected",
-        correlation_id=correlation_id,
-        status_code=status_code,
-        reason=reason,
-        received_at=now_utc_iso(),
-        path=request.url.path,
-        method=request.method,
+        **log_fields,
         **_request_context(request),
     )
 

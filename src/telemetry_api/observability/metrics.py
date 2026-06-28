@@ -9,8 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 # Bộ đếm trong bộ nhớ (In-process counters) cho local metrics
+# These local counters are intentionally CloudWatch-ready. In AWS deployment,
+# the same rejection events can be exported as CloudWatch custom metrics.
 _accepted_total: int = 0
 _rejected_total: int = 0
+_pii_rejected_total: int = 0
+_cardinality_rejected_total: int = 0
 _rejected_by_reason: dict[str, int] = {}
 
 
@@ -33,6 +37,22 @@ def record_ingest_rejected(reason: str) -> None:
     _rejected_by_reason[reason] = _rejected_by_reason.get(reason, 0) + 1
 
 
+def record_pii_rejection(reason: str) -> None:
+    """Tăng bộ đếm từ chối do vi phạm PII và ghi nhận lý do cụ thể."""
+
+    global _pii_rejected_total
+    _pii_rejected_total += 1
+    record_ingest_rejected(reason)
+
+
+def record_cardinality_rejection(reason: str) -> None:
+    """Tăng bộ đếm từ chối do vi phạm Cardinality và ghi nhận lý do cụ thể."""
+
+    global _cardinality_rejected_total
+    _cardinality_rejected_total += 1
+    record_ingest_rejected(reason)
+
+
 def get_metrics_snapshot() -> dict[str, Any]:
     """Trả về ảnh chụp nhanh trạng thái metrics hiện tại dưới dạng JSON.
 
@@ -43,6 +63,8 @@ def get_metrics_snapshot() -> dict[str, Any]:
     return {
         "telemetry_ingest_accepted_total": _accepted_total,
         "telemetry_ingest_rejected_total": _rejected_total,
+        "telemetry_ingest_pii_rejected_total": _pii_rejected_total,
+        "telemetry_ingest_cardinality_rejected_total": _cardinality_rejected_total,
         "telemetry_ingest_rejected_by_reason": dict(_rejected_by_reason),
     }
 
@@ -50,7 +72,9 @@ def get_metrics_snapshot() -> dict[str, Any]:
 def reset_metrics_for_tests() -> None:
     """Khởi động lại các bộ đếm về 0, sử dụng cho dọn dẹp sau mỗi unit test."""
 
-    global _accepted_total, _rejected_total, _rejected_by_reason
+    global _accepted_total, _rejected_total, _pii_rejected_total, _cardinality_rejected_total, _rejected_by_reason
     _accepted_total = 0
     _rejected_total = 0
+    _pii_rejected_total = 0
+    _cardinality_rejected_total = 0
     _rejected_by_reason = {}
