@@ -14,7 +14,7 @@ output "state_bucket_arn" {
 
 output "state_bucket_region" {
   description = "AWS region of the state bucket"
-  value       = data.aws_region.current.region
+  value       = data.aws_region.current.name
 }
 
 output "backend_config_snippet" {
@@ -25,7 +25,7 @@ output "backend_config_snippet" {
     backend "s3" {
       bucket       = "${aws_s3_bucket.terraform_state.id}"
       key          = "tf4-cdo04/<environment>/terraform.tfstate"
-      region       = "${data.aws_region.current.region}"
+      region       = "${data.aws_region.current.name}"
       encrypt      = true
       use_lockfile = true
     }
