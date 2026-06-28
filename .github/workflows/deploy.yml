@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [telemetry-api, prediction-worker, ai-engine]
+        service: [telemetry_api, prediction_worker, ai_engine]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
