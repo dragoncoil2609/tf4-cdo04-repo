@@ -37,3 +37,26 @@ variable "tags" {
 }
 
 # TODO (CPOA-38): GitHub org/repo/branch variables belong to CI/CD OIDC setup.
+# -----------------------------------------------------------------------------
+# GitHub OIDC variables -- CPOA-38 / CDO-W12-002
+# -----------------------------------------------------------------------------
+
+variable "github_owner" {
+  description = "GitHub organization or username that owns the repository"
+  type        = string
+  default     = "dragongoldi2609"
+}
+
+variable "github_repo" {
+  description = "GitHub repository name allowed to assume the deploy role"
+  type        = string
+  default     = "tf4-cdo04-repo"
+}
+
+variable "github_allowed_feature_branches" {
+  description = "Temporary feature branches allowed to assume the deploy role for smoke testing"
+  type        = list(string)
+  default = [
+    "An_CDO-W12-002-github-oidc"
+  ]
+}
