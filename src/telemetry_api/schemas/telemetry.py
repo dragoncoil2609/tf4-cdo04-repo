@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime
 from typing import Any
@@ -25,7 +26,10 @@ ALLOWED_METRIC_TYPES = frozenset(
 
 REQUIRED_TELEMETRY_FIELDS = ("ts", "tenant_id", "service_id", "metric_type", "value")
 
-_RFC3339_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
+# Chấp nhận định dạng timestamp RFC3339 UTC kết thúc bằng Z/z hoặc múi giờ lệch 0 (ví dụ +00:00, -0000)
+_RFC3339_UTC_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:?\d{2})$"
+)
 
 
 class TelemetryPayload(BaseModel):
@@ -40,32 +44,62 @@ class TelemetryPayload(BaseModel):
     value: int | float
     labels: dict[str, Any] | None = None
 
+    @field_validator("ts", mode="before")
+    @classmethod
+    def validate_ts_type(cls, value: Any) -> Any:
+        """Đảm bảo ts truyền lên bắt buộc phải là kiểu chuỗi."""
+
+        if not isinstance(value, str):
+            raise ValueError("ts must be a string")
+        return value
+
     @field_validator("ts")
     @classmethod
     def validate_ts(cls, value: str) -> str:
-        """Đảm bảo timestamp là chuỗi RFC3339 UTC kết thúc bằng Z."""
+        """Đảm bảo timestamp tuân thủ định dạng RFC3339 UTC."""
 
-        if not isinstance(value, str) or not _RFC3339_UTC_RE.match(value):
-            raise ValueError("ts must be an RFC3339 UTC timestamp ending with Z")
+        if not _RFC3339_UTC_RE.match(value):
+            raise ValueError("ts must be RFC3339 UTC")
+
         try:
-            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            normalized_value = value
+            # Chuẩn hóa Z thành +00:00 để tương thích ngược với Python datetime parsing
+            if normalized_value.endswith("Z") or normalized_value.endswith("z"):
+                normalized_value = normalized_value[:-1] + "+00:00"
+            dt = datetime.fromisoformat(normalized_value)
         except ValueError as exc:
             raise ValueError("ts must be a valid RFC3339 UTC timestamp") from exc
+
+        if dt.tzinfo is None:
+            raise ValueError("ts must include timezone")
+
+        if dt.utcoffset().total_seconds() != 0:
+            raise ValueError("ts must be in UTC timezone")
+
+        return value
+
+    @field_validator("tenant_id", "service_id", "metric_type", mode="before")
+    @classmethod
+    def validate_string_types(cls, value: Any) -> Any:
+        """Đảm bảo các trường chuỗi bắt buộc không bị ép kiểu ngầm định."""
+
+        if not isinstance(value, str):
+            raise ValueError("field must be a string")
         return value
 
     @field_validator("tenant_id", "service_id", "metric_type")
     @classmethod
     def validate_non_empty_string(cls, value: str) -> str:
-        """Đảm bảo các field định danh là chuỗi không rỗng."""
+        """Đảm bảo các trường chuỗi không được trống hoặc chỉ chứa khoảng trắng."""
 
-        if not isinstance(value, str) or not value.strip():
+        if not value.strip():
             raise ValueError("field must be a non-empty string")
         return value
 
     @field_validator("metric_type")
     @classmethod
     def validate_metric_type(cls, value: str) -> str:
-        """Đảm bảo metric_type nằm trong telemetry contract đã freeze."""
+        """Đảm bảo metric_type nằm trong allowlist của telemetry contract."""
 
         if value not in ALLOWED_METRIC_TYPES:
             raise ValueError("unsupported metric_type")
@@ -74,17 +108,23 @@ class TelemetryPayload(BaseModel):
     @field_validator("value", mode="before")
     @classmethod
     def validate_numeric_value(cls, value: Any) -> Any:
-        """Đảm bảo value là JSON number, không phải bool hoặc string."""
+        """Đảm bảo value là JSON number, không chấp nhận boolean hay kiểu chuỗi."""
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("value must be a number")
+
+        if math.isnan(value) or math.isinf(value):
+            raise ValueError("value must be a finite number")
+
         return value
 
-    @field_validator("labels")
+    @field_validator("labels", mode="before")
     @classmethod
-    def validate_safe_labels(cls, value: dict[str, Any] | None) -> dict[str, Any]:
-        """Đảm bảo labels an toàn cho lưu metric và truy vấn evidence."""
+    def validate_safe_labels(cls, value: Any) -> dict[str, Any] | None:
+        """Đảm bảo labels là một JSON object phẳng an toàn."""
 
+        if value is None:
+            return {}
         return validate_labels(value)
 
 

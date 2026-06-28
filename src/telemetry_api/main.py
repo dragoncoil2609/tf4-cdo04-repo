@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +17,7 @@ from telemetry_api.core.errors import InternalTelemetryError, TelemetryApiError
 from telemetry_api.core.logging import configure_logging, log_structured, now_utc_iso
 from telemetry_api.middleware.correlation_id import CorrelationIdMiddleware, get_or_create_correlation_id
 from telemetry_api.middleware.payload_size_limit import PayloadSizeLimitMiddleware
+from telemetry_api.observability.metrics import record_ingest_rejected
 from telemetry_api.routes.ingest import router as ingest_router
 from telemetry_api.services.ingest_service import IngestService
 
@@ -52,6 +54,12 @@ def create_app(
             "storage_backend": resolved_settings.telemetry_storage_backend,
         }
 
+    @app.get("/metrics")
+    async def metrics() -> dict[str, Any]:
+        """Trả về ảnh chụp nhanh các số liệu đo lường (accepted/rejected)."""
+        from telemetry_api.observability.metrics import get_metrics_snapshot
+        return get_metrics_snapshot()
+
     return app
 
 
@@ -74,7 +82,8 @@ def _register_exception_handlers(app: FastAPI) -> None:
         """Trả JSON lỗi theo contract và log ingest request bị reject."""
 
         correlation_id = get_or_create_correlation_id(request)
-        _log_rejected_request(request, exc.status_code, exc.message, correlation_id)
+        record_ingest_rejected(exc.reason)
+        _log_rejected_request(request, exc.status_code, exc.message, correlation_id, exc.reason)
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -90,7 +99,14 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
         correlation_id = get_or_create_correlation_id(request)
         message = "Invalid request"
-        _log_rejected_request(request, 400, message, correlation_id)
+        # Xác định lý do từ chối từ lỗi validation của FastAPI (thường là lỗi kiểu dữ liệu URL/Query)
+        first_err_msg = exc.errors()[0].get("msg", "") if exc.errors() else ""
+        reason = "bad_request"
+        if "X-Tenant-Id" in first_err_msg or "header" in first_err_msg:
+            reason = "missing_tenant_header"
+
+        record_ingest_rejected(reason)
+        _log_rejected_request(request, 400, message, correlation_id, reason)
         return JSONResponse(
             status_code=400,
             content={
@@ -106,6 +122,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
         correlation_id = get_or_create_correlation_id(request)
         internal_error = InternalTelemetryError()
+        record_ingest_rejected(internal_error.reason)
         context = _request_context(request)
         log_structured(
             logger,
@@ -129,7 +146,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
         )
 
 
-def _log_rejected_request(request: Request, status_code: int, error: str, correlation_id: str) -> None:
+def _log_rejected_request(request: Request, status_code: int, error: str, correlation_id: str, reason: str) -> None:
     """Ghi log có cấu trúc cho các lần ingest thất bại."""
 
     log_structured(
@@ -138,7 +155,7 @@ def _log_rejected_request(request: Request, status_code: int, error: str, correl
         "telemetry_ingest_rejected",
         correlation_id=correlation_id,
         status_code=status_code,
-        error=error,
+        reason=reason,
         received_at=now_utc_iso(),
         path=request.url.path,
         method=request.method,

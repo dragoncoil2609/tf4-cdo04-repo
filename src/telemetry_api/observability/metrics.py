@@ -1,0 +1,56 @@
+"""Module đo lường và theo dõi (metrics) cho Telemetry Ingest API.
+
+Ghi nhận các số liệu thống kê về số lượng request thành công và thất bại
+theo các lý do cụ thể phục vụ cho kiểm thử và tích hợp CloudWatch sau này.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+# Bộ đếm trong bộ nhớ (In-process counters) cho local metrics
+_accepted_total: int = 0
+_rejected_total: int = 0
+_rejected_by_reason: dict[str, int] = {}
+
+
+def record_ingest_accepted() -> None:
+    """Tăng số lượng telemetry ingest thành công lên 1."""
+
+    global _accepted_total
+    _accepted_total += 1
+
+
+def record_ingest_rejected(reason: str) -> None:
+    """Tăng số lượng telemetry ingest thất bại lên 1 theo lý do cụ thể.
+
+    Args:
+        reason: Mã lý do từ chối (ví dụ: 'invalid_timestamp', 'payload_too_large').
+    """
+
+    global _rejected_total
+    _rejected_total += 1
+    _rejected_by_reason[reason] = _rejected_by_reason.get(reason, 0) + 1
+
+
+def get_metrics_snapshot() -> dict[str, Any]:
+    """Trả về ảnh chụp nhanh trạng thái metrics hiện tại dưới dạng JSON.
+
+    Returns:
+        Một dict chứa các bộ đếm thống kê.
+    """
+
+    return {
+        "telemetry_ingest_accepted_total": _accepted_total,
+        "telemetry_ingest_rejected_total": _rejected_total,
+        "telemetry_ingest_rejected_by_reason": dict(_rejected_by_reason),
+    }
+
+
+def reset_metrics_for_tests() -> None:
+    """Khởi động lại các bộ đếm về 0, sử dụng cho dọn dẹp sau mỗi unit test."""
+
+    global _accepted_total, _rejected_total, _rejected_by_reason
+    _accepted_total = 0
+    _rejected_total = 0
+    _rejected_by_reason = {}

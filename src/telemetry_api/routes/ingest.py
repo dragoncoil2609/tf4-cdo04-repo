@@ -13,8 +13,9 @@ from starlette.responses import JSONResponse
 
 from telemetry_api.core.app_state import get_ingest_service
 from telemetry_api.core.errors import BadRequestError
-from telemetry_api.core.logging import log_structured, now_utc_iso
+from telemetry_api.core.logging import log_structured
 from telemetry_api.middleware.correlation_id import get_or_create_correlation_id
+from telemetry_api.observability.metrics import record_ingest_accepted
 from telemetry_api.schemas.telemetry import REQUIRED_TELEMETRY_FIELDS, TelemetryPayload
 
 
@@ -27,20 +28,46 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
     """Kiểm tra hợp lệ và lưu một datapoint telemetry từ producer service."""
 
     correlation_id = get_or_create_correlation_id(request)
-    header_tenant_id = _required_tenant_header(request)
-    payload_data = await _parse_json_body(request)
-    _attach_log_context(request, payload_data)
-    _ensure_required_fields(payload_data)
 
+    # 1. Đọc và kiểm tra Header X-Tenant-Id
+    tenant_id_header = request.headers.get("X-Tenant-Id")
+    if tenant_id_header is None:
+        raise BadRequestError("X-Tenant-Id header is required", reason="missing_tenant_header")
+    header_tenant_id = tenant_id_header.strip()
+    if not header_tenant_id:
+        raise BadRequestError("X-Tenant-Id header is required", reason="missing_tenant_header")
+
+    # 2. Đọc và parse JSON body
+    try:
+        payload_data = await _parse_json_body(request)
+    except BadRequestError as exc:
+        raise BadRequestError(exc.message, reason="invalid_json") from exc
+
+    _attach_log_context(request, payload_data)
+
+    # 3. Kiểm tra các trường bắt buộc trước khi validate schema
+    for field in REQUIRED_TELEMETRY_FIELDS:
+        if field not in payload_data:
+            raise BadRequestError(f"Missing required field: {field}", reason="missing_required_field")
+
+    # 4. Kiểm tra hợp lệ kiểu dữ liệu và nghiệp vụ (Pydantic validation)
     try:
         payload = TelemetryPayload.model_validate(payload_data)
     except ValidationError as exc:
-        raise BadRequestError(_validation_message(exc)) from exc
+        reason = _determine_rejection_reason_from_exc(exc)
+        raise BadRequestError(_validation_message(exc), reason=reason) from exc
 
+    # 5. So khớp chéo Tenant ID header và body
+    if header_tenant_id != payload.tenant_id:
+        raise BadRequestError("X-Tenant-Id does not match body tenant_id", reason="tenant_mismatch")
+
+    # 6. Gọi service thực hiện lưu telemetry
     request.state.ingest_context = _context_from_payload(payload.model_dump())
     service = get_ingest_service(request)
     record = service.ingest(payload, header_tenant_id, correlation_id)
 
+    # 7. Ghi nhận metrics thành công và log sự kiện
+    record_ingest_accepted()
     log_structured(
         logger,
         logging.INFO,
@@ -54,6 +81,7 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
         path=request.url.path,
         method=request.method,
     )
+
     return JSONResponse(
         status_code=201,
         content={
@@ -64,15 +92,6 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
             "metric_type": record.metric_type,
         },
     )
-
-
-def _required_tenant_header(request: Request) -> str:
-    """Đọc và validate header X-Tenant-Id bắt buộc."""
-
-    tenant_id = request.headers.get("X-Tenant-Id")
-    if tenant_id is None or not tenant_id.strip():
-        raise BadRequestError("X-Tenant-Id header is required")
-    return tenant_id.strip()
 
 
 async def _parse_json_body(request: Request) -> dict[str, Any]:
@@ -89,21 +108,47 @@ async def _parse_json_body(request: Request) -> dict[str, Any]:
     return parsed
 
 
-def _ensure_required_fields(payload_data: dict[str, Any]) -> None:
-    """Trả 400 với message rõ ràng khi thiếu field bắt buộc."""
+def _determine_rejection_reason_from_exc(error: ValidationError) -> str:
+    """Xác định lý do từ chối cụ thể dựa trên lỗi kiểm thử Pydantic."""
 
-    for field in REQUIRED_TELEMETRY_FIELDS:
-        if field not in payload_data:
-            raise BadRequestError(f"Missing required field: {field}")
+    first_error = error.errors()[0]
+    loc = [str(part) for part in first_error.get("loc", ())]
+    msg = first_error.get("msg", "").lower()
+
+    if "ts" in loc:
+        return "invalid_timestamp"
+    if "value" in loc:
+        return "invalid_value"
+    if "tenant_id" in loc:
+        return "empty_tenant_id"
+    if "service_id" in loc:
+        return "empty_service_id"
+    if "metric_type" in loc:
+        if "unsupported" in msg:
+            return "unsupported_metric_type"
+        return "empty_metric_type"
+    if "labels" in loc:
+        if "nested" in msg:
+            return "nested_label_object"
+        if "must be string, number, boolean or null" in msg:
+            return "invalid_label_value_type"
+        if "high-cardinality" in msg:
+            return "high_cardinality_label"
+        if "sensitive" in msg:
+            return "sensitive_label"
+        return "invalid_labels_type"
+
+    return "bad_request"
 
 
 def _validation_message(error: ValidationError) -> str:
     """Chuyển chi tiết validation của Pydantic thành thông báo ngắn cho client."""
 
     first_error = error.errors()[0]
-    location = ".".join(str(part) for part in first_error.get("loc", []))
     message = first_error.get("msg", "Invalid telemetry payload")
-    return f"{location}: {message}" if location else message
+    if message.startswith("Value error, "):
+        message = message[len("Value error, "):]
+    return message
 
 
 def _attach_log_context(request: Request, payload_data: dict[str, Any]) -> None:

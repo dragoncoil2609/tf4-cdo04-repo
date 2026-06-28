@@ -1,6 +1,6 @@
-# Hướng Dẫn Chạy Kiểm Thử (Unit Tests) - Telemetry API
+# Hướng Dẫn Chạy Kiểm Thử (Unit Tests) & Metrics - Telemetry API
 
-Tài liệu này hướng dẫn cách cài đặt, chạy các ca kiểm thử tự động (unit tests) và kiểm thử thủ công cho ứng dụng Telemetry API.
+Tài liệu này hướng dẫn cách chạy các ca kiểm thử tự động (unit tests) và kiểm thử thủ công cho ứng dụng Telemetry API bao gồm các tính năng nâng cấp Schema Validation (CDO-W12-016).
 
 ---
 
@@ -25,10 +25,6 @@ Tùy thuộc vào thư mục hiện tại của bạn trong Terminal:
 ## 2. Cách chạy kiểm thử tự động (Unit Tests)
 
 Vì mã nguồn ứng dụng nằm trong thư mục `src`, bạn cần thiết lập biến môi trường `PYTHONPATH` để Python tìm thấy module `telemetry_api` khi chạy `pytest`.
-
-## 2. Cách chạy kiểm thử tự động (Unit Tests)
-
-Tùy thuộc vào thư mục hiện tại của bạn trong Terminal:
 
 ### A. Nếu bạn đang ở thư mục gốc của dự án (`tf4-cdo04-repo`):
 * **Chạy tests thông thường (chỉ hiện dấu chấm):**
@@ -68,30 +64,26 @@ Tùy thuộc vào thư mục hiện tại của bạn trong Terminal:
   $env:PYTHONPATH="."
   pytest -sv telemetry_api
   ```
-* **Chạy kèm báo cáo Code Coverage:**
-  ```powershell
-  $env:PYTHONPATH="."
-  pytest --cov=telemetry_api telemetry_api
-  ```
 
 ---
 
-## 3. Các kịch bản kiểm thử đã được tự động hóa
+## 3. Các kịch bản kiểm thử đã được tự động hóa (52 Test Cases)
 
 Bộ mã nguồn kiểm thử nằm tại `src/telemetry_api/tests/telemetry_api/test_ingest_api.py` bao gồm các kịch bản quan trọng sau:
 
-1. **`test_valid_payload_returns_201_and_writes_jsonl`**: Kiểm tra gói tin hợp lệ được lưu đúng định dạng vào file log cục bộ (`telemetry.jsonl`) và trả về HTTP `201 Created`.
-2. **`test_missing_required_fields_return_400`**: Kiểm tra API từ chối (`400 Bad Request`) nếu thiếu bất kỳ trường bắt buộc nào (`ts`, `tenant_id`, `service_id`, `metric_type`, `value`).
-3. **`test_tenant_header_body_mismatch_returns_400`**: Đảm bảo bảo mật bằng cách từ chối request nếu header `X-Tenant-Id` không trùng khớp với trường `tenant_id` trong JSON body.
-4. **`test_payload_too_large_returns_413`**: Kiểm tra middleware chặn các request có dung lượng vượt ngưỡng giới hạn cho phép và trả về lỗi `413 Payload Too Large`.
-5. **`test_sensitive_label_returns_400` / `test_high_cardinality_label_returns_400`**: Xác thực bộ lọc an toàn thông tin (PII) và ngăn chặn lưu trữ các key có độ phân tán cao (cardinality lớn như `request_id`).
-6. **`test_missing_correlation_id_auto_generates_uuid`**: Kiểm tra xem hệ thống có tự sinh mã định danh duy nhất (UUID) để trace log khi client không truyền header `X-Correlation-Id` hay không.
+1. **`test_valid_payload_returns_201_and_writes_jsonl`**: Kiểm tra gói tin hợp lệ được chấp nhận và ghi đúng định dạng vào file log cục bộ (`telemetry.jsonl`).
+2. **`test_metrics_endpoint_initial_state` / `test_accepted_request_increments_metric`**: Đảm bảo bộ đếm `/metrics` phản ánh đúng các request thành công và thất bại.
+3. **`test_timestamp_validation`**: Kiểm thử toàn diện kiểm tra tính hợp lệ của timestamp. Chỉ cho phép định dạng RFC3339 UTC kết thúc bằng `Z` hoặc offset không đổi lệch 0 (như `+00:00`). Từ chối naive datetime hoặc múi giờ lệch (ví dụ `+07:00`).
+4. **`test_value_validation` / `test_nan_infinity_value_validation`**: Đảm bảo giá trị metric bắt buộc phải là số thực hoặc số nguyên (từ chối string, boolean, null, NaN, Infinity).
+5. **`test_non_empty_string_fields`**: Các trường text định danh phải là kiểu chuỗi và không được để trống hoặc chỉ có khoảng trắng.
+6. **`test_labels_validation`**: Kiểm tra các ràng buộc kiểu nhãn labels phẳng, cấm lồng nhau (nested dicts/arrays), lọc bỏ nhãn có tính bảo mật cao (PII) hoặc cardinality lớn.
+7. **`test_tenant_header_body_mismatch_returns_400` / `test_missing_tenant_header_returns_400`**: Kiểm tra logic cô lập Tenant.
+8. **`test_payload_too_large_rejection_metrics`**: Kiểm tra middleware chặn các request có dung lượng vượt ngưỡng giới hạn cho phép (413) và ghi nhận lý do `payload_too_large`.
+9. **`test_invalid_json_returns_400`**: Từ chối gói tin JSON bị lỗi cú pháp trước khi xử lý.
 
 ---
 
 ## 4. Hướng dẫn kiểm thử thủ công (Manual Testing)
-
-Nếu bạn muốn chạy ứng dụng cục bộ và gửi request kiểm thử bằng công cụ ngoài:
 
 ### Bước 1: Khởi chạy Uvicorn Server cục bộ
 ```powershell
@@ -100,7 +92,21 @@ python -m uvicorn telemetry_api.main:app --reload --port 8000
 ```
 *Server sẽ lắng nghe tại: `http://127.0.0.1:8000`*
 
-### Bước 2: Gửi Request kiểm thử
+### Bước 2: Kiểm tra trạng thái Metrics ban đầu
+Gửi request GET đến `/metrics` để xem bộ đếm ban đầu:
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
+```
+**Phản hồi kỳ vọng:**
+```json
+{
+  "telemetry_ingest_accepted_total": 0,
+  "telemetry_ingest_rejected_total": 0,
+  "telemetry_ingest_rejected_by_reason": {}
+}
+```
+
+### Bước 3: Gửi Request kiểm thử
 
 * **Gửi Request hợp lệ (PowerShell):**
   ```powershell
@@ -116,30 +122,14 @@ python -m uvicorn telemetry_api.main:app --reload --port 8000
     }'
   ```
 
-* **Gửi Request lỗi (Thiếu trường bắt buộc - PowerShell):**
+* **Gửi Request lỗi (Timestamp sai định dạng múi giờ - PowerShell):**
   ```powershell
   try {
       Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
         -Headers @{ "X-Tenant-Id" = "demo-tenant-001"; "Content-Type" = "application/json" } `
         -Body '{
-          "ts": "2026-06-25T10:30:00Z",
+          "ts": "2026-06-25T10:30:00+07:00",
           "tenant_id": "demo-tenant-001",
-          "service_id": "payment-gateway"
-        }'
-  } catch {
-      $_.Exception.Response
-  }
-  ```
-  *(Trả về HTTP 400: "Missing required field: metric_type")*
-
-* **Gửi Request lỗi (Không khớp Tenant ID - PowerShell):**
-  ```powershell
-  try {
-      Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
-        -Headers @{ "X-Tenant-Id" = "demo-tenant-001"; "Content-Type" = "application/json" } `
-        -Body '{
-          "ts": "2026-06-25T10:30:00Z",
-          "tenant_id": "hacker-tenant-999",
           "service_id": "payment-gateway",
           "metric_type": "api_latency_ms",
           "value": 450.5
@@ -148,9 +138,27 @@ python -m uvicorn telemetry_api.main:app --reload --port 8000
       $_.Exception.Response
   }
   ```
-  *(Trả về HTTP 400: "X-Tenant-Id does not match body tenant_id")*
+  *(Trả về HTTP 400: "ts must be RFC3339 UTC")*
 
-* **Gửi Request lỗi (Chứa thông tin nhạy cảm PII hoặc Cardinality cao trong Labels - PowerShell):**
+* **Gửi Request lỗi (Value là boolean thay vì số - PowerShell):**
+  ```powershell
+  try {
+      Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
+        -Headers @{ "X-Tenant-Id" = "demo-tenant-001"; "Content-Type" = "application/json" } `
+        -Body '{
+          "ts": "2026-06-25T10:30:00Z",
+          "tenant_id": "demo-tenant-001",
+          "service_id": "payment-gateway",
+          "metric_type": "api_latency_ms",
+          "value": true
+        }'
+  } catch {
+      $_.Exception.Response
+  }
+  ```
+  *(Trả về HTTP 400: "value must be a number")*
+
+* **Gửi Request lỗi (Labels chứa đối tượng lồng nhau - PowerShell):**
   ```powershell
   try {
       Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
@@ -162,35 +170,28 @@ python -m uvicorn telemetry_api.main:app --reload --port 8000
           "metric_type": "api_latency_ms",
           "value": 450.5,
           "labels": {
-            "password": "mysecretpassword"
+            "metadata": { "region": "us-east-1" }
           }
         }'
   } catch {
       $_.Exception.Response
   }
   ```
-  *(Trả về HTTP 400: "label 'password' contains sensitive data marker")*
+  *(Trả về HTTP 400: "labels cannot contain nested objects or arrays for key 'metadata'")*
 
-* **Gửi Request lỗi (Payload quá lớn - PowerShell):**
-  ```powershell
-  try {
-      # Tạo ra một body chuỗi dung lượng lớn hơn 64KB (đọc cấu hình tối đa)
-      $largeString = "A" * 70000
-      $body = @{
-          ts = "2026-06-25T10:30:00Z"
-          tenant_id = "demo-tenant-001"
-          service_id = "payment-gateway"
-          metric_type = "api_latency_ms"
-          value = 450.5
-          large_field = $largeString
-      } | ConvertTo-Json
-
-      Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
-        -Headers @{ "X-Tenant-Id" = "demo-tenant-001"; "Content-Type" = "application/json" } `
-        -Body $body
-  } catch {
-      $_.Exception.Response
+### Bước 4: Kiểm tra lại Metrics sau khi gửi các request
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
+```
+**Phản hồi kỳ vọng:**
+```json
+{
+  "telemetry_ingest_accepted_total": 1,
+  "telemetry_ingest_rejected_total": 3,
+  "telemetry_ingest_rejected_by_reason": {
+    "invalid_timestamp": 1,
+    "invalid_value": 1,
+    "nested_label_object": 1
   }
-  ```
-  *(Trả về HTTP 413: "Request payload exceeds max allowed size")*
-
+}
+```

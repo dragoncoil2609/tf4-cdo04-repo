@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse, Response
 
 from telemetry_api.core.logging import log_structured, now_utc_iso
 from telemetry_api.middleware.correlation_id import CORRELATION_ID_HEADER, get_or_create_correlation_id
+from telemetry_api.observability.metrics import record_ingest_rejected
 
 
 logger = logging.getLogger("telemetry_api.ingest")
@@ -53,15 +54,16 @@ class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     def _too_large_response(self, request: Request, correlation_id: str) -> JSONResponse:
-        """Tạo response 413 cùng format với các lỗi API khác."""
+        """Tạo response 413 cùng format với các lỗi API khác và ghi nhận metrics."""
 
+        record_ingest_rejected("payload_too_large")
         log_structured(
             logger,
             logging.WARNING,
             "telemetry_ingest_rejected",
             correlation_id=correlation_id,
             status_code=413,
-            error="payload_too_large",
+            reason="payload_too_large",
             received_at=now_utc_iso(),
             path=request.url.path,
             method=request.method,
