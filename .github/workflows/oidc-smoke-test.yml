@@ -1,0 +1,32 @@
+name: OIDC Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - develop
+      - An_CDO-W12-002-github-oidc
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  assume-role-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials by OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::511825856493:role/tf4-cdo04-github-deploy-role
+          role-session-name: github-actions-tf4-cdo04
+
+      - name: Verify caller identity
+        run: |
+          aws sts get-caller-identity

@@ -36,3 +36,21 @@ output "backend_config_snippet" {
 # TODO (CPOA-38): OIDC provider and deploy role outputs belong to CI/CD owner.
 
 data "aws_region" "current" {}
+# -----------------------------------------------------------------------------
+# GitHub OIDC outputs -- CPOA-38 / CDO-W12-002
+# -----------------------------------------------------------------------------
+
+output "github_oidc_provider_arn" {
+  description = "ARN of the GitHub Actions IAM OIDC provider"
+  value       = aws_iam_openid_connect_provider.github.arn
+}
+
+output "github_deploy_role_arn" {
+  description = "ARN of the GitHub Actions Terraform deploy role"
+  value       = aws_iam_role.github_deploy_role.arn
+}
+
+output "github_deploy_role_name" {
+  description = "Name of the GitHub Actions Terraform deploy role"
+  value       = aws_iam_role.github_deploy_role.name
+}
