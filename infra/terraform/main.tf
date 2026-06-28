@@ -55,6 +55,9 @@ module "compute" {
   prediction_queue_url      = module.data.prediction_queue_url
   prediction_queue_arn      = module.data.prediction_queue_arn
   telemetry_api_image_tag   = var.telemetry_api_image_tag
+  
+  private_subnet_ids        = module.networking.private_subnet_ids
+  telemetry_api_sg_id       = module.networking.telemetry_api_sg_id
 }
 
 # -----------------------------------------------------------------------------

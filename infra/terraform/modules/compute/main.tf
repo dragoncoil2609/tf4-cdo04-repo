@@ -152,6 +152,37 @@ resource "aws_ecs_task_definition" "telemetry_api" {
 }
 
 # -----------------------------------------------------------------------------
+# Telemetry API ECS Service with Circuit Breaker Rollback (CPOA-45/CPOA-78)
+# -----------------------------------------------------------------------------
+resource "aws_ecs_service" "telemetry_api" {
+  name            = "${var.project_name}-${var.environment}-telemetry-api"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.telemetry_api.arn
+  desired_count   = 2
+  launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  deployment_controller {
+    type = "ECS"
+  }
+
+  network_configuration {
+    subnets          = var.private_subnet_ids
+    security_groups  = [var.telemetry_api_sg_id]
+    assign_public_ip = false
+  }
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+}
+
+
+# -----------------------------------------------------------------------------
 # TODO (CPOA-47): Prediction Worker task definition -- owned by Truong An.
 # Placeholder only; no Worker task/service is implemented in Vinh scope.
 # -----------------------------------------------------------------------------
