@@ -253,6 +253,21 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "arn:aws:ecr:*:*:repository/foresight-lens/*"
     ]
   }
+
+  statement {
+    sid    = "AllowSSMAndServiceDiscoveryAccess"
+    effect = "Allow"
+
+    actions = [
+      "ssm:*",
+      "servicediscovery:*"
+    ]
+
+    resources = [
+      "arn:aws:ssm:*:*:parameter/tf4-cdo04/*",
+      "*"
+    ]
+  }
 }
 
 resource "aws_iam_policy" "github_deploy_policy" {
