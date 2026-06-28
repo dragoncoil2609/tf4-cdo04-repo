@@ -210,6 +210,20 @@ resource "aws_ecs_service" "telemetry_api" {
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# TODO (CPOA-78/CPOA-81): ECR repos, deploy wiring, ALB/service rollout, and
-# smoke deployment pipeline are CI/CD/deployment-owned work, not Vinh scope.
+# ECR repos, deploy wiring, ALB/service rollout, and smoke deployment (CPOA-78)
 # -----------------------------------------------------------------------------
+resource "aws_ecr_repository" "services" {
+  for_each             = toset(["telemetry_api", "prediction_worker", "ai_engine"])
+  name                 = "foresight-lens/${each.key}"
+  image_tag_mutability = "IMMUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-${each.key}-ecr"
+    Purpose = "ecr-repository"
+  })
+}
+

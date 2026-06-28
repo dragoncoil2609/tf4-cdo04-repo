@@ -58,6 +58,7 @@ module "compute" {
 
   private_subnet_ids  = module.networking.private_subnet_ids
   telemetry_api_sg_id = module.networking.telemetry_api_sg_id
+  tags                = local.common_tags
 }
 
 # -----------------------------------------------------------------------------
