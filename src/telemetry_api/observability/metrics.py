@@ -15,6 +15,9 @@ _accepted_total: int = 0
 _rejected_total: int = 0
 _pii_rejected_total: int = 0
 _cardinality_rejected_total: int = 0
+_unsupported_metric_rejected_total: int = 0
+_internal_only_metric_rejected_total: int = 0
+_metric_label_rejected_total: int = 0
 _rejected_by_reason: dict[str, int] = {}
 
 
@@ -53,6 +56,21 @@ def record_cardinality_rejection(reason: str) -> None:
     record_ingest_rejected(reason)
 
 
+def record_metric_rejection(reason: str) -> None:
+    """Tăng các bộ đếm từ chối liên quan đến chính sách metric hoặc nhãn bắt buộc."""
+
+    global _unsupported_metric_rejected_total, _internal_only_metric_rejected_total, _metric_label_rejected_total
+
+    if reason == "unsupported_metric_type":
+        _unsupported_metric_rejected_total += 1
+    elif reason == "internal_only_metric_not_ai_signal":
+        _internal_only_metric_rejected_total += 1
+    elif reason in ("missing_required_label", "empty_required_label"):
+        _metric_label_rejected_total += 1
+
+    record_ingest_rejected(reason)
+
+
 def get_metrics_snapshot() -> dict[str, Any]:
     """Trả về ảnh chụp nhanh trạng thái metrics hiện tại dưới dạng JSON.
 
@@ -65,6 +83,9 @@ def get_metrics_snapshot() -> dict[str, Any]:
         "telemetry_ingest_rejected_total": _rejected_total,
         "telemetry_ingest_pii_rejected_total": _pii_rejected_total,
         "telemetry_ingest_cardinality_rejected_total": _cardinality_rejected_total,
+        "telemetry_ingest_unsupported_metric_rejected_total": _unsupported_metric_rejected_total,
+        "telemetry_ingest_internal_only_metric_rejected_total": _internal_only_metric_rejected_total,
+        "telemetry_ingest_metric_label_rejected_total": _metric_label_rejected_total,
         "telemetry_ingest_rejected_by_reason": dict(_rejected_by_reason),
     }
 
@@ -72,9 +93,15 @@ def get_metrics_snapshot() -> dict[str, Any]:
 def reset_metrics_for_tests() -> None:
     """Khởi động lại các bộ đếm về 0, sử dụng cho dọn dẹp sau mỗi unit test."""
 
-    global _accepted_total, _rejected_total, _pii_rejected_total, _cardinality_rejected_total, _rejected_by_reason
+    global _accepted_total, _rejected_total, _pii_rejected_total, _cardinality_rejected_total
+    global _unsupported_metric_rejected_total, _internal_only_metric_rejected_total, _metric_label_rejected_total
+    global _rejected_by_reason
+
     _accepted_total = 0
     _rejected_total = 0
     _pii_rejected_total = 0
     _cardinality_rejected_total = 0
+    _unsupported_metric_rejected_total = 0
+    _internal_only_metric_rejected_total = 0
+    _metric_label_rejected_total = 0
     _rejected_by_reason = {}

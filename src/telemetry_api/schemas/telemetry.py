@@ -7,22 +7,10 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from telemetry_api.validators.labels import validate_labels
 
-
-ALLOWED_METRIC_TYPES = frozenset(
-    {
-        "cpu_usage_percent",
-        "memory_usage_percent",
-        "active_connections",
-        "db_connection_pool_pct",
-        "queue_depth",
-        "cache_hit_rate_pct",
-        "api_latency_ms",
-    }
-)
 
 REQUIRED_TELEMETRY_FIELDS = ("ts", "tenant_id", "service_id", "metric_type", "value")
 
@@ -99,10 +87,7 @@ class TelemetryPayload(BaseModel):
     @field_validator("metric_type")
     @classmethod
     def validate_metric_type(cls, value: str) -> str:
-        """Đảm bảo metric_type nằm trong allowlist của telemetry contract."""
-
-        if value not in ALLOWED_METRIC_TYPES:
-            raise ValueError("unsupported metric_type")
+        """Đảm bảo metric_type được giữ nguyên để model validator kiểm tra chi tiết."""
         return value
 
     @field_validator("value", mode="before")
@@ -126,6 +111,13 @@ class TelemetryPayload(BaseModel):
         if value is None:
             return {}
         return validate_labels(value)
+
+    @model_validator(mode="after")
+    def validate_metrics_and_labels(self) -> TelemetryPayload:
+        """Xác thực chính sách metric và các nhãn bắt buộc."""
+        from telemetry_api.validators.metrics import validate_metric_and_labels
+        validate_metric_and_labels(self.metric_type, self.labels)
+        return self
 
 
 class TelemetryRecord(BaseModel):

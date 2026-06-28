@@ -55,12 +55,14 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
         payload = TelemetryPayload.model_validate(payload_data)
     except ValidationError as exc:
         reason = _determine_rejection_reason_from_exc(exc)
-        # Xác định denied_key nếu lỗi phát sinh từ trường labels
+        # Xác định denied_key và missing_label nếu lỗi phát sinh
         denied_key = None
+        missing_label = None
         first_error = exc.errors()[0]
         loc = first_error.get("loc", ())
+        msg = first_error.get("msg", "")
+
         if loc and loc[0] == "labels":
-            msg = first_error.get("msg", "")
             if ": " in msg:
                 denied_key = msg.split(": ")[-1].strip()
             else:
@@ -72,7 +74,17 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
                         if isinstance(v, str) and looks_like_raw_path_with_ids(v):
                             denied_key = k
                             break
-        raise BadRequestError(_validation_message(exc), reason=reason, denied_key=denied_key) from exc
+
+        if reason == "missing_required_label":
+            if "requires label: " in msg:
+                missing_label = msg.split("requires label: ")[-1].strip()
+
+        raise BadRequestError(
+            _validation_message(exc),
+            reason=reason,
+            denied_key=denied_key,
+            missing_label=missing_label,
+        ) from exc
 
     # 5. So khớp chéo Tenant ID header và body
     if header_tenant_id != payload.tenant_id:
@@ -156,6 +168,16 @@ def _determine_rejection_reason_from_exc(error: ValidationError) -> str:
         if "raw endpoint path with ids" in msg:
             return "raw_endpoint_path_with_ids"
         return "invalid_labels_type"
+
+    # Lỗi từ model validator (loc rỗng hoặc root)
+    if "internal-only" in msg:
+        return "internal_only_metric_not_ai_signal"
+    if "allowlist" in msg:
+        return "unsupported_metric_type"
+    if "requires label:" in msg:
+        return "missing_required_label"
+    if "cannot be empty" in msg:
+        return "empty_required_label"
 
     return "bad_request"
 

@@ -84,77 +84,132 @@ Khi có một request bị từ chối do vi phạm PII hoặc Cardinality, bộ
 
 ---
 
-### 6. Lệnh gọi mẫu thử nghiệm thủ công (Sample Curl)
+## CDO-W12-018 — Metric allowlist
 
-#### Request mẫu hợp lệ:
-```bash
-curl -X POST http://localhost:8000/v1/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-Id: demo-tenant-001" \
-  -H "X-Correlation-Id: local-test-001" \
-  -d '{
-    "ts": "2026-06-25T10:30:00Z",
-    "tenant_id": "demo-tenant-001",
-    "service_id": "payment-gateway",
-    "metric_type": "api_latency_ms",
-    "value": 450.5,
-    "labels": {
-      "region": "us-east-1",
-      "env": "local",
-      "service_tier": "tier-1"
-    }
-  }'
-```
+### 1. Tổng quan chính sách lọc Metric (AI_SIGNAL_ALLOWLIST_ONLY)
+Mục tiêu là đảm bảo chỉ đúng 7 AI signals đã được ký kết trong telemetry contract mới được phép ingest vào hệ thống.
+Hệ thống áp dụng chính sách nghiêm ngặt:
+- Mọi metric nằm ngoài allowlist (chứa 7 signals) đều bị từ chối với mã lỗi `HTTP 400 Bad Request`.
+- Các metric nội bộ (`error_rate` và `oldest_message_age_seconds`) mặc dù được định nghĩa nhưng chưa nằm trong contract nên bị chặn hoàn toàn khỏi AI pipeline.
+- Dữ liệu bị reject tuyệt đối không được ghi vào file local JSONL (`telemetry.jsonl`) hay gọi adapter AMP trong tương lai.
 
-#### Request lỗi do chứa nhãn PII (`email`):
-```bash
-curl -X POST http://localhost:8000/v1/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-Id: demo-tenant-001" \
-  -H "X-Correlation-Id: pii-test-001" \
-  -d '{
-    "ts": "2026-06-25T10:30:00Z",
-    "tenant_id": "demo-tenant-001",
-    "service_id": "payment-gateway",
-    "metric_type": "api_latency_ms",
-    "value": 450.5,
-    "labels": {
-      "email": "user@example.com"
-    }
-  }'
-```
-*Phản hồi trả về:* `HTTP 400 Bad Request`, bộ đếm `telemetry_ingest_pii_rejected_total` tăng 1. Log ghi nhận `reason: pii_denylist_label`, `denied_key: email` và không rò rỉ email thô ra log file.
+### 2. Danh sách 7 AI Signals và Nhãn bắt buộc (Required Labels)
 
-#### Request lỗi do chứa nhãn Cardinality cao (`request_id`):
-```bash
-curl -X POST http://localhost:8000/v1/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-Id: demo-tenant-001" \
-  -H "X-Correlation-Id: cardinality-test-001" \
-  -d '{
-    "ts": "2026-06-25T10:30:00Z",
-    "tenant_id": "demo-tenant-001",
-    "service_id": "payment-gateway",
-    "metric_type": "api_latency_ms",
-    "value": 450.5,
-    "labels": {
-      "request_id": "req-abc-123"
-    }
-  }'
-```
-*Phản hồi trả về:* `HTTP 400 Bad Request`, bộ đếm `telemetry_ingest_cardinality_rejected_total` tăng 1. Log ghi nhận `reason: high_cardinality_label`, `denied_key: request_id` và không chứa chuỗi ID động thô.
+Mỗi metric trong allowlist yêu cầu một tập nhãn bắt buộc riêng biệt để đảm bảo tính phân tích chính xác:
+
+| metric_type | Nhãn bắt buộc (Required labels) |
+| :--- | :--- |
+| `cpu_usage_percent` | `region` |
+| `memory_usage_percent` | `region` |
+| `active_connections` | `region` |
+| `api_latency_ms` | `region` |
+| `db_connection_pool_pct` | `region`, `db_type` |
+| `queue_depth` | `region`, `queue_name` |
+| `cache_hit_rate_pct` | `region`, `cache_type` |
+
+> [!IMPORTANT]
+> - Nếu thiếu nhãn bắt buộc -> Trả về lỗi 400 (`missing_required_label`).
+> - Nếu nhãn bắt buộc truyền lên nhưng giá trị rỗng/khoảng trắng -> Trả về lỗi 400 (`empty_required_label`).
+> - Nhãn bắt buộc vẫn phải vượt qua toàn bộ kiểm tra PII/Cardinality (ví dụ: `queue_name` không được chứa thông tin nhạy cảm).
+> - *Lưu ý tương lai:* Nếu AI contract ký kết thêm metric mới, chỉ cần cập nhật allowlist trong `validators/metrics.py` và bổ sung unit tests.
+
+### 3. Hành vi đo lường (Metrics Endpoint)
+Các bộ đếm cục bộ phục vụ giám sát việc chặn lọc metric tại `/metrics` bao gồm:
+- `telemetry_ingest_unsupported_metric_rejected_total` (+1 khi gửi metric ngoài allowlist).
+- `telemetry_ingest_internal_only_metric_rejected_total` (+1 khi gửi metric chỉ dùng nội bộ).
+- `telemetry_ingest_metric_label_rejected_total` (+1 khi thiếu hoặc rỗng nhãn bắt buộc).
+- `telemetry_ingest_rejected_by_reason` tăng tương ứng với các lý do: `unsupported_metric_type`, `internal_only_metric_not_ai_signal`, `missing_required_label`, `empty_required_label`.
 
 ---
 
-### 7. Cách chạy và kiểm thử
+## Lệnh gọi mẫu thử nghiệm thủ công (Sample Curls)
 
-#### Khởi chạy API locally:
+### A. Request hợp lệ (Valid Ingest):
+```bash
+curl -X POST http://localhost:8000/v1/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant-001" \
+  -H "X-Correlation-Id: metric-valid-001" \
+  -d '{
+    "ts": "2026-06-25T10:30:00Z",
+    "tenant_id": "demo-tenant-001",
+    "service_id": "payment-gateway",
+    "metric_type": "api_latency_ms",
+    "value": 450.5,
+    "labels": {
+      "region": "us-east-1"
+    }
+  }'
+```
+
+### B. Request lỗi do Metric không được hỗ trợ (Unsupported Metric):
+```bash
+curl -X POST http://localhost:8000/v1/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant-001" \
+  -H "X-Correlation-Id: metric-invalid-001" \
+  -d '{
+    "ts": "2026-06-25T10:30:00Z",
+    "tenant_id": "demo-tenant-001",
+    "service_id": "payment-gateway",
+    "metric_type": "random_metric",
+    "value": 123,
+    "labels": {
+      "region": "us-east-1"
+    }
+  }'
+```
+*Phản hồi trả về:* `HTTP 400 Bad Request` với message: `metric_type is not in AI signal allowlist: random_metric`.
+
+### C. Request lỗi do Metric nội bộ (Internal-only Metric):
+```bash
+curl -X POST http://localhost:8000/v1/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant-001" \
+  -H "X-Correlation-Id: metric-internal-001" \
+  -d '{
+    "ts": "2026-06-25T10:30:00Z",
+    "tenant_id": "demo-tenant-001",
+    "service_id": "payment-gateway",
+    "metric_type": "error_rate",
+    "value": 0.03,
+    "labels": {
+      "region": "us-east-1"
+    }
+  }'
+```
+*Phản hồi trả về:* `HTTP 400 Bad Request` với message: `metric_type is internal-only and must not be sent as AI signal: error_rate`.
+
+### D. Request lỗi do thiếu nhãn bắt buộc (Missing Required Label):
+```bash
+curl -X POST http://localhost:8000/v1/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant-001" \
+  -H "X-Correlation-Id: metric-missing-label-001" \
+  -d '{
+    "ts": "2026-06-25T10:30:00Z",
+    "tenant_id": "demo-tenant-001",
+    "service_id": "kyc-worker",
+    "metric_type": "queue_depth",
+    "value": 240,
+    "labels": {
+      "region": "us-east-1"
+    }
+  }'
+```
+*Phản hồi trả về:* `HTTP 400 Bad Request` với message: `metric_type queue_depth requires label: queue_name`.
+
+---
+
+## Hướng dẫn chạy và kiểm thử cục bộ
+
+### 1. Khởi chạy API locally:
 ```bash
 $env:PYTHONPATH="src"
 python -m uvicorn telemetry_api.main:app --host 0.0.0.0 --port 8000
 ```
 
-#### Chạy toàn bộ 73 unit tests tự động:
+### 2. Chạy toàn bộ 92 unit tests tự động:
 ```bash
 $env:PYTHONPATH="src"
 pytest -sv src/telemetry_api

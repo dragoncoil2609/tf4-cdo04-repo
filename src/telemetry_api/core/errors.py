@@ -13,6 +13,7 @@ class TelemetryApiError(Exception):
         message: str,
         reason: str = "internal_error",
         denied_key: str | None = None,
+        missing_label: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -20,18 +21,26 @@ class TelemetryApiError(Exception):
         self.message = message
         self.reason = reason
         self.denied_key = denied_key
+        self.missing_label = missing_label
 
 
 class BadRequestError(TelemetryApiError):
     """Được raise khi request không qua validation và cần trả HTTP 400."""
 
-    def __init__(self, message: str, reason: str = "bad_request", denied_key: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        reason: str = "bad_request",
+        denied_key: str | None = None,
+        missing_label: str | None = None,
+    ) -> None:
         super().__init__(
             status_code=400,
             error="bad_request",
             message=message,
             reason=reason,
             denied_key=denied_key,
+            missing_label=missing_label,
         )
 
 

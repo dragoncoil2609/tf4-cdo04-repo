@@ -1,4 +1,4 @@
-"""Kiểm thử endpoint POST /v1/ingest và các quy tắc Schema Validation + PII & Cardinality Denylist."""
+"""Kiểm thử endpoint POST /v1/ingest và các quy tắc Schema Validation + PII & Cardinality Denylist + Metric Allowlist."""
 
 from __future__ import annotations
 
@@ -235,34 +235,19 @@ def test_non_empty_string_fields(client: TestClient, field: str, val: Any, expec
     assert metrics_data["telemetry_ingest_rejected_by_reason"][expected_reason] == 1
 
 
-def test_unsupported_metric_type_returns_400(client: TestClient) -> None:
-    """Metric type phải nằm trong danh sách được phép."""
-
-    payload = valid_payload()
-    payload["metric_type"] = "unknown_metric"
-
-    response = post_ingest(client, payload)
-
-    assert response.status_code == 400
-    assert response.json()["error"] == "bad_request"
-
-    metrics_data = client.get("/metrics").json()
-    assert metrics_data["telemetry_ingest_rejected_by_reason"]["unsupported_metric_type"] == 1
-
-
 # --- 6. KIỂM THỬ VALIDATE LABELS ĐƠN GIẢN & AN TOÀN ---
 
 @pytest.mark.parametrize("labels_val, expected_status, expected_reason", [
-    (None, 201, None),
-    ({}, 201, None),
+    (None, 400, "missing_required_label"),
+    ({}, 400, "missing_required_label"),
     ({"region": "us-east-1", "env": "local", "status": True, "code": 200, "empty": None}, 201, None),
     ("region=us-east-1", 400, "invalid_labels_type"),
     (["region", "us-east-1"], 400, "invalid_labels_type"),
     ({"region": {"name": "us-east-1"}}, 400, "nested_label_object"),
     ({"regions": ["us-east-1"]}, 400, "nested_label_object"),
-    ({"request_id": "req-123"}, 400, "pii_denylist_label"),  # request_id thuộc PII và high cardinality
-    ({"token": "abc"}, 400, "pii_denylist_label"),
-    ({"my_label": "my-secret-password"}, 400, "pii_denylist_label"),
+    ({"region": "us-east-1", "request_id": "req-123"}, 400, "pii_denylist_label"),  # request_id thuộc PII và high cardinality
+    ({"region": "us-east-1", "token": "abc"}, 400, "pii_denylist_label"),
+    ({"region": "us-east-1", "my_label": "my-secret-password"}, 400, "pii_denylist_label"),
 ])
 def test_labels_validation(client: TestClient, labels_val: Any, expected_status: int, expected_reason: str | None) -> None:
     """Kiểm tra các ràng buộc kiểu nhãn labels phẳng, PII và High-cardinality."""
@@ -400,7 +385,7 @@ def test_error_response_always_includes_correlation_id(client: TestClient) -> No
     """Response ingest bị từ chối vẫn có correlation_id để trace."""
 
     payload = valid_payload()
-    payload["metric_type"] = "not_allowed"
+    payload["labels"] = {"region": "us-east-1", "email": "user@example.com"}
 
     response = post_ingest(client, payload, headers=tenant_headers("bad-correlation"))
 
@@ -475,7 +460,7 @@ def test_pii_denylist_keys(client: TestClient, denied_key: str) -> None:
     """Kiểm tra từng key trong denylist của PII đều bị từ chối 400."""
 
     payload = valid_payload()
-    payload["labels"] = {denied_key: "value"}
+    payload["labels"] = {"region": "us-east-1", denied_key: "value"}
     response = post_ingest(client, payload)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
@@ -483,7 +468,7 @@ def test_pii_denylist_keys(client: TestClient, denied_key: str) -> None:
 
     # Kể cả viết hoa/thường lẫn lộn
     payload_upper = valid_payload()
-    payload_upper["labels"] = {denied_key.upper(): "value"}
+    payload_upper["labels"] = {"region": "us-east-1", denied_key.upper(): "value"}
     response_upper = post_ingest(client, payload_upper)
     assert response_upper.status_code == 400
     assert response_upper.json()["error"] == "bad_request"
@@ -497,7 +482,7 @@ def test_high_cardinality_keys(client: TestClient, cardinality_key: str) -> None
     """Kiểm tra các key có cardinality cao bị từ chối 400."""
 
     payload = valid_payload()
-    payload["labels"] = {cardinality_key: "value"}
+    payload["labels"] = {"region": "us-east-1", cardinality_key: "value"}
     response = post_ingest(client, payload)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
@@ -514,7 +499,7 @@ def test_raw_path_with_ids_values(client: TestClient, raw_path_val: str) -> None
     """Kiểm tra các giá trị path chứa dynamic ID bị từ chối 400."""
 
     payload = valid_payload()
-    payload["labels"] = {"path": raw_path_val}
+    payload["labels"] = {"region": "us-east-1", "path": raw_path_val}
     response = post_ingest(client, payload)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
@@ -526,13 +511,13 @@ def test_pii_and_cardinality_rejection_storage_protection(client: TestClient, te
 
     # 1. Gửi request bị PII reject
     payload1 = valid_payload()
-    payload1["labels"] = {"email": "user@example.com"}
+    payload1["labels"] = {"region": "us-east-1", "email": "user@example.com"}
     response1 = post_ingest(client, payload1)
     assert response1.status_code == 400
 
     # 2. Gửi request bị cardinality reject
     payload2 = valid_payload()
-    payload2["labels"] = {"session_id": "session-12345"}
+    payload2["labels"] = {"region": "us-east-1", "session_id": "session-12345"}
     response2 = post_ingest(client, payload2)
     assert response2.status_code == 400
 
@@ -551,7 +536,7 @@ def test_pii_and_cardinality_metrics_increments(client: TestClient) -> None:
 
     # 1. Gây lỗi PII
     payload1 = valid_payload()
-    payload1["labels"] = {"email": "user@example.com"}
+    payload1["labels"] = {"region": "us-east-1", "email": "user@example.com"}
     post_ingest(client, payload1)
 
     m1 = client.get("/metrics").json()
@@ -561,12 +546,12 @@ def test_pii_and_cardinality_metrics_increments(client: TestClient) -> None:
 
     # 2. Gây lỗi cardinality
     payload2 = valid_payload()
-    payload2["labels"] = {"session_id": "session-12345"}
+    payload2["labels"] = {"region": "us-east-1", "session_id": "session-12345"}
     post_ingest(client, payload2)
 
     # 3. Gây lỗi raw path with IDs
     payload3 = valid_payload()
-    payload3["labels"] = {"path": "/users/123/orders"}
+    payload3["labels"] = {"region": "us-east-1", "path": "/users/123/orders"}
     post_ingest(client, payload3)
 
     m2 = client.get("/metrics").json()
@@ -583,7 +568,7 @@ def test_pii_denylist_logging_and_response_no_leak(client: TestClient, caplog: p
     caplog.set_level(logging.WARNING, logger="telemetry_api.ingest")
 
     payload = valid_payload()
-    payload["labels"] = {"email": "sensitive-user-email@domain.com"}
+    payload["labels"] = {"region": "us-east-1", "email": "sensitive-user-email@domain.com"}
 
     response = post_ingest(client, payload, headers=tenant_headers("leak-test-001"))
 
@@ -608,7 +593,7 @@ def test_raw_path_with_ids_logging_and_response_no_leak(client: TestClient, capl
     caplog.set_level(logging.WARNING, logger="telemetry_api.ingest")
 
     payload = valid_payload()
-    payload["labels"] = {"path": "/api/v1/users/550e8400-e29b-41d4-a716-446655440000"}
+    payload["labels"] = {"region": "us-east-1", "path": "/api/v1/users/550e8400-e29b-41d4-a716-446655440000"}
 
     response = post_ingest(client, payload, headers=tenant_headers("path-test-002"))
 
@@ -622,3 +607,152 @@ def test_raw_path_with_ids_logging_and_response_no_leak(client: TestClient, capl
     assert any("raw_endpoint_path_with_ids" in msg for msg in log_messages)
     assert any("path" in msg for msg in log_messages)
     assert not any("550e8400-e29b-41d4-a716-446655440000" in msg for msg in log_messages)
+
+
+# --- 11. KIỂM THỬ CHÍNH SÁCH METRIC ALLOWLIST & LABELS BẮT BUỘC (CDO-W12-018) ---
+
+@pytest.mark.parametrize("metric_type, labels", [
+    ("cpu_usage_percent", {"region": "us-east-1"}),
+    ("memory_usage_percent", {"region": "us-east-1"}),
+    ("active_connections", {"region": "us-east-1"}),
+    ("db_connection_pool_pct", {"region": "us-east-1", "db_type": "postgres"}),
+    ("queue_depth", {"region": "us-east-1", "queue_name": "kyc-processing"}),
+    ("cache_hit_rate_pct", {"region": "us-east-1", "cache_type": "redis"}),
+    ("api_latency_ms", {"region": "us-east-1"}),
+])
+def test_allowlisted_metrics_success(client: TestClient, metric_type: str, labels: dict[str, Any]) -> None:
+    """Đảm bảo cả 7 AI signals trong contract đều được chấp nhận khi có đủ nhãn bắt buộc."""
+
+    payload = valid_payload()
+    payload["metric_type"] = metric_type
+    payload["labels"] = labels
+
+    response = post_ingest(client, payload)
+    assert response.status_code == 201
+    assert response.json()["status"] == "accepted"
+
+
+@pytest.mark.parametrize("unsupported_metric", [
+    "random_metric",
+    "latency",
+    "business_revenue",
+])
+def test_unsupported_metrics_rejected(client: TestClient, unsupported_metric: str) -> None:
+    """Các metric ngoài allowlist phải bị từ chối 400 với lý do unsupported_metric_type."""
+
+    payload = valid_payload()
+    payload["metric_type"] = unsupported_metric
+
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+    assert "not in AI signal allowlist" in response.json()["message"]
+
+    # Đảm bảo ghi nhận metrics
+    m = client.get("/metrics").json()
+    assert m["telemetry_ingest_unsupported_metric_rejected_total"] == 1
+    assert m["telemetry_ingest_rejected_by_reason"]["unsupported_metric_type"] == 1
+
+
+@pytest.mark.parametrize("internal_metric", [
+    "error_rate",
+    "oldest_message_age_seconds",
+])
+def test_internal_only_metrics_rejected(client: TestClient, internal_metric: str) -> None:
+    """Các metric dùng nội bộ (internal-only) phải bị chặn, không làm AI signal."""
+
+    payload = valid_payload()
+    payload["metric_type"] = internal_metric
+
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+    assert "is internal-only and must not be sent as AI signal" in response.json()["message"]
+
+    # Đảm bảo ghi nhận metrics
+    m = client.get("/metrics").json()
+    assert m["telemetry_ingest_internal_only_metric_rejected_total"] == 1
+    assert m["telemetry_ingest_rejected_by_reason"]["internal_only_metric_not_ai_signal"] == 1
+
+
+@pytest.mark.parametrize("metric_type, labels, missing_label", [
+    ("queue_depth", {"region": "us-east-1"}, "queue_name"),
+    ("db_connection_pool_pct", {"region": "us-east-1"}, "db_type"),
+    ("cache_hit_rate_pct", {"region": "us-east-1"}, "cache_type"),
+    ("cpu_usage_percent", {}, "region"),
+])
+def test_missing_required_labels(client: TestClient, metric_type: str, labels: dict[str, Any], missing_label: str) -> None:
+    """Thiếu nhãn bắt buộc theo đặc tả của metric phải bị từ chối 400."""
+
+    payload = valid_payload()
+    payload["metric_type"] = metric_type
+    payload["labels"] = labels
+
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert f"requires label: {missing_label}" in response.json()["message"]
+
+    # Đảm bảo ghi nhận metrics
+    m = client.get("/metrics").json()
+    assert m["telemetry_ingest_metric_label_rejected_total"] == 1
+    assert m["telemetry_ingest_rejected_by_reason"]["missing_required_label"] == 1
+
+
+@pytest.mark.parametrize("empty_val", ["", "   "])
+def test_required_label_empty_or_whitespace(client: TestClient, empty_val: str) -> None:
+    """Nhãn bắt buộc không được là chuỗi rỗng hoặc chỉ toàn khoảng trắng."""
+
+    payload = valid_payload()
+    payload["metric_type"] = "queue_depth"
+    payload["labels"] = {"region": "us-east-1", "queue_name": empty_val}
+
+    response = post_ingest(client, payload)
+    assert response.status_code == 400
+    assert "cannot be empty" in response.json()["message"]
+
+    # Đảm bảo ghi nhận metrics
+    m = client.get("/metrics").json()
+    assert m["telemetry_ingest_metric_label_rejected_total"] == 1
+    assert m["telemetry_ingest_rejected_by_reason"]["empty_required_label"] == 1
+
+
+def test_metric_rejections_do_not_write_to_storage(client: TestClient, telemetry_file: Path) -> None:
+    """Các request bị chặn do chính sách metric/nhãn tuyệt đối không ghi file."""
+
+    # 1. Unsupported metric
+    p1 = valid_payload()
+    p1["metric_type"] = "random_metric"
+    post_ingest(client, p1)
+
+    # 2. Internal-only metric
+    p2 = valid_payload()
+    p2["metric_type"] = "error_rate"
+    post_ingest(client, p2)
+
+    # 3. Missing label
+    p3 = valid_payload()
+    p3["metric_type"] = "queue_depth"
+    p3["labels"] = {"region": "us-east-1"}
+    post_ingest(client, p3)
+
+    if telemetry_file.exists():
+        assert telemetry_file.read_text(encoding="utf-8") == ""
+
+
+def test_metric_rejection_logging_structured(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Kiểm tra logs ghi nhận đầy đủ lý do từ chối metric/labels và correlation_id."""
+
+    caplog.set_level(logging.WARNING, logger="telemetry_api.ingest")
+
+    # Gửi thiếu nhãn bắt buộc
+    payload = valid_payload()
+    payload["metric_type"] = "queue_depth"
+    payload["labels"] = {"region": "us-east-1"}
+
+    response = post_ingest(client, payload, headers=tenant_headers("metric-log-test"))
+    assert response.status_code == 400
+
+    log_messages = [record.message for record in caplog.records]
+    assert any("metric-log-test" in msg for msg in log_messages)
+    assert any("missing_required_label" in msg for msg in log_messages)
+    assert any("queue_name" in msg for msg in log_messages)

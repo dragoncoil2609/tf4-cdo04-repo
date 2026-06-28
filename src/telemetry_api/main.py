@@ -87,6 +87,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
         from telemetry_api.observability.metrics import (
             record_cardinality_rejection,
             record_ingest_rejected,
+            record_metric_rejection,
             record_pii_rejection,
         )
 
@@ -94,6 +95,13 @@ def _register_exception_handlers(app: FastAPI) -> None:
             record_pii_rejection(exc.reason)
         elif exc.reason in ("high_cardinality_label", "raw_endpoint_path_with_ids"):
             record_cardinality_rejection(exc.reason)
+        elif exc.reason in (
+            "unsupported_metric_type",
+            "internal_only_metric_not_ai_signal",
+            "missing_required_label",
+            "empty_required_label",
+        ):
+            record_metric_rejection(exc.reason)
         else:
             record_ingest_rejected(exc.reason)
 
@@ -104,6 +112,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
             correlation_id,
             exc.reason,
             denied_key=exc.denied_key,
+            missing_label=exc.missing_label,
         )
         return JSONResponse(
             status_code=exc.status_code,
@@ -174,6 +183,7 @@ def _log_rejected_request(
     correlation_id: str,
     reason: str,
     denied_key: str | None = None,
+    missing_label: str | None = None,
 ) -> None:
     """Ghi log có cấu trúc cho các lần ingest thất bại."""
 
@@ -187,6 +197,8 @@ def _log_rejected_request(
     }
     if denied_key is not None:
         log_fields["denied_key"] = denied_key
+    if missing_label is not None:
+        log_fields["missing_label"] = missing_label
 
     log_structured(
         logger,

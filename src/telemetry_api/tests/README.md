@@ -1,6 +1,6 @@
 # Hướng Dẫn Chạy Kiểm Thử (Unit Tests) & Metrics - Telemetry API
 
-Tài liệu này hướng dẫn cách chạy các ca kiểm thử tự động (unit tests) và kiểm thử thủ công cho ứng dụng Telemetry API bao gồm các tính năng nâng cấp Schema Validation (CDO-W12-016) và PII / Label Denylist (CDO-W12-017).
+Tài liệu này hướng dẫn cách chạy các ca kiểm thử tự động (unit tests) và kiểm thử thủ công cho ứng dụng Telemetry API bao gồm các tính năng nâng cấp Schema Validation (CDO-W12-016), PII / Label Denylist (CDO-W12-017) và Metric Allowlist (CDO-W12-018).
 
 ---
 
@@ -39,6 +39,7 @@ Vì mã nguồn ứng dụng nằm trong thư mục `src`, bạn cần thiết l
   ```
 * **Chạy chi tiết + In cả log/print ra console (giống chạy thủ công):**
   ```powershell
+  ```powershell
   $env:PYTHONPATH="src"
   pytest -sv src/telemetry_api
   ```
@@ -52,22 +53,29 @@ Vì mã nguồn ứng dụng nằm trong thư mục `src`, bạn cần thiết l
 
 ---
 
-## 3. Các kịch bản kiểm thử đã được tự động hóa (73 Test Cases)
+## 3. Các kịch bản kiểm thử đã được tự động hóa (92 Test Cases)
 
-Bộ mã nguồn kiểm thử nằm tại `src/telemetry_api/tests/telemetry_api/test_ingest_api.py` bao gồm 73 kịch bản quan trọng sau:
+Bộ mã nguồn kiểm thử nằm tại `src/telemetry_api/tests/telemetry_api/test_ingest_api.py` bao gồm 92 kịch bản quan trọng sau:
 
 1. **`test_valid_payload_returns_201_and_writes_jsonl`**: Kiểm tra gói tin hợp lệ được chấp nhận và ghi đúng định dạng vào file log cục bộ (`telemetry.jsonl`).
 2. **`test_metrics_endpoint_initial_state` / `test_accepted_request_increments_metric`**: Đảm bảo bộ đếm `/metrics` phản ánh đúng các request thành công và thất bại.
-3. **`test_timestamp_validation`**: Chỉ cho phép định dạng RFC3339 UTC kết thúc bằng `Z` hoặc offset không đổi lệch 0 (như `+00:00`). Từ chối naive datetime hoặc múi giờ lệch (ví dụ `+07:00`).
-4. **`test_value_validation` / `test_nan_infinity_value_validation`**: Đảm bảo giá trị metric bắt buộc phải là số thực hoặc số nguyên (từ chối string, boolean, null, NaN, Infinity).
+3. **`test_timestamp_validation`**: Chỉ cho phép định dạng RFC3339 UTC kết thúc bằng `Z` hoặc offset không đổi lệch 0.
+4. **`test_value_validation` / `test_nan_infinity_value_validation`**: Đảm bảo giá trị metric bắt buộc phải là số thực hoặc số nguyên.
 5. **`test_non_empty_string_fields`**: Các trường text định danh phải là kiểu chuỗi và không được để trống hoặc chỉ có khoảng trắng.
 6. **`test_labels_validation`**: Kiểm tra các ràng buộc kiểu nhãn labels phẳng, cấm lồng nhau (nested dicts/arrays).
-7. **`test_pii_denylist_keys`**: Đảm bảo toàn bộ 10 keys cấm PII (`email`, `phone`, `name`, `transaction_id`, `account_id`, `card_pan`, `user_id`, `request_id`, `trace_id`, `prediction_id`) đều bị từ chối với HTTP 400.
-8. **`test_high_cardinality_keys`**: Đảm bảo các key có cardinality cao (`session_id`, `raw_path`) bị chặn.
-9. **`test_raw_path_with_ids_values`**: Kiểm thử phát hiện path chứa ID động (UUID, ID số, prefix_ID như `acc_123`, hoặc chuỗi hash hỗn hợp).
-10. **`test_pii_and_cardinality_rejection_storage_protection`**: Chứng minh các request vi phạm PII và cardinality tuyệt đối không được ghi vào file lưu trữ local JSONL.
-11. **`test_pii_and_cardinality_metrics_increments`**: Xác nhận các bộ đếm `telemetry_ingest_pii_rejected_total` và `telemetry_ingest_cardinality_rejected_total` tăng chính xác theo từng loại lỗi.
-12. **`test_pii_denylist_logging_and_response_no_leak`**: Đảm bảo thông tin email thô nhạy cảm không bị lộ ra cả JSON response lẫn logs hệ thống (chỉ ghi key bị cấm).
+7. **`test_pii_denylist_keys`**: Đảm bảo toàn bộ 10 keys cấm PII đều bị từ chối với HTTP 400.
+8. **`test_high_cardinality_keys`**: Đảm bảo các key có cardinality cao bị chặn.
+9. **`test_raw_path_with_ids_values`**: Kiểm thử phát hiện path chứa ID động.
+10. **`test_pii_and_cardinality_rejection_storage_protection`**: Chứng minh các request vi phạm PII/Cardinality tuyệt đối không được ghi vào file JSONL.
+11. **`test_pii_and_cardinality_metrics_increments`**: Xác nhận các bộ đếm `telemetry_ingest_pii_rejected_total` và `telemetry_ingest_cardinality_rejected_total` tăng chính xác.
+12. **`test_pii_denylist_logging_and_response_no_leak`**: Đảm bảo thông tin email thô nhạy cảm không bị lộ ra cả JSON response lẫn logs hệ thống.
+13. **`test_allowlisted_metrics_success`**: Đảm bảo cả 7 AI signals trong contract đều được chấp nhận khi có đủ nhãn bắt buộc.
+14. **`test_unsupported_metrics_rejected`**: Các metric ngoài allowlist bị từ chối 400 và tăng metric `telemetry_ingest_unsupported_metric_rejected_total`.
+15. **`test_internal_only_metrics_rejected`**: Các metric nội bộ (`error_rate` và `oldest_message_age_seconds`) bị chặn với lý do `internal_only_metric_not_ai_signal`.
+16. **`test_missing_required_labels`**: Thiếu nhãn bắt buộc theo đặc tả của metric bị chặn và tăng `telemetry_ingest_metric_label_rejected_total`.
+17. **`test_required_label_empty_or_whitespace`**: Nhãn bắt buộc truyền lên nhưng giá trị rỗng/khoảng trắng bị từ chối.
+18. **`test_metric_rejections_do_not_write_to_storage`**: Đảm bảo các request bị chặn do chính sách metric/nhãn tuyệt đối không ghi file.
+19. **`test_metric_rejection_logging_structured`**: Kiểm tra logs ghi nhận đầy đủ lý do từ chối metric/labels và correlation_id kèm trường `missing_label`.
 
 ---
 
@@ -92,6 +100,9 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
   "telemetry_ingest_rejected_total": 0,
   "telemetry_ingest_pii_rejected_total": 0,
   "telemetry_ingest_cardinality_rejected_total": 0,
+  "telemetry_ingest_unsupported_metric_rejected_total": 0,
+  "telemetry_ingest_internal_only_metric_rejected_total": 0,
+  "telemetry_ingest_metric_label_rejected_total": 0,
   "telemetry_ingest_rejected_by_reason": {}
 }
 ```
@@ -108,11 +119,11 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
       "service_id": "payment-gateway",
       "metric_type": "api_latency_ms",
       "value": 450.5,
-      "labels": { "region": "us-east-1", "env": "local" }
+      "labels": { "region": "us-east-1" }
     }'
   ```
 
-* **Gửi Request lỗi (Chứa label PII - `email` - PowerShell):**
+* **Gửi Request lỗi (Metric ngoài allowlist - `random_metric` - PowerShell):**
   ```powershell
   try {
       Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
@@ -121,19 +132,17 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
           "ts": "2026-06-25T10:30:00Z",
           "tenant_id": "demo-tenant-001",
           "service_id": "payment-gateway",
-          "metric_type": "api_latency_ms",
-          "value": 450.5,
-          "labels": {
-            "email": "user@example.com"
-          }
+          "metric_type": "random_metric",
+          "value": 100,
+          "labels": { "region": "us-east-1" }
         }'
   } catch {
       $_.Exception.Response
   }
   ```
-  *(Trả về HTTP 400: "label key is denied by PII policy: email")*
+  *(Trả về HTTP 400: "metric_type is not in AI signal allowlist: random_metric")*
 
-* **Gửi Request lỗi (Chứa label cardinality cao - `request_id` - PowerShell):**
+* **Gửi Request lỗi (Metric nội bộ - `error_rate` - PowerShell):**
   ```powershell
   try {
       Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
@@ -142,19 +151,17 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
           "ts": "2026-06-25T10:30:00Z",
           "tenant_id": "demo-tenant-001",
           "service_id": "payment-gateway",
-          "metric_type": "api_latency_ms",
-          "value": 450.5,
-          "labels": {
-            "request_id": "req-123"
-          }
+          "metric_type": "error_rate",
+          "value": 0.03,
+          "labels": { "region": "us-east-1" }
         }'
   } catch {
       $_.Exception.Response
   }
   ```
-  *(Trả về HTTP 400: "label key is denied by high-cardinality policy: request_id")*
+  *(Trả về HTTP 400: "metric_type is internal-only and must not be sent as AI signal: error_rate")*
 
-* **Gửi Request lỗi (Chứa raw path có ID động - PowerShell):**
+* **Gửi Request lỗi (Thiếu nhãn bắt buộc `db_type` cho `db_connection_pool_pct` - PowerShell):**
   ```powershell
   try {
       Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/ingest" `
@@ -163,17 +170,17 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
           "ts": "2026-06-25T10:30:00Z",
           "tenant_id": "demo-tenant-001",
           "service_id": "payment-gateway",
-          "metric_type": "api_latency_ms",
-          "value": 450.5,
+          "metric_type": "db_connection_pool_pct",
+          "value": 85.0,
           "labels": {
-            "path": "/users/12345/orders/98765"
+            "region": "us-east-1"
           }
         }'
   } catch {
       $_.Exception.Response
   }
   ```
-  *(Trả về HTTP 400: "label value is denied because it looks like raw endpoint path with IDs")*
+  *(Trả về HTTP 400: "metric_type db_connection_pool_pct requires label: db_type")*
 
 ### Bước 4: Kiểm tra lại Metrics sau khi gửi các request
 ```powershell
@@ -184,12 +191,15 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/metrics"
 {
   "telemetry_ingest_accepted_total": 1,
   "telemetry_ingest_rejected_total": 3,
-  "telemetry_ingest_pii_rejected_total": 1,
-  "telemetry_ingest_cardinality_rejected_total": 2,
+  "telemetry_ingest_pii_rejected_total": 0,
+  "telemetry_ingest_cardinality_rejected_total": 0,
+  "telemetry_ingest_unsupported_metric_rejected_total": 1,
+  "telemetry_ingest_internal_only_metric_rejected_total": 1,
+  "telemetry_ingest_metric_label_rejected_total": 1,
   "telemetry_ingest_rejected_by_reason": {
-    "pii_denylist_label": 1,
-    "high_cardinality_label": 1,
-    "raw_endpoint_path_with_ids": 1
+    "unsupported_metric_type": 1,
+    "internal_only_metric_not_ai_signal": 1,
+    "missing_required_label": 1
   }
 }
 ```
