@@ -44,7 +44,7 @@ variable "tags" {
 variable "github_owner" {
   description = "GitHub organization or username that owns the repository"
   type        = string
-  default     = "dragongoldi2609"
+  default     = "dragoncoil2609"
 }
 
 variable "github_repo" {

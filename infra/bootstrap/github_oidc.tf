@@ -61,10 +61,12 @@ data "aws_iam_policy_document" "github_oidc_trust" {
     }
 
     condition {
-      test     = "StringLike"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = local.github_oidc_allowed_subjects
-    }
+  test     = "StringLike"
+  variable = "token.actions.githubusercontent.com:sub"
+  values = [
+    "repo:${var.github_owner}/${var.github_repo}:*"
+  ]
+}
   }
 }
 
