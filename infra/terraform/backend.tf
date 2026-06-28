@@ -21,14 +21,10 @@
 
 terraform {
   backend "s3" {
-    bucket       = "tf4-cdo04-terraform-state-7na270jm"
+    bucket       = "tf4-cdo04-terraform-state-0e0bped4"
     key          = "tf4-cdo04/sandbox/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true
     use_lockfile = true
-
-    # --- OPTIONAL ---
-    # kms_key_id     = "alias/terraform-state-key"
-    # role_arn       = "arn:aws:iam::123456789012:role/github-actions/tf4-cdo04-bootstrap-terraform-deploy"
   }
 }
