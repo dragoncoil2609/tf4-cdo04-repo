@@ -84,3 +84,22 @@ output "telemetry_api_task_definition_arn" {
 
 # TODO: ALB, ECS service, ECR, scheduler, dashboard, alarm, budget, and SNS
 # outputs belong to teammate-owned work and are intentionally placeholders now.
+output "alb_sg_id" {
+  description = "Security group ID for the public ALB"
+  value       = module.networking.alb_sg_id
+}
+
+output "telemetry_api_sg_id" {
+  description = "Security group ID for the Telemetry API ECS service"
+  value       = module.networking.telemetry_api_sg_id
+}
+
+output "prediction_worker_sg_id" {
+  description = "Security group ID for the Prediction Worker ECS service"
+  value       = module.networking.prediction_worker_sg_id
+}
+
+output "ai_engine_sg_id" {
+  description = "Security group ID for the AI Engine ECS service"
+  value       = module.networking.ai_engine_sg_id
+}
