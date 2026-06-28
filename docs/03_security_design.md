@@ -1,28 +1,29 @@
 # Security Design - TF4 Foresight Lens · CDO-04
 
-**Doc owner:** CDO-04  
-**Status:** Draft  
-**Project:** TF4 Foresight Lens  
-**Infra source of truth:** `02_infra_design.md`  
-**Angle:** SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow  
-**Core stack:** ALB + ECS Fargate + Amazon Timestream + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
+**Doc owner:** CDO-04
+**Status:** Refined - AMP/us-east-1 accepted decision
+**Project:** TF4 Foresight Lens
+**Infra source of truth:** `02_infra_design.md`
+**Angle:** SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow
+**Core stack:** Public ALB + ECS Fargate Linux/x86 + ECS Service Connect + Amazon Managed Service for Prometheus (AMP) + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
 
 ---
 
 ## 1. Phạm vi bảo mật
 
-Tài liệu này mô tả thiết kế bảo mật ở góc nhìn DevOps cho platform CDO-04. Platform nhận telemetry từ 3 service demo, lưu metric dạng time-series vào Amazon Timestream, tạo prediction job định kỳ, gọi AI endpoint `POST /v1/predict`, ghi audit log, gửi cảnh báo cho SRE và fallback sang static threshold khi AI serving không khả dụng.
+Tài liệu này mô tả thiết kế bảo mật ở góc nhìn DevOps cho platform CDO-04. Platform nhận telemetry từ 3 service demo, ghi metric dạng Prometheus samples/labels vào AMP qua collector/app `remote_write`, tạo prediction job định kỳ, query PromQL `query_range`, gọi AI endpoint `POST /v1/predict`, ghi audit log, gửi cảnh báo cho SRE và fallback sang static threshold khi AI serving không khả dụng.
 
 Security design tập trung vào các phần CDO thật sự cấu hình và vận hành:
 
 - Network boundary cho ingest service, worker, data store và AI integration.
 - IAM least privilege cho ECS task và CI/CD.
 - Tenant/service isolation cho telemetry và prediction evidence.
-- Secrets handling cho AI token, tenant token và alert webhook.
+- Secrets/config handling cho AI endpoint config, tenant ingest token và alert webhook; Worker → AI auth dùng IAM SigV4, không dùng API key/service token làm auth chính.
+- AMP write/query access dùng IAM SigV4 với scoped workspace permissions; không dùng long-lived InfluxDB token.
 - Encryption at rest và in transit.
 - Audit logging cho mọi prediction decision.
-- PII rejection và metric schema allowlist.
-- Failure handling cho AI endpoint, queue, audit log và alert path.
+- PII rejection, metric schema allowlist và Prometheus label cardinality guardrail.
+- Failure handling cho AI endpoint, queue, audit log, AMP remote-write/query và alert path.
 
 Ngoài phạm vi capstone:
 
@@ -45,22 +46,25 @@ flowchart TB
         K6["k6 / Locust"]
     end
 
-    subgraph VPC["VPC ap-southeast-1"]
+    subgraph VPC["VPC us-east-1"]
         subgraph Public["Public subnet"]
             ALB["ALB HTTPS :443<br/>/v1/ingest"]
         end
 
         subgraph PrivateApp["Private app subnets"]
-            INGEST["ECS Fargate<br/>telemetry-ingest"]
-            WORKER["ECS Fargate<br/>prediction-worker"]
+            INGEST["ECS Fargate x86<br/>telemetry-ingest"]
+            COLLECTOR["ADOT/Prometheus Agent<br/>or app remote_write"]
+            WORKER["ECS Fargate x86<br/>prediction-worker"]
+            AIECS["ECS Fargate x86<br/>ai-engine<br/>/v1/predict"]
+            SC["ECS Service Connect<br/>ai-engine:8080"]
         end
 
         subgraph ManagedData["Managed data/security services"]
-            TS["Amazon Timestream<br/>metrics"]
+            AMP["Amazon Managed Service for Prometheus<br/>AMP workspace"]
             SQS["SQS prediction-jobs<br/>+ DLQ"]
             DDB["DynamoDB<br/>audit + policy"]
-            S3["S3 Evidence Snapshots"]
-            SM["Secrets Manager"]
+            S3["S3 Evidence Snapshots<br/>Failure Buffer"]
+            SM["Secrets Manager / SSM"]
             SNS["SNS / Slack webhook"]
             CW["CloudWatch Logs/Metrics"]
         end
@@ -68,31 +72,31 @@ flowchart TB
         EB["EventBridge<br/>5-minute schedule"]
     end
 
-    AI["AI Model Serving<br/>POST /v1/predict"]
-
     PG -->|HTTPS + X-Tenant-Id| ALB
     LS -->|HTTPS + X-Tenant-Id| ALB
     KW -->|HTTPS + X-Tenant-Id| ALB
     K6 -->|synthetic telemetry| ALB
 
     ALB --> INGEST
-    INGEST -->|validated WriteRecords| TS
+    INGEST -->|validated metric samples| COLLECTOR
+    COLLECTOR -->|SigV4 remote_write| AMP
     INGEST --> CW
 
     EB --> SQS
     SQS --> WORKER
-    WORKER -->|query rolling window| TS
-    WORKER -->|HTTPS POST /v1/predict| AI
+    WORKER -->|SigV4 PromQL query_range| AMP
+    WORKER -->|private POST /v1/predict| SC
+    SC --> AIECS
     WORKER -->|append audit| DDB
-    WORKER -->|evidence snapshot| S3
+    WORKER -->|evidence snapshot/failure buffer| S3
     WORKER -->|high-risk alert| SNS
     WORKER --> CW
-    WORKER -->|read token/webhook| SM
+    WORKER -->|read endpoint/webhook config| SM
 ```
 
 Nguyên tắc bảo mật chính:
 
-> Chỉ `telemetry-ingest` được ghi metric vào Timestream. Chỉ `prediction-worker` được consume prediction job, query metric evidence, gọi AI, ghi prediction audit và gửi alert. Mọi prediction decision phải có audit record và phải được scope theo `tenant_id` + `service_id`.
+> Telemetry write path chỉ có quyền `aps:RemoteWrite` vào AMP workspace của CDO-04. Prediction Worker chỉ có quyền query metric evidence bằng AMP `aps:QueryMetrics`, consume prediction job, gọi AI, ghi prediction audit và gửi alert. Mọi prediction decision phải có audit record và phải được scope theo `tenant_id` + `service_id`.
 
 ---
 
@@ -104,22 +108,24 @@ Nguyên tắc bảo mật chính:
 |---|---|---:|---|
 | ALB `/v1/ingest` | Public subnet cho demo | Có, HTTPS only | Cho phép k6/Locust và service demo gửi telemetry mà không cần VPN. |
 | ECS `telemetry-ingest` | Private app subnets | Không | Chỉ nhận traffic từ ALB security group. |
-| ECS `prediction-worker` | Private app subnets | Không | Poll SQS và gọi AWS services/AI endpoint bằng outbound. |
-| Timestream | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và AWS SDK. |
+| Collector / remote_write path | Private app subnets hoặc sidecar | Không | Gửi Prometheus samples tới AMP bằng SigV4. |
+| ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query AMP, gọi AI qua ECS Service Connect và ghi audit. |
+| ECS `ai-engine` | Private app subnets | Không | Chỉ nhận `/v1/predict` từ Worker qua ECS Service Connect/private SG path; không public-facing. |
+| AMP workspace | AWS managed regional service | Không có public app endpoint trực tiếp | Truy cập qua AWS API endpoint bằng IAM/SigV4; MVP qua NAT, hardening qua PrivateLink. |
 | DynamoDB audit/policy | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và AWS SDK. |
 | SQS/DLQ | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và queue policy. |
-| S3 evidence | AWS managed | Bucket private | Lưu evidence snapshot, bật encryption. |
+| S3 evidence | AWS managed | Bucket private | Lưu evidence snapshot/failure buffer, bật encryption. |
 
-Trong capstone, ALB có thể public vì đây là boundary có kiểm soát cho ingestion. ECS task vẫn private. Nếu sau này các producer chạy trong cùng VPC, ALB có thể đổi thành internal ALB mà không thay đổi logic chính.
+Trong capstone, ALB public chỉ là boundary có kiểm soát cho ingestion. ECS task vẫn private. Nếu sau này các producer chạy trong cùng VPC, public ingest boundary có thể được thay bằng private ingress pattern mà không thay đổi logic chính của Worker → AI Service Connect path.
 
 ### 3.2 Security Groups
 
 | Security group | Inbound | Outbound | Gắn với |
 |---|---|---|---|
-| `tf4-cdo04-alb-sg` | `443` từ demo CIDR hoặc public trong demo window có kiểm soát | `8080` tới `tf4-cdo04-ingest-sg` | ALB |
-| `tf4-cdo04-ingest-sg` | `8080` từ `tf4-cdo04-alb-sg` | `443` tới AWS service endpoints | ECS `telemetry-ingest` |
-| `tf4-cdo04-worker-sg` | Không cần inbound cho worker loop; optional `8080` từ internal health checker | `443` tới AWS service endpoints và AI endpoint | ECS `prediction-worker` |
-| `tf4-cdo04-ai-egress-sg` | N/A nếu AI endpoint external; SG-to-SG nếu cùng VPC | `443` hoặc AI port | Worker egress path |
+| `tf4-cdo04-alb-sg` | `443` từ explicit `allowed_ingress_cidrs`; không có giá trị mặc định mở `0.0.0.0/0` | `8080` tới `tf4-cdo04-ingest-sg` | Public ALB |
+| `tf4-cdo04-ingest-sg` | `8080` từ `tf4-cdo04-alb-sg` | `443` tới AWS service endpoints / collector path | ECS `telemetry-ingest` |
+| `tf4-cdo04-worker-sg` | Không cần inbound cho worker loop | `443` tới AWS service endpoints; app port tới AI Engine Service Connect endpoint `/v1/predict` | ECS `prediction-worker` |
+| `tf4-cdo04-ai-engine-sg` | App port từ `tf4-cdo04-worker-sg`/Service Connect path; container health check `/health` | `443` tới CloudWatch/Secrets/ECR/S3 qua NAT hoặc VPC endpoints | ECS `ai-engine` |
 
 Inbound được giới hạn theo nguyên tắc:
 
@@ -135,24 +141,28 @@ Inbound được giới hạn theo nguyên tắc:
 - Mọi ingest request phải có header `X-Tenant-Id`.
 - `telemetry-ingest` validate body `tenant_id` phải khớp với `X-Tenant-Id`.
 - Payload vượt giới hạn batch size sẽ bị reject với `413`.
-- Payload sai schema trả `400`, không ghi vào Timestream.
+- Payload sai schema trả `400`, không ghi sample vào AMP write path.
+- AMP API access luôn qua HTTPS + IAM SigV4.
 
 ### 3.4 VPC endpoints
 
-Để giảm phụ thuộc Internet/NAT và giảm rủi ro egress, bản production nên ưu tiên VPC endpoint cho:
+MVP dùng 1 NAT Gateway + S3/DynamoDB Gateway Endpoints. Production/private-only hardening có thể bổ sung:
 
 | AWS service | Endpoint type | Mục đích |
 |---|---|---|
-| S3 | Gateway endpoint | Evidence snapshot và optional raw-event backup. |
+| S3 | Gateway endpoint | Evidence snapshot và raw-event backup. |
 | DynamoDB | Gateway endpoint | Audit log và service policy. |
-| Secrets Manager | Interface endpoint | Lấy AI token và webhook secret. |
+| AMP data plane | Interface endpoint `com.amazonaws.us-east-1.aps-workspaces` | Private remote_write/query/query_range tới AMP. |
+| AMP control plane | Interface endpoint `com.amazonaws.us-east-1.aps` | Private workspace management nếu cần. |
+| STS | Interface endpoint + regional STS | Cần khi SigV4 clients/collector chạy private-only không qua NAT. |
+| Secrets Manager | Interface endpoint | Lấy AI endpoint config, tenant ingest token và webhook secret. |
 | CloudWatch Logs | Interface endpoint | Ghi ECS application logs. |
 | ECR API + ECR Docker | Interface endpoint | Pull private container images. |
-| SQS | Interface endpoint | Consume prediction jobs. |
-| SNS | Interface endpoint | Publish alert. |
-| AI model serving | PrivateLink/VPC Endpoint nếu AI expose được | Gọi nội bộ tới `POST /v1/predict`, giảm public egress và latency. |
+| SQS | Interface endpoint | Consume prediction jobs nếu bỏ NAT. |
+| SNS | Interface endpoint | Publish alert nếu bỏ NAT. |
+| AI model serving | ECS Service Connect trong VPC | Prediction Worker gọi `POST /v1/predict`; không cần public internet hoặc PrivateLink cho Luồng AI. |
 
-Trong capstone, VPC endpoints có thể triển khai theo mức độ ưu tiên và ngân sách. Nếu vẫn dùng NAT, security vẫn dựa vào IAM least privilege và việc ECS task không có public inbound.
+Trong capstone, nếu vẫn dùng NAT, security vẫn dựa vào IAM least privilege, TLS và ECS task không có public inbound.
 
 ---
 
@@ -162,22 +172,24 @@ Trong capstone, VPC endpoints có thể triển khai theo mức độ ưu tiên 
 
 IAM của CDO-04 đi theo nguyên tắc **least privilege**: mỗi service chỉ được cấp đúng quyền cần cho nhiệm vụ của nó. Không dùng quyền broad kiểu `*:*`, không gắn `AdministratorAccess`, không dùng long-lived access key trong container.
 
+AMP data-plane access dùng IAM/SigV4. Không còn InfluxDB write/read/admin tokens trong Secrets Manager. Nếu dùng AWS managed policy trong demo (`AmazonPrometheusRemoteWriteAccess`, `AmazonPrometheusQueryAccess`), production vẫn nên thu hẹp bằng workspace ARN và project tags nếu provider/API cho phép.
+
 | Role | Used by | Permissions |
 |---|---|---|
-| `tf4-cdo04-ingest-task-role` | ECS `telemetry-ingest` | Ghi metric hợp lệ vào Timestream bằng `timestream:WriteRecords` trên DB/table `foresight/metrics`; ghi app logs vào CloudWatch Logs; optional đọc tenant config từ Secrets Manager nếu dùng ingest token. |
-| `tf4-cdo04-prediction-worker-role` | ECS `prediction-worker` | Consume prediction job từ SQS; query rolling window trong Timestream; đọc service policy từ DynamoDB; gọi AI endpoint bằng secret/token; ghi audit log vào DynamoDB; lưu evidence snapshot vào S3; publish high-risk alert qua SNS; ghi logs/metrics vào CloudWatch. |
-| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, ALB target group/listener rule, SQS/DLQ, Timestream table, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
-| `tf4-cdo04-readonly-reviewer-role` | Mentor/reviewer/Hoàng approve | Read-only để review evidence: ECS describe, CloudWatch logs read, SQS queue attributes read, Timestream sample query/read, DynamoDB audit read, S3 evidence read, SNS topic describe. Không có quyền write/delete. |
-| `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ private ECR và ghi container logs vào CloudWatch. Không có quyền đọc/ghi application data như Timestream, DynamoDB, S3 evidence hoặc SNS. |
+| `tf4-cdo04-ingest-task-role` hoặc collector task role | ECS `telemetry-ingest` / collector | `aps:RemoteWrite` vào AMP workspace, optional custom app metrics, optional `s3:PutObject` vào failure-buffer prefix; không có quyền đọc audit DB. CloudWatch `awslogs` permissions thuộc ECS execution role. |
+| `tf4-cdo04-prediction-worker-role` | ECS `prediction-worker` | Consume prediction job từ SQS; `aps:QueryMetrics` và optional `aps:GetLabels/GetSeries/GetMetricMetadata`; đọc service policy từ DynamoDB; ký IAM SigV4 request tới AI endpoint; ghi audit log vào DynamoDB; lưu evidence snapshot vào S3; publish high-risk alert qua SNS; ghi logs/metrics vào CloudWatch. |
+| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, public ALB target group/listener rule, Service Connect namespace/config, SQS/DLQ, AMP workspace/policy, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
+| `tf4-cdo04-readonly-reviewer-role` | Mentor/reviewer/Hoàng approve | Read-only để review evidence: ECS describe, CloudWatch logs read, SQS queue attributes read, DynamoDB audit read, S3 evidence read, SNS topic describe, AMP query read-only nếu được cấp. |
+| `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ private ECR, ghi container logs qua `awslogs`, và đọc Secrets Manager/SSM values được inject lúc task start. Không có quyền đọc/ghi application data như DynamoDB, S3 evidence hoặc SNS. |
 
 ### 4.2 Permission mapping theo checklist Task 18
 
 | Permission area | Role nhận quyền | Actions cần có | Resource scope |
 |---|---|---|---|
-| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `kms:Decrypt`, `kms:GenerateDataKey`, `logs:CreateLogStream`, `logs:PutLogEvents` | Chỉ queue/table/bucket/topic/secret/KMS key của CDO-04. |
+| Telemetry/collector write role | `tf4-cdo04-ingest-task-role` hoặc collector role | `aps:RemoteWrite`, optional app-level custom metric actions, optional `s3:PutObject`, `kms:Decrypt/GenerateDataKey` | AMP workspace ARN, failure-buffer prefix, project KMS key. `logs:CreateLogStream`/`logs:PutLogEvents` for `awslogs` stay on ECS execution role. |
+| Prediction worker role | `tf4-cdo04-prediction-worker-role` | `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`, `aps:QueryMetrics`, optional `aps:GetLabels/GetSeries/GetMetricMetadata`, `dynamodb:GetItem`, `dynamodb:PutItem`, `s3:PutObject`, `sns:Publish`, `secretsmanager:GetSecretValue`, `ssm:GetParameter`, `kms:Decrypt`, `kms:GenerateDataKey` | Chỉ queue/table/bucket/topic/secret/parameter/KMS key/AMP workspace của CDO-04. `awslogs` permissions stay on ECS execution role. |
 | Terraform deploy role | `tf4-cdo04-terraform-deploy-role` | Các quyền create/update/delete resource hạ tầng trong scope Terraform module | Resource có prefix/tag `tf4-cdo04` và environment capstone. |
-| Read-only reviewer role | `tf4-cdo04-readonly-reviewer-role` | `Describe*`, `Get*`, `List*`, `logs:StartQuery`, `logs:GetQueryResults`, `timestream:Select`, `dynamodb:GetItem`, `dynamodb:Query`, `s3:GetObject` | Read-only trên resource evidence/review của project. |
-| Query Timestream | `tf4-cdo04-prediction-worker-role`, `tf4-cdo04-readonly-reviewer-role` | `timestream:Select`, optional `timestream:DescribeTable` | Database `foresight`, table `metrics`. |
+| Read-only reviewer role | `tf4-cdo04-readonly-reviewer-role` | `Describe*`, `Get*`, `List*`, `logs:StartQuery`, `logs:GetQueryResults`, `dynamodb:GetItem`, `dynamodb:Query`, `s3:GetObject`, optional `aps:QueryMetrics` | Read-only trên resource evidence/review của project. |
 | Write DynamoDB audit log | `tf4-cdo04-prediction-worker-role` | `dynamodb:PutItem`, optional `dynamodb:UpdateItem` nếu cần mark replay status | Table `foresight-audit-log` only. |
 | Publish SNS alert | `tf4-cdo04-prediction-worker-role` | `sns:Publish` | Topic `tf4-cdo04-high-risk-alerts` only. |
 
@@ -185,121 +197,86 @@ IAM của CDO-04 đi theo nguyên tắc **least privilege**: mỗi service chỉ
 
 Task role phải scope theo resource cụ thể:
 
-- Timestream database/table: `foresight/metrics`.
+- AMP workspace: `aps:RemoteWrite` chỉ cho telemetry/collector role; `aps:QueryMetrics` chỉ cho worker/reviewer role.
 - SQS queue: `prediction-jobs` và `prediction-jobs-dlq`.
-- DynamoDB table: `foresight-audit-log`.
-- S3 bucket/prefix: `s3://tf4-cdo04-evidence/*`.
+- DynamoDB table: `foresight-audit-log` và service policy table.
+- S3 bucket/prefix: `s3://tf4-cdo04-evidence/*` và failure-buffer prefix.
 - SNS topic: `tf4-cdo04-high-risk-alerts`.
-- Secrets: `tf4-cdo04/ai-endpoint-token`, `tf4-cdo04/slack-webhook`.
-- KMS key nếu dùng CMK: `arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*`.
+- Secrets/config: `tf4-cdo04/ai-engine-endpoint-config`, `tf4-cdo04/slack-webhook`, tenant ingest token; AI auth chính là IAM SigV4 bằng Worker task role.
+- KMS key nếu dùng CMK: `arn:aws:kms:us-east-1:<account-id>:key/tf4-cdo04-*`.
 
 Không dùng:
 
 - `Action: "*"` + `Resource: "*"`.
 - `AdministratorAccess`.
-- Wildcard data-plane permission như `s3:*`, `dynamodb:*`, `sns:*`, `sqs:*`.
+- Wildcard data-plane permission như `s3:*`, `dynamodb:*`, `sns:*`, `sqs:*`, `aps:*`.
 - Long-lived AWS access key trong container.
-- Hardcode AI token hoặc webhook URL trong code.
-
-Nếu buộc phải dùng wildcard ở một số AWS API không hỗ trợ resource-level permission, phải ghi rõ lý do trong ADR hoặc comment Terraform, và giới hạn bằng condition/tag/project prefix nếu có thể.
+- Hardcode AI endpoint config, SigV4 credential, tenant token hoặc webhook URL trong code.
+- High-cardinality Prometheus labels chứa PII hoặc identifiers.
 
 ### 4.4 Policy sketch
 
-Ví dụ policy intent cho `prediction-worker`:
+Ví dụ policy intent cho `prediction-worker` sau khi chuyển sang AMP:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-      ],
-      "Resource": "arn:aws:sqs:ap-southeast-1:<account-id>:prediction-jobs"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "timestream:Select",
-        "timestream:DescribeTable"
-      ],
-      "Resource": "arn:aws:timestream:ap-southeast-1:<account-id>:database/foresight/table/metrics"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:GetItem",
-        "dynamodb:PutItem"
-      ],
-      "Resource": "arn:aws:dynamodb:ap-southeast-1:<account-id>:table/foresight-audit-log"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "sns:Publish",
-      "Resource": "arn:aws:sns:ap-southeast-1:<account-id>:tf4-cdo04-high-risk-alerts"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": [
-        "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/ai-endpoint-token-*",
-        "arn:aws:secretsmanager:ap-southeast-1:<account-id>:secret:tf4-cdo04/slack-webhook-*"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:ap-southeast-1:<account-id>:key/tf4-cdo04-*"
-    }
+    { "Effect": "Allow", "Action": ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], "Resource": "arn:aws:sqs:us-east-1:<account-id>:prediction-jobs" },
+    { "Effect": "Allow", "Action": ["aps:QueryMetrics", "aps:GetLabels", "aps:GetSeries", "aps:GetMetricMetadata"], "Resource": "arn:aws:aps:us-east-1:<account-id>:workspace/<workspace-id>" },
+    { "Effect": "Allow", "Action": ["dynamodb:GetItem", "dynamodb:PutItem"], "Resource": "arn:aws:dynamodb:us-east-1:<account-id>:table/foresight-audit-log" },
+    { "Effect": "Allow", "Action": "sns:Publish", "Resource": "arn:aws:sns:us-east-1:<account-id>:tf4-cdo04-high-risk-alerts" },
+    { "Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": [
+      "arn:aws:secretsmanager:us-east-1:<account-id>:secret:tf4-cdo04/ai-engine-endpoint-config-*",
+      "arn:aws:secretsmanager:us-east-1:<account-id>:secret:tf4-cdo04/slack-webhook-*"
+    ]},
+    { "Effect": "Allow", "Action": ["kms:Decrypt", "kms:GenerateDataKey"], "Resource": "arn:aws:kms:us-east-1:<account-id>:key/tf4-cdo04-*" }
   ]
 }
 ```
 
 Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terraform inject theo account/region/workspace.
 
-### 4.5 Service-to-service authorization
+### 4.5 Xác thực/ủy quyền giữa các service
 
-Ingest path:
+Luồng ingest:
 
-- Producers gọi ALB qua HTTPS.
-- Request có `X-Tenant-Id`.
-- Có thể dùng demo token qua `Authorization: Bearer <tenant-ingest-token>`.
-- `telemetry-ingest` validate tenant, schema và metric allowlist trước khi ghi Timestream.
+- Producer gọi ALB qua HTTPS.
+- ALB security group chỉ cho phép `allowed_ingress_cidrs` đã khai báo rõ.
+- Request có `X-Tenant-Id`; header này là ngữ cảnh, không phải nguồn xác thực.
+- MVP dùng demo tenant bearer token qua `Authorization: Bearer <tenant-ingest-token>` và lưu trong Secrets Manager.
+- `telemetry-ingest` validate tenant, schema, PII denylist và metric allowlist trước khi emit sample tới collector/app remote_write.
 
-Prediction path:
+Luồng prediction:
 
-- EventBridge tạo scheduled jobs.
+- EventBridge tạo job theo lịch.
 - SQS giữ một job cho mỗi tenant/service/cycle.
 - `prediction-worker` consume job bằng ECS task role.
-- Phương án ưu tiên: worker gọi AI `POST /v1/predict` qua private VPC path/VPC Endpoint nếu nhóm AI expose được, xác thực bằng bearer token lưu trong Secrets Manager.
-- Phương án thay thế: dùng IAM SigV4 nếu được chốt trong AI API Contract. Dù chọn token hay SigV4, endpoint vẫn phải dùng HTTPS và có timeout/fallback rõ ràng.
+- Worker query AMP bằng IAM/SigV4, build đủ `signal_window` 120 phút, rồi gọi AI `POST /v1/predict` qua ECS Service Connect tới AI Engine ECS Fargate service trong cùng VPC.
+- W11 mock test có thể cho phép `Authorization` optional theo AI contract; W12 final enforce IAM SigV4. ECS Service Connect không tự verify SigV4 cho FastAPI service tùy chỉnh, nên AI Engine phải có middleware/sidecar để verify canonical request, Worker task role/principal được phép, clock skew/replay window và trả `401` khi không hợp lệ. Không dùng API key/service token làm auth chính.
 
 ---
 
-## 5. Secrets Management
+## 5. Quản lý secrets
 
-### 5.1 Secrets inventory
+### 5.1 Danh sách secrets/config
 
-| Secret | Storage | Accessed by | Rotation |
+| Secret/config | Nơi lưu | Service đọc | Rotation |
 |---|---|---|---|
-| `tf4-cdo04/ai-endpoint-token` | AWS Secrets Manager | `prediction-worker` | Manual trong capstone; production target 30-90 ngày. |
-| `tf4-cdo04/slack-webhook` | AWS Secrets Manager | `prediction-worker` | Manual hoặc rotate khi nghi leak. |
-| `tf4-cdo04/tenant-ingest-token/<tenant>` | Secrets Manager hoặc SSM Parameter Store | `telemetry-ingest` | Manual cho demo tenants. |
-| `tf4-cdo04/grafana-api-token` | Secrets Manager | `prediction-worker` nếu dùng Grafana annotation API | Manual trong capstone. |
+| `tf4-cdo04/<env>/ai-engine-endpoint-config` | SSM Parameter Store | `prediction-worker` | Cấu hình không nhạy cảm: Service Connect service name/base URL, host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. Route 53/private DNS không nằm trong MVP. |
+| `tf4-cdo04/<env>/alert-email` | Terraform variable / SNS subscription | Observability module | địa chỉ SNS email; người nhận phải xác nhận subscription thủ công. |
+| `tf4-cdo04/<env>/tenant-ingest-token/<tenant>` | Secrets Manager | `telemetry-ingest` | Rotate thủ công cho demo tenants. ECS env injection cần restart task hoặc force deployment sau rotation. |
+| `tf4-cdo04/<env>/slack-webhook` | Secrets Manager | Bộ gửi thông báo tùy chọn cho tương lai | Không thuộc MVP; ưu tiên SNS email. |
 
-### 5.2 Injection pattern
+AMP không cần `influxdb/write-token`, `influxdb/read-token` hoặc `influxdb/admin-token`. AMP write/query dùng IAM/SigV4.
 
-- ECS task definition reference secret bằng ARN qua `valueFrom`.
-- App đọc secret từ environment variable hoặc Secrets Manager lúc startup.
+### 5.2 Pattern injection
+
+- ECS task definition reference secret bằng ARN qua `valueFrom` khi cần.
+- App đọc secret từ environment variable hoặc Secrets Manager lúc startup. Secret được ECS inject không tự refresh sau rotation; cần force new ECS deployment hoặc app fetch trực tiếp lúc runtime nếu cần cập nhật ngay.
 - Secret không bake vào Docker image.
 - Secret không commit lên Git.
-- Log phải redact authorization header, webhook URL và bearer token.
+- Log phải redact authorization header, SigV4 credential scope/signature, webhook URL và tenant ingest token.
 
 ### 5.3 Anti-leak controls
 
@@ -316,9 +293,10 @@ Prediction path:
 
 | Dữ liệu | Store | Encryption | Retention |
 |---|---|---|---|
-| Time-series telemetry | Amazon Timestream `foresight.metrics` | AWS-managed encryption mặc định | 7 ngày memory, 90 ngày magnetic retention. |
-| Prediction audit log | DynamoDB `foresight-audit-log` | DynamoDB SSE enabled | TTL `audit_expiry` 90 ngày. |
-| Evidence snapshots | S3 `tf4-cdo04-evidence` | SSE-S3 hoặc SSE-KMS | 90 ngày cho capstone evidence; optional lifecycle sang IA. |
+| Time-series telemetry | AMP workspace | AWS-managed/service encryption for managed service | Default 150 ngày; đáp ứng yêu cầu tối thiểu 90 ngày. |
+| CDO decision audit log | DynamoDB `tf4-cdo04-<env>-audit` | DynamoDB SSE enabled | TTL `expires_at_epoch` 90 ngày; DynamoDB TTL is async and can take days, so it is retention/cost control, not exact deletion. |
+| AI internal audit logs | CloudWatch Logs/S3 archive riêng | KMS encrypted | 365 ngày theo AI API/Deployment Contract. |
+| Evidence snapshots + AI baseline JSON | S3 `tf4-cdo04-evidence` / baseline bucket prefix `baselines/` | SSE-S3 hoặc SSE-KMS | Evidence/AI baseline tối thiểu 90 ngày; raw failure buffer 7 ngày hoặc xóa sau replay. |
 | Prediction jobs | SQS `prediction-jobs` + DLQ | SQS SSE enabled | Queue retention theo nhu cầu replay. |
 | Container images | ECR private repo | ECR encryption at rest | Chỉ giữ các build tag gần nhất. |
 | Application logs | CloudWatch Logs | CloudWatch encryption | 14-30 ngày trong capstone. |
@@ -328,13 +306,14 @@ Prediction path:
 
 - Producer tới ALB: HTTPS.
 - ALB tới ECS ingest: HTTP nội bộ VPC chấp nhận được cho capstone; HTTPS/mTLS là future hardening.
-- ECS worker tới AI endpoint: HTTPS.
+- ECS/collector tới AMP: HTTPS + IAM SigV4.
+- ECS worker tới AI endpoint: private Service Connect path; HTTPS/mTLS is future hardening, while W12 final request authorization is enforced by AI Engine SigV4 middleware/sidecar.
 - ECS task tới AWS APIs: HTTPS qua AWS SDK.
 - Grafana/Slack/SNS integrations: HTTPS.
 
 ### 6.3 KMS notes
 
-Với capstone MVP, AWS-managed keys là chấp nhận được cho Timestream, DynamoDB, SQS, CloudWatch và Secrets Manager. Nếu còn thời gian, dùng customer-managed KMS key cho:
+Với capstone MVP, AWS-managed keys hoặc service-managed encryption là chấp nhận được cho AMP, DynamoDB, SQS, CloudWatch và Secrets Manager. Nếu còn thời gian, dùng customer-managed KMS key cho:
 
 - S3 evidence snapshots.
 - DynamoDB audit table.
@@ -353,23 +332,25 @@ Mọi telemetry và prediction record bắt buộc có:
 ```text
 tenant_id
 service_id
-metric_type
+metric_type / metric name
 timestamp
 value
 unit
 ```
 
-Timestream dùng `tenant_id`, `service_id`, `metric_type` làm dimensions. DynamoDB audit record cũng lưu `tenant_id` và `service_id`, có GSI `tenant-service-time-index` để truy vấn evidence theo service/time.
+AMP dùng `tenant_id`, `service_id`, `env`, `region`, `service_tier` làm bounded labels. Metric type được biểu diễn bằng metric name như `api_latency_ms` hoặc `queue_depth`. DynamoDB audit record dùng primary key tenant/service/time và GSI tra cứu prediction; không dùng `prediction_id` làm primary key.
 
 ### 7.2 Query isolation
 
-`prediction-worker` phải query metric evidence với đầy đủ filter:
+`prediction-worker` phải query metric evidence bằng PromQL `query_range` với đầy đủ filter. Hot path dùng selector/raw-or-1m-rollup với `step=60s`; aggregate như `avg_over_time(...[120m])` chỉ dành cho dashboard/evidence summary, không dùng để build AI `signal_window`:
 
-```sql
-tenant_id = :tenant_id
-service_id = :service_id
-metric_type IN (:enabled_metrics)
-time BETWEEN :start_time AND :end_time
+```promql
+api_latency_ms{
+  tenant_id="demo-tenant-001",
+  service_id="payment-gateway",
+  env="prod",
+  region="us-east-1"
+}
 ```
 
 Worker reject job nếu:
@@ -377,28 +358,34 @@ Worker reject job nếu:
 - thiếu `tenant_id`;
 - thiếu `service_id`;
 - `window_minutes` vượt policy;
-- metric request không nằm trong enabled metrics của service policy.
+- metric request không nằm trong enabled metrics của service policy;
+- PromQL selector không scope tenant/service/metric/time window.
 
 ### 7.3 Ingest allowlist
 
-Metric được allow trong TF4 demo:
+Metric allowlist cho AI contract:
 
-| Service | Allowed metrics |
+| Signal | Required labels |
 |---|---|
-| `payment-gateway` | `alb_request_count`, `alb_p95_latency_ms`, `alb_5xx_rate_percent`, `rds_cpu_percent` |
-| `ledger-service` | `rds_cpu_percent`, `db_connections`, `query_latency_ms`, `transaction_error_rate` |
-| `kyc-worker` | `sqs_queue_depth`, `sqs_oldest_message_age_seconds`, `worker_concurrency`, `worker_timeout_count` |
+| `cpu_usage_percent` | `tenant_id`, `service_id`, `region` |
+| `memory_usage_percent` | `tenant_id`, `service_id`, `region` |
+| `active_connections` | `tenant_id`, `service_id`, `region` |
+| `db_connection_pool_pct` | `tenant_id`, `service_id`, `region`, `db_type` |
+| `queue_depth` | `tenant_id`, `service_id`, `region`, `queue_name` |
+| `cache_hit_rate_pct` | `tenant_id`, `service_id`, `region`, `cache_type` |
+| `api_latency_ms` | `tenant_id`, `service_id`, `region` |
 
-Payload có `metric_type` lạ sẽ bị reject trước khi ghi vào Timestream.
+`error_rate` và `oldest_message_age_seconds` có thể lưu cho dashboard/fallback nội bộ, nhưng không được xem là required AI signals nếu chưa nằm trong AI Telemetry Contract. Payload có metric lạ sẽ bị reject trước khi ghi vào AMP hoặc không được đưa vào `signal_window` gửi AI.
 
-### 7.4 PII handling
+### 7.4 PII and cardinality handling
 
 Platform chỉ nhận infra metrics. Không nhận customer name, phone number, email, card number, address hoặc transaction payload.
 
-Basic PII controls:
+Basic PII/cardinality controls:
 
 - Schema allowlist tại ingest.
 - Reject các field như `email`, `phone`, `name`, `card_number`, `address`, `customer_id` nếu chưa được approve là anonymized.
+- Không dùng `request_id`, `trace_id`, `prediction_id`, `user_id`, raw endpoint path hoặc arbitrary error message làm Prometheus label.
 - Redact suspicious string values trước khi log.
 - Ghi số lượng rejection thành CloudWatch metric.
 
@@ -410,7 +397,7 @@ Basic PII controls:
 
 Mọi prediction cycle phải tạo audit record, bao gồm cả AI prediction thành công và fallback decision.
 
-Required audit fields:
+Required CDO decision-audit fields:
 
 ```text
 prediction_id
@@ -418,49 +405,42 @@ timestamp
 tenant_id
 service_id
 prediction_source  ai_model | static_threshold_fallback
-risk_level
-confidence
-root_cause
-recommendation
-evidence_link
+anomaly
+severity
+reasoning
+recommendation.action_verb
+recommendation.target
+recommendation.from_to
+recommendation.confidence
+recommendation.evidence_link
+audit_id
 ai_status_code
 ai_latency_ms
-model_version
+deployment_version
 baseline_version
-audit_expiry
+expires_at_epoch
 ```
 
-Nếu AI response thiếu field bắt buộc, worker ghi:
-
-```text
-prediction_source = static_threshold_fallback
-fallback_reason = invalid_ai_response_schema
-```
-
-Nếu AI timeout hoặc 5xx, worker ghi:
-
-```text
-prediction_source = static_threshold_fallback
-fallback_reason = ai_endpoint_timeout | ai_endpoint_5xx
-```
+Nếu alert/runbook cần `risk_level` hoặc `root_cause`, CDO derive từ `severity` và `reasoning`; không yêu cầu AI trả thêm field ngoài contract.
 
 ### 8.2 Storage design
 
 Primary audit store:
 
 ```text
-Table name   : foresight-audit-log
+Table name   : tf4-cdo04-<env>-audit
 Billing mode : PAY_PER_REQUEST
 Encryption   : SSE enabled
-TTL          : audit_expiry, 90-day retention
+TTL          : expires_at_epoch, 90-day retention eligibility
 
-PK: prediction_id
-SK: timestamp
+PK: tenant_id
+SK: service_time
 
-GSI:
-  tenant-service-time-index
-  PK: tenant_id#service_id
-  SK: timestamp
+GSI prediction-index:
+  PK: prediction_status
+  SK: prediction_timestamp
+
+Composite TENANT#/GSI1/GSI2 schema là post-MVP option; Terraform v1 dùng schema ở trên để khớp mock E2E và IAM scope hiện tại.
 ```
 
 Optional evidence snapshot:
@@ -487,7 +467,7 @@ s3://tf4-cdo04-evidence/predictions/date=YYYY-MM-DD/service_id=<service>/predict
 - CI scan image bằng Trivy hoặc tool tương đương.
 - Critical vulnerabilities nên block release nếu kịp trong capstone.
 - Image tag chứa Git SHA để trace lại source commit.
-- ECR Lifecycle Policy phải được bật để kiểm soát chi phí lưu trữ: xóa image cũ hơn 14 ngày hoặc chỉ giữ tối đa 5-10 image gần nhất cho mỗi repository. Các tag release/final có thể được giữ bằng rule ưu tiên riêng nếu cần evidence.
+- ECR Lifecycle Policy phải được bật để kiểm soát chi phí lưu trữ.
 
 ### 9.2 Runtime controls
 
@@ -506,6 +486,7 @@ Các thay đổi security-sensitive cần review:
 - Public ALB exposure changes.
 - Secret injection changes.
 - Audit retention hoặc encryption changes.
+- AMP workspace policy / remote_write/query permission changes.
 
 ---
 
@@ -519,21 +500,25 @@ Các thay đổi security-sensitive cần review:
 | DLQ có message | SQS DLQ visible messages > 0 | Review failed jobs, fix schema/worker issue, replay job hợp lệ. |
 | AI endpoint failures | Worker non-2xx/timeout count | Trigger fallback, notify task force, giữ audit trail. |
 | Audit write failures | DynamoDB SDK errors | Retry, alarm, tránh mất prediction decision âm thầm. |
-| Timestream write failures | `WriteRecords` errors | Retry, buffer raw event sang S3 nếu implemented. |
-| Cost guard threshold | AWS Budget ở `$180` | Stop synthetic load, giảm prediction frequency, scale down task không quan trọng. |
+| AMP remote-write failures | Remote write rejected/throttled/error count | Retry, buffer raw event sang S3 nếu implemented. |
+| AMP query failures/throttling | Worker PromQL query error/429/timeout | Retry bounded; fallback if signal window cannot be built. |
+| AMP cardinality/cost risk | Active series/query samples spike | Stop bad producer, enforce label allowlist, review query scope. |
+| Cost guard threshold | AWS Budget ở `$160/$200` | Stop synthetic load, giữ prediction cadence 5 phút, không tắt audit/fallback. |
 | ECS unhealthy task | ECS service health | Auto-restart, kiểm tra CloudWatch logs. |
 
 ### 10.2 Incident runbook
 
 1. Detect alarm trong CloudWatch/SNS.
-2. Xác định component bị ảnh hưởng: ingest, Timestream, queue, worker, AI, audit hoặc alert.
+2. Xác định component bị ảnh hưởng: ingest, AMP, queue, worker, AI, audit hoặc alert.
 3. Contain:
-   - Bad payload: block tenant/token và reject schema.
+   - Bad payload/labels: block tenant/token và reject schema.
    - AI unavailable: tiếp tục static threshold fallback.
+   - AMP remote-write fail: buffer raw event sang S3 và replay sau.
    - Worker stuck: scale worker hoặc restart ECS service.
    - Audit failure: không gửi alert-only nếu không có audit replay path.
 4. Recover:
    - Replay valid SQS/DLQ messages.
+   - Replay valid failure-buffer telemetry into AMP.
    - Re-run one-off prediction job cho service bị ảnh hưởng.
    - Verify audit record và alert evidence.
 5. Nếu incident liên quan curveball capstone, document response vào `curveball-responses.md`.
@@ -547,20 +532,25 @@ Các thay đổi security-sensitive cần review:
 | SOC2 logical access | IAM least privilege, tách ECS task roles, ECS tasks private. |
 | SOC2 monitoring | CloudWatch alarms cho ingest, worker, SQS, audit và cost guard. |
 | SOC2 change management | CI/CD deploy role, ECR image tags, Git SHA trong task definition. |
-| GDPR-style data minimization | Infra metric allowlist; reject PII-like fields tại ingest. |
-| GDPR-style retention | Timestream 90-day magnetic retention; DynamoDB TTL cho audit. |
-| PCI-DSS | Out of scope: không nhận cardholder data hoặc transaction payload. |
+| GDPR-style data minimization | Infra metric allowlist; reject PII-like fields and high-cardinality labels tại ingest. |
+| GDPR-style retention | AMP default 150-day telemetry retention; DynamoDB TTL cho audit. |
+| PCI-DSS | Ngoài phạm vi: không nhận cardholder data hoặc transaction payload. |
 
 ---
 
-## 12. Open Questions
+## 12. Quyết định security đã chốt cho Terraform v1
 
-- ALB nên giữ public cho demo dễ chạy, hay đưa producer vào VPC và đổi sang internal ALB?
-- Auth AI endpoint: ưu tiên gọi nội bộ qua private VPC path/VPC Endpoint và xác thực bằng token lưu trong Secrets Manager; cần xác nhận cuối với AI team xem giữ bearer token hay chuyển sang IAM SigV4 trước khi freeze contract.
-- Evidence snapshot nên lưu cho mọi prediction hay chỉ high-risk prediction để kiểm soát S3 cost?
-- Grafana annotation sẽ gọi qua API, hay MVP dùng CloudWatch dashboard/evidence link?
-- AI sẽ trả chính xác field nào cho `model_version` và `baseline_version` trong `POST /v1/predict`?
-- `tenant_id` dùng UUID v4 hay stable demo key như `demo-tenant-001`?
+- Public ingest ALB phải dùng `allowed_ingress_cidrs` khai báo rõ; không có giá trị mặc định mở và không dùng WAF trong MVP.
+- S3 evidence snapshot object chỉ lưu cho high-risk, fallback hoặc các trường hợp failure/replay; DynamoDB audit row được ghi cho mọi prediction.
+- MVP chỉ dùng CloudWatch dashboard/audit/evidence links; Grafana annotation API không thuộc Terraform v1.
+- Demo tenant ID default là key ổn định `demo-tenant-001`; format tenant production có thể chuyển sang UUID v4 sau mà không cần đổi Terraform resources.
+
+Các điểm contract đã resolve và được xem là cố định:
+
+- Worker → AI auth dùng IAM SigV4; W11 mock có thể optional `Authorization`, W12 final enforce.
+- Các field trong AI response dùng đúng contract (`anomaly`, `severity`, `reasoning`, `recommendation.*`, `audit_id`); CDO derive `risk_level`/`root_cause` nếu cần wording cho alert.
+- `deployment_version` là request context do Worker gửi từ ECS image digest; `baseline_version` thuộc CDO service policy/audit context, không yêu cầu AI trả thêm ngoài response contract.
+- AMP dùng IAM/SigV4, không dùng InfluxDB token rotation.
 
 ---
 
@@ -570,4 +560,4 @@ Các thay đổi security-sensitive cần review:
 - [`04_deployment_design.md`](04_deployment_design.md) - CI/CD, IaC, rollout, rollback và pipeline security gates.
 - [`05_cost_analysis.md`](05_cost_analysis.md) - budget assumptions và cost guard behavior.
 - [`07_test_eval_report.md`](07_test_eval_report.md) - security tests, multi-tenant isolation tests và failure-path evidence.
-- [`08_adrs.md`](08_adrs.md) - ADRs cho ECS, Timestream, audit storage, fallback và observability choices.
+- [`08_adrs.md`](08_adrs.md) - ADRs cho ECS, AMP, audit storage, fallback và observability choices.
