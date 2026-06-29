@@ -281,3 +281,49 @@ def test_pii_payload_not_buffered(app_and_client) -> None:
     assert response.status_code == 400
     assert fake_amp.calls == 0
     assert len(fake_s3.writes) == 0
+
+
+# 8. REPLAY SERVICE LOCAL SIMULATION TEST
+def test_replay_service_local(tmp_path) -> None:
+    from telemetry_api.services.replay_service import ReplayService
+    import os
+
+    # Tạo setup settings giả lập local
+    settings = Settings(
+        env="local",
+        s3_failure_buffer_bucket="cdo-telemetry-failure-buffer",
+        s3_failure_buffer_prefix="telemetry-failures/",
+    )
+
+    fake_amp = FakeAmpDeliveryAdapter([True])
+    replay_svc = ReplayService(settings, fake_amp)
+
+    # Viết tệp mock buffer trực tiếp vào thư mục local-store giả lập
+    mock_dir = os.path.join("local-store", "s3-mock-buffer", "telemetry-failures/")
+    os.makedirs(mock_dir, exist_ok=True)
+    mock_file = os.path.join(mock_dir, "test_file.json")
+
+    mock_data = {
+        "event_id": "evt_test123",
+        "idempotency_key": "idempotency_key_test123",
+        "payload": {
+            "ts": "2026-06-29T10:30:00Z",
+            "tenant_id": "demo-tenant-001",
+            "service_id": "payment-gateway",
+            "metric_type": "api_latency_ms",
+            "value": 450.5,
+            "labels": {"region": "us-east-1"}
+        }
+    }
+
+    with open(mock_file, "w", encoding="utf-8") as f:
+        json.dump(mock_data, f)
+
+    # Chạy replay
+    count = replay_svc.replay_failures()
+
+    assert count == 1
+    assert fake_amp.calls == 1
+    # Tệp mock buffer sẽ bị xóa khi gửi thành công
+    assert not os.path.exists(mock_file)
+

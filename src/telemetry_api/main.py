@@ -82,7 +82,7 @@ def build_storage_adapter(settings: Settings) -> TelemetryStorageAdapter:
     backend = settings.telemetry_storage_backend
     if backend == "local_jsonl":
         return LocalJsonlTelemetryAdapter(settings.local_telemetry_file)
-    if backend == "amp":
+    if backend in ("amp", "prometheus_amp"):
         return AmpTelemetryAdapter()
     raise ValueError(f"Unknown TELEMETRY_STORAGE_BACKEND: {backend}")
 

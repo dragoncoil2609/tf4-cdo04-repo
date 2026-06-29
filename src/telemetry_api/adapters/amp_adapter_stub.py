@@ -7,13 +7,13 @@ from telemetry_api.schemas.telemetry import TelemetryRecord
 
 
 class AmpTelemetryAdapter(TelemetryStorageAdapter):
-    """Lớp giữ chỗ cho luồng ghi Amazon Managed Service for Prometheus sau này.
+    """Lớp giữ chỗ/no-op cho luồng ghi Amazon Managed Service for Prometheus.
 
-    Class này cố ý chưa gọi AWS ở thời điểm hiện tại. Route và service layer
-    có thể giữ nguyên khi implementation AMP remote_write thật được thêm vào đây.
+    Trong AWS mode, dữ liệu telemetry hợp lệ được lưu giữ trong bộ nhớ Prometheus Exporter
+    và được scrape bất đồng bộ từ endpoint /metrics bởi ADOT Collector để remote_write.
     """
 
     def store(self, record: TelemetryRecord) -> None:
-        """Báo lỗi rõ ràng vì luồng ghi AMP thật chưa được triển khai."""
+        """Trong AWS mode, việc lưu trữ trực tiếp là no-op."""
+        pass
 
-        raise NotImplementedError("AMP telemetry adapter is not implemented yet")

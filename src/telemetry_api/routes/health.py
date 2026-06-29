@@ -25,6 +25,8 @@ async def health(request: Request) -> JSONResponse:
         "build_id": settings.build_id,
         "commit_sha": settings.git_commit_sha,
         "environment": settings.env,
+        "app_mode": settings.app_mode,
+        "storage_backend": settings.telemetry_storage_backend,
     }
 
     return JSONResponse(status_code=200, content=content)

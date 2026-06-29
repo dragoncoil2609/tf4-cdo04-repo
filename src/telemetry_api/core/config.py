@@ -14,6 +14,7 @@ class Settings:
     hình dạng triển khai AWS tương lai trong tài liệu kiến trúc CDO.
     """
 
+    app_mode: str = "local"
     app_name: str = "telemetry-api"
     app_version: str = "0.1.0"
     build_id: str = "local"
@@ -83,12 +84,17 @@ def load_settings() -> Settings:
         except ValueError as exc:
             raise ValueError(f"PORT must be an integer") from exc
 
+    app_mode = os.getenv("APP_MODE", "local")
+    default_env = "prod" if app_mode == "aws" else "local"
+    default_backend = "prometheus_amp" if app_mode == "aws" else "local_jsonl"
+
     return Settings(
+        app_mode=app_mode,
         app_name=os.getenv("APP_NAME", Settings.app_name),
         app_version=os.getenv("APP_VERSION", Settings.app_version),
         build_id=os.getenv("BUILD_ID", Settings.build_id),
         git_commit_sha=os.getenv("GIT_COMMIT_SHA", Settings.git_commit_sha),
-        env=os.getenv("ENV", Settings.env),
+        env=os.getenv("ENV", default_env),
         port=port,
         max_ingest_payload_bytes=_read_int(
             "MAX_INGEST_PAYLOAD_BYTES",
@@ -96,7 +102,7 @@ def load_settings() -> Settings:
         ),
         telemetry_storage_backend=os.getenv(
             "TELEMETRY_STORAGE_BACKEND",
-            Settings.telemetry_storage_backend,
+            default_backend,
         ),
         local_telemetry_file=os.getenv(
             "LOCAL_TELEMETRY_FILE",

@@ -117,7 +117,7 @@ class ReplayService:
             s3 = self._get_s3_client()
             resp = s3.get_object(Bucket=bucket, Key=key)
             content = resp["Body"].read().decode("utf-8")
-            data = json.load(content)
+            data = json.loads(content)
 
             payload_dict = data.get("payload")
             event_id = data.get("event_id")
