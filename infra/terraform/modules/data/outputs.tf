@@ -110,3 +110,17 @@ output "ai_sigv4_config_secret_arn" {
   description = "Secrets Manager ARN for AI SigV4 config"
   value       = aws_secretsmanager_secret.ai_sigv4_config.arn
 }
+output "eventbridge_scheduler_role_arn" {
+  description = "IAM role ARN used by EventBridge Scheduler"
+  value       = aws_iam_role.eventbridge_scheduler_role.arn
+}
+
+output "prediction_schedule_group_name" {
+  description = "EventBridge Scheduler group name for prediction jobs"
+  value       = aws_scheduler_schedule_group.prediction.name
+}
+
+output "prediction_schedule_names" {
+  description = "EventBridge Scheduler names for demo service prediction jobs"
+  value       = [for schedule in aws_scheduler_schedule.prediction_jobs : schedule.name]
+}

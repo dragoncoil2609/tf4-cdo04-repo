@@ -41,6 +41,7 @@ module "data" {
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
+  tags         = local.common_tags
 }
 
 module "compute" {
@@ -49,16 +50,36 @@ module "compute" {
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
+  tags         = local.common_tags
 
   amp_remote_write_endpoint = module.data.amp_remote_write_endpoint
   amp_workspace_arn         = module.data.amp_workspace_arn
-  prediction_queue_url      = module.data.prediction_queue_url
-  prediction_queue_arn      = module.data.prediction_queue_arn
-  telemetry_api_image_tag   = var.telemetry_api_image_tag
+  amp_query_endpoint        = module.data.amp_query_endpoint
 
-  private_subnet_ids  = module.networking.private_subnet_ids
-  telemetry_api_sg_id = module.networking.telemetry_api_sg_id
-  tags                = local.common_tags
+  prediction_queue_url = module.data.prediction_queue_url
+  prediction_queue_arn = module.data.prediction_queue_arn
+
+  telemetry_api_image_tag = var.telemetry_api_image_tag
+
+  private_subnet_ids      = module.networking.private_subnet_ids
+  telemetry_api_sg_id     = module.networking.telemetry_api_sg_id
+  prediction_worker_sg_id = module.networking.prediction_worker_sg_id
+
+  audit_table_name = module.data.audit_table_name
+
+  kms_key_arn = module.data.kms_key_arn
+
+  worker_secret_arns = [
+    module.data.ai_sigv4_config_secret_arn,
+    module.data.tenant_ingest_token_secret_arn,
+    module.data.slack_webhook_secret_arn
+  ]
+
+  ai_sigv4_config_secret_arn = module.data.ai_sigv4_config_secret_arn
+
+  ai_service_name         = "ai-engine"
+  ai_predict_path         = "/v1/predict"
+  lookback_window_minutes = 120
 }
 
 # -----------------------------------------------------------------------------
@@ -77,10 +98,10 @@ module "observability" {
   project_name        = var.project_name
   environment         = var.environment
   aws_region          = var.aws_region
+  tags                = local.common_tags
   ecs_cluster_name    = module.compute.ecs_cluster_name
   ecs_cluster_arn     = module.compute.ecs_cluster_arn
   ai_service_name     = module.compute.ai_service_name
   worker_service_name = module.compute.worker_service_name
   alert_email         = var.alert_email
 }
-

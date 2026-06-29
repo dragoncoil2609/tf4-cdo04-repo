@@ -56,3 +56,30 @@ variable "baseline_s3_prefix" {
   type        = string
   default     = "baselines/"
 }
+variable "prediction_services" {
+  description = "Demo services that receive scheduled prediction jobs"
+  type        = list(string)
+  default = [
+    "payment-gateway",
+    "ledger-service",
+    "kyc-worker"
+  ]
+}
+
+variable "prediction_schedule_expression" {
+  description = "EventBridge Scheduler expression for prediction jobs"
+  type        = string
+  default     = "rate(5 minutes)"
+}
+
+variable "prediction_tenant_id" {
+  description = "Tenant ID used for scheduled prediction jobs"
+  type        = string
+  default     = "demo-tenant-001"
+}
+
+variable "prediction_mode" {
+  description = "Prediction mode used by scheduled jobs"
+  type        = string
+  default     = "balanced"
+}
