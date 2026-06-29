@@ -52,3 +52,10 @@ variable "telemetry_api_image_tag" {
 # TODO (CPOA-47/CPOA-48): prediction_worker_image_tag and ai_engine_image_tag belong to ECS service owners.
 # TODO (CPOA-78): acm_certificate_arn and deployment pipeline variables belong to CI/CD owner.
 # TODO (CPOA-88/CPOA-98): alert_email and budget_limit belong to Observability/Cost owners.
+
+variable "alert_email" {
+  description = "SNS notification email for budgets"
+  type        = string
+  default     = "cdo04-alerts@internal.local"
+}
+
