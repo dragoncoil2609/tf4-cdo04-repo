@@ -34,12 +34,12 @@ ADR-011 là quyết định hiện tại đã được chấp nhận cho region,
 
 - Khu vực triển khai: `us-east-1`.
 - Metrics backend: AMP với PromQL và SigV4.
-- Metrics ingestion: ADOT/Prometheus Collector tự quản lý trên ECS; app-direct remote_write chỉ dùng nếu đã triển khai protobuf/Snappy/SigV4/retry.
+- Metrics ingestion: Telemetry API emit OTLP/app metrics tới ADOT/Prometheus Collector tự quản lý trên ECS; collector remote_write vào AMP bằng SigV4; app-direct remote_write chỉ dùng nếu đã triển khai protobuf/Snappy/SigV4/retry.
 - Compute: ECS Fargate Linux/x86, private tasks.
-- Cổng vào public: một HTTPS ALB cho `/v1/ingest`, giới hạn bằng `allowed_ingress_cidrs` khai báo rõ; không có giá trị mặc định mở.
-- Luồng AI: Prediction Worker -> ECS Service Connect -> AI Engine. Terraform v1 không tạo internal ALB.
+- Cổng vào public: một public ALB cho `/v1/ingest`; sandbox hiện dùng HTTP tạm, ACM/HTTPS là future/non-sandbox hardening; ingress giới hạn bằng `allowed_ingress_cidrs` khai báo rõ, không có giá trị mặc định mở.
+- Luồng AI: Prediction Worker -> ECS Service Connect -> AI Engine. Terraform v1 không tạo internal ALB hoặc API Gateway; Worker -> AI SigV4 contract dùng STS signed identity proof verified by AI middleware/sidecar.
 - Networking: một NAT Gateway cùng S3/DynamoDB Gateway Endpoints; interface endpoints mặc định tắt.
-- Deployment: ECS rolling deployment circuit breaker trong Terraform v1. ECS-native blue/green là post-MVP; CodeDeploy không thuộc v1.
+- Deployment: ECS rolling deployment circuit breaker trong Terraform v1. ECS-native blue/green là post-MVP; CodeDeploy không thuộc current scope.
 - Cảnh báo: CloudWatch Alarms + SNS email.
 - Ngoài phạm vi v1: Service Connect TLS/Private CA, WAF, bộ PrivateLink đầy đủ, multi-account, multi-region DR.
 
@@ -778,7 +778,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * ✅ Giữ toàn bộ core runtime trên cùng container platform: Telemetry API, Prediction Worker và AI Engine.
   * ✅ Worker có endpoint nội bộ ổn định cho `POST /v1/predict`, không gọi task IP động và không đi qua internet/NAT.
   * ✅ ECS Service Connect cung cấp private service discovery/load balancing, target isolation qua ECS service và security group boundary rõ ràng cho Luồng AI.
-  * ✅ Rollback thống nhất bằng ECS task definition revision và CodeDeploy/ECS service rollback.
+  * ✅ Rollback thống nhất bằng ECS task definition revision và ECS service rolling deployment circuit breaker.
   * ✅ CloudWatch Logs/Metrics/ECS service event cung cấp deployment và operations evidence rõ hơn cho capstone.
   * ✅ Tránh rủi ro cold start và Lambda packaging adapter cho FastAPI/NumPy trong thời gian W12.
   * ⚠️ Chi phí idle cao hơn Lambda container image vì AI Engine giữ tối thiểu 2 tasks chạy nền.
@@ -897,7 +897,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   | InfluxDB read/write/admin tokens in Secrets Manager | IAM/SigV4 with scoped AMP permissions |
   | Fixed `db.influx.medium` instance-hour cost | AMP usage-based ingest/storage/query pricing |
 
-  Telemetry write path should prefer ADOT Collector, Prometheus Agent, or another customer-managed collector that remote-writes to AMP. Direct application `remote_write` is allowed only if the app explicitly implements protobuf encoding, Snappy compression, SigV4 signing, batching, retry/backoff and request-size control.
+  Telemetry write path should prefer Telemetry API emitting OTLP/app metrics to an ADOT Collector, Prometheus Agent, or another customer-managed collector that remote-writes to AMP with SigV4. Direct application `remote_write` is allowed only if the app explicitly implements protobuf encoding, Snappy compression, SigV4 signing, batching, retry/backoff and request-size control.
 
 * **Cost consequence**:
 
@@ -920,7 +920,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * ✅ Restores full-month hard-budget fit before and after buffer while keeping ECS Fargate, audit, fallback and private AI serving.
   * ✅ AMP default 150-day retention satisfies the ≥90-day telemetry retention requirement.
   * ✅ AMP is available in `us-east-1` and supports `remote_write`, `query`, and `query_range`.
-  * ✅ IAM/SigV4 replaces long-lived InfluxDB data-plane tokens, and AI request verification remains in AI Engine middleware/sidecar because Service Connect does not natively verify SigV4 for custom HTTP services.
+  * ✅ IAM/SigV4 replaces long-lived InfluxDB data-plane tokens. Worker -> AI keeps SigV4 contract without API Gateway by sending STS signed identity proof; AI Engine middleware/sidecar verifies it because Service Connect does not natively verify SigV4 for custom HTTP services.
   * ⚠️ AMP is a metrics backend, not a raw event lake. The 50k events/sec design ceiling is valid only with bounded samples/event and controlled label cardinality.
   * ⚠️ Do not use high-cardinality labels such as `request_id`, `trace_id`, `prediction_id`, `user_id`, or raw endpoint paths.
   * ⚠️ Runtime PromQL must always filter by tenant, service, metric name and the exact 120-minute range.

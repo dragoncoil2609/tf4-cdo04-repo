@@ -48,7 +48,7 @@ flowchart TB
 
     subgraph VPC["VPC us-east-1"]
         subgraph Public["Public subnet"]
-            ALB["ALB HTTPS :443<br/>/v1/ingest"]
+            ALB["ALB HTTP :80 temporary sandbox<br/>HTTPS :443 future<br/>/v1/ingest"]
         end
 
         subgraph PrivateApp["Private app subnets"]
@@ -72,9 +72,9 @@ flowchart TB
         EB["EventBridge<br/>5-minute schedule"]
     end
 
-    PG -->|HTTPS + X-Tenant-Id| ALB
-    LS -->|HTTPS + X-Tenant-Id| ALB
-    KW -->|HTTPS + X-Tenant-Id| ALB
+    PG -->|HTTP temporary sandbox + X-Tenant-Id| ALB
+    LS -->|HTTP temporary sandbox + X-Tenant-Id| ALB
+    KW -->|HTTP temporary sandbox + X-Tenant-Id| ALB
     K6 -->|synthetic telemetry| ALB
 
     ALB --> INGEST
@@ -106,7 +106,7 @@ Nguyên tắc bảo mật chính:
 
 | Component | Placement | Public access | Lý do |
 |---|---|---:|---|
-| ALB `/v1/ingest` | Public subnet cho demo | Có, HTTPS only | Cho phép k6/Locust và service demo gửi telemetry mà không cần VPN. |
+| ALB `/v1/ingest` | Public subnet cho demo | Có, HTTP temporary sandbox; HTTPS/ACM future | Cho phép k6/Locust và service demo gửi telemetry mà không cần VPN. |
 | ECS `telemetry-ingest` | Private app subnets | Không | Chỉ nhận traffic từ ALB security group. |
 | Collector / remote_write path | Private app subnets hoặc sidecar | Không | Gửi Prometheus samples tới AMP bằng SigV4. |
 | ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query AMP, gọi AI qua ECS Service Connect và ghi audit. |
@@ -122,21 +122,22 @@ Trong capstone, ALB public chỉ là boundary có kiểm soát cho ingestion. EC
 
 | Security group | Inbound | Outbound | Gắn với |
 |---|---|---|---|
-| `tf4-cdo04-alb-sg` | `443` từ explicit `allowed_ingress_cidrs`; không có giá trị mặc định mở `0.0.0.0/0` | `8080` tới `tf4-cdo04-ingest-sg` | Public ALB |
+| `tf4-cdo04-alb-sg` | Sandbox: `80` từ explicit `allowed_ingress_cidrs`; non-sandbox/future: `443` với ACM và 80->443 redirect; không có giá trị mặc định mở `0.0.0.0/0` | `8080` tới `tf4-cdo04-ingest-sg` | Public ALB |
 | `tf4-cdo04-ingest-sg` | `8080` từ `tf4-cdo04-alb-sg` | `443` tới AWS service endpoints / collector path | ECS `telemetry-ingest` |
 | `tf4-cdo04-worker-sg` | Không cần inbound cho worker loop | `443` tới AWS service endpoints; app port tới AI Engine Service Connect endpoint `/v1/predict` | ECS `prediction-worker` |
 | `tf4-cdo04-ai-engine-sg` | App port từ `tf4-cdo04-worker-sg`/Service Connect path; container health check `/health` | `443` tới CloudWatch/Secrets/ECR/S3 qua NAT hoặc VPC endpoints | ECS `ai-engine` |
 
 Inbound được giới hạn theo nguyên tắc:
 
-- Public entry point duy nhất là ALB HTTPS `/v1/ingest`.
+- Public entry point duy nhất là ALB `/v1/ingest`; sandbox dùng HTTP tạm, non-sandbox/future dùng HTTPS với ACM.
 - ECS task không có public IP.
 - `prediction-worker` không cần public inbound trong normal operation.
 
 ### 3.3 TLS và request boundary
 
-- ALB terminate HTTPS trên port `443`.
-- HTTP port `80` bị disable hoặc redirect sang HTTPS.
+- Sandbox hiện cho phép HTTP trên port `80` để đưa hệ thống chạy trước.
+- Non-sandbox/future hardening dùng ACM và ALB terminate HTTPS trên port `443`.
+- Khi HTTPS bật, HTTP port `80` redirect sang HTTPS.
 - TLS policy target: TLS 1.2+.
 - Mọi ingest request phải có header `X-Tenant-Id`.
 - `telemetry-ingest` validate body `tenant_id` phải khớp với `X-Tenant-Id`.
@@ -152,9 +153,9 @@ MVP dùng 1 NAT Gateway + S3/DynamoDB Gateway Endpoints. Production/private-only
 |---|---|---|
 | S3 | Gateway endpoint | Evidence snapshot và raw-event backup. |
 | DynamoDB | Gateway endpoint | Audit log và service policy. |
-| AMP data plane | Interface endpoint `com.amazonaws.us-east-1.aps-workspaces` | Private remote_write/query/query_range tới AMP. |
-| AMP control plane | Interface endpoint `com.amazonaws.us-east-1.aps` | Private workspace management nếu cần. |
-| STS | Interface endpoint + regional STS | Cần khi SigV4 clients/collector chạy private-only không qua NAT. |
+| AMP data plane | Interface endpoint `com.amazonaws.us-east-1.aps-workspaces` | Future hardening cho private remote_write/query/query_range tới AMP; MVP có thể đi HTTPS qua NAT với IAM/SigV4. |
+| AMP control plane | Interface endpoint `com.amazonaws.us-east-1.aps` | Future hardening cho private workspace management nếu cần. |
+| STS | Interface endpoint + regional STS | Future hardening khi SigV4 clients/collector chạy private-only không qua NAT; STS vẫn được dùng để verify Worker -> AI identity proof. |
 | Secrets Manager | Interface endpoint | Lấy AI endpoint config, tenant ingest token và webhook secret. |
 | CloudWatch Logs | Interface endpoint | Ghi ECS application logs. |
 | ECR API + ECR Docker | Interface endpoint | Pull private container images. |
@@ -241,11 +242,11 @@ Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terra
 
 Luồng ingest:
 
-- Producer gọi ALB qua HTTPS.
+- Producer gọi ALB qua HTTP trong sandbox tạm; non-sandbox/future dùng HTTPS với ACM.
 - ALB security group chỉ cho phép `allowed_ingress_cidrs` đã khai báo rõ.
 - Request có `X-Tenant-Id`; header này là ngữ cảnh, không phải nguồn xác thực.
 - MVP dùng demo tenant bearer token qua `Authorization: Bearer <tenant-ingest-token>` và lưu trong Secrets Manager.
-- `telemetry-ingest` validate tenant, schema, PII denylist và metric allowlist trước khi emit sample tới collector/app remote_write.
+- `telemetry-ingest` validate tenant, schema, PII denylist và metric allowlist trước khi emit OTLP/app metrics tới ADOT sidecar/collector; collector thực hiện Prometheus `remote_write` tới AMP bằng SigV4.
 
 Luồng prediction:
 
@@ -253,7 +254,7 @@ Luồng prediction:
 - SQS giữ một job cho mỗi tenant/service/cycle.
 - `prediction-worker` consume job bằng ECS task role.
 - Worker query AMP bằng IAM/SigV4, build đủ `signal_window` 120 phút, rồi gọi AI `POST /v1/predict` qua ECS Service Connect tới AI Engine ECS Fargate service trong cùng VPC.
-- W11 mock test có thể cho phép `Authorization` optional theo AI contract; W12 final enforce IAM SigV4. ECS Service Connect không tự verify SigV4 cho FastAPI service tùy chỉnh, nên AI Engine phải có middleware/sidecar để verify canonical request, Worker task role/principal được phép, clock skew/replay window và trả `401` khi không hợp lệ. Không dùng API key/service token làm auth chính.
+- W11 mock test có thể cho phép `Authorization` optional theo AI contract; W12 final enforce IAM SigV4. Không dùng API Gateway cho MVP. ECS Service Connect không tự verify SigV4 cho FastAPI service tùy chỉnh, nên Worker tạo STS signed identity proof cho `GetCallerIdentity` kèm body hash/timestamp/nonce; AI Engine middleware/sidecar replay proof tới STS để AWS verify signature, kiểm tra ARN trả về đúng Worker task role, clock skew/replay window và trả `401/403` khi không hợp lệ. Không dùng API key/service token làm auth chính.
 
 ---
 
@@ -304,10 +305,10 @@ AMP không cần `influxdb/write-token`, `influxdb/read-token` hoặc `influxdb/
 
 ### 6.2 In transit
 
-- Producer tới ALB: HTTPS.
+- Producer tới ALB: HTTP tạm trong sandbox; HTTPS với ACM là future/non-sandbox hardening.
 - ALB tới ECS ingest: HTTP nội bộ VPC chấp nhận được cho capstone; HTTPS/mTLS là future hardening.
-- ECS/collector tới AMP: HTTPS + IAM SigV4.
-- ECS worker tới AI endpoint: private Service Connect path; HTTPS/mTLS is future hardening, while W12 final request authorization is enforced by AI Engine SigV4 middleware/sidecar.
+- ECS/ADOT collector tới AMP: HTTPS + IAM SigV4 `remote_write`.
+- ECS worker tới AI endpoint: private Service Connect path; HTTPS/mTLS is future hardening, while W12 final request authorization is enforced by AI Engine STS signed identity proof middleware/sidecar.
 - ECS task tới AWS APIs: HTTPS qua AWS SDK.
 - Grafana/Slack/SNS integrations: HTTPS.
 

@@ -154,9 +154,9 @@ Quy tắc lõi: **Không bao giờ tắt DynamoDB audit logging hoặc static th
 
 | Threshold | Budget level | Action |
 |---|---:|---|
-| 50% | $100/month | SNS/email warning; confirm synthetic load schedule, CloudWatch log volume and AMP active series. |
-| 80% | $160/month | Freeze prediction cadence at 5 minutes; review PromQL scoping, high-cardinality labels and DEBUG logs. |
-| 100% | $200/month | Pause non-critical synthetic load and non-critical prediction experiments. Keep critical prediction/fallback/audit path active. If AI Engine must be emergency scaled down, Worker must automatically use static threshold fallback and still write audit. |
+| 50% | $100/month | Alert only. SRE kiểm tra synthetic load schedule, CloudWatch log volume và AMP active series. Không scale service tự động. |
+| 80% | $160/month | Alert + manual review/runbook. Giữ prediction cadence ở 5 phút, review PromQL scoping, high-cardinality labels và DEBUG logs. Không scale service tự động. |
+| 100% | $200/month | Emergency breaker scale down chỉ `prediction-worker` và `ai-engine` về 0 desired tasks. Giữ `telemetry-api` chạy để ingest/health không mất. Rollback runbook khôi phục desired count sau khi được duyệt. |
 
 ### 3.3 Budget Terraform sketch
 

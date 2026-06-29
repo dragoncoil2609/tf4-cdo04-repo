@@ -9,98 +9,121 @@ SRE Runbook phản ứng nhanh kiểm soát ngân sách $200 cho nền tảng CD
 
 # Cost Guard Runbook & Incident Response — CDO-04
 
-Tài liệu này hướng dẫn đội ngũ SRE của nhóm CDO-04 thực hiện kiểm tra và phản ứng nhanh khi nhận được cảnh báo vượt ngưỡng chi phí từ AWS Budgets hoặc SNS Topic `budget_alert`.
+Tài liệu này hướng dẫn SRE phản ứng khi AWS Budgets hoặc SNS Topic `budget_alert` báo vượt ngưỡng chi phí. Policy final của CDO-04:
+
+```text
+50%  -> alert only
+80%  -> alert + manual review/runbook
+100% -> emergency breaker scale down only prediction-worker + ai-engine
+```
+
+`telemetry-api` phải tiếp tục chạy để giữ `/health` và ingest path. Không tắt DynamoDB audit, SQS/DLQ, AMP, SNS, CloudWatch hoặc S3 failure buffer bằng cost breaker.
 
 ---
 
-## 1. Mốc Cảnh báo 50% Ngân sách ($100/tháng)
+## 1. Mốc 50% Ngân sách ($100/tháng)
 
-Cảnh báo này chủ yếu mang tính chất thông tin và phát hiện sớm các dị thường về lượng tải.
+Cảnh báo này chỉ để phát hiện sớm bất thường. Không scale service tự động.
 
-### Các bước kiểm tra:
-1. **Rà soát lịch trình Load Test**:
-   * Kiểm tra xem có thành viên nào trong nhóm đang chạy test tải (k6 benchmark) hoặc test drift ngoài khung giờ quy định hay không.
-   * Nếu có, yêu cầu dừng ngay các bài test dài hạn (chỉ được test spike 2-3 phút).
-2. **Kiểm tra Cardinality và Active Series trên Amazon Managed Prometheus (AMP)**:
-   * Truy cập query console của AMP và chạy câu lệnh PromQL sau để đếm tổng số active time-series đang được ingest:
+### Các bước kiểm tra
+
+1. **Rà soát lịch Load Test**
+   - Kiểm tra có ai đang chạy k6 benchmark, drift test hoặc soak test ngoài khung giờ quy định không.
+   - Nếu có, yêu cầu dừng hoặc giảm synthetic load về test window đã duyệt.
+2. **Kiểm tra CloudWatch Logs**
+   - Kiểm tra log volume của `telemetry-api`, `prediction-worker`, `ai-engine`.
+   - Nếu DEBUG/INFO quá nhiều, tạo ticket chuyển về `WARN` ở batch vận hành tiếp theo.
+3. **Kiểm tra AMP cardinality**
+   - Chạy PromQL để ước lượng active series:
      ```promql
      count({__name__=~".+"})
      ```
-   * Nếu số lượng Active Series tăng đột biến (> 100,000 series), chạy truy vấn sau để tìm metric nào đang có nhiều label phân tán nhất:
+   - Nếu active series tăng đột biến, tìm metric nhiều label nhất:
      ```promql
      topk(5, count by (__name__) ({__name__=~".+"}))
      ```
-   * Đảm bảo Telemetry API không bị lọt các dynamic label (như `request_id`, `user_id`) thông qua log của container `telemetry-api`.
+   - Kiểm tra không có label động như `request_id`, `trace_id`, `user_id`, `prediction_id`.
 
 ---
 
-## 2. Mốc Cảnh báo 80% Ngân sách ($160/tháng)
+## 2. Mốc 80% Ngân sách ($160/tháng)
 
-Cảnh báo ở mức **High Alert**. SRE bắt buộc phải can thiệp kỹ thuật ngay để giảm thiểu chi phí phát sinh trước khi chạm mốc $200.
+Cảnh báo này yêu cầu manual review. Không scale service tự động.
 
-### Các hành động bắt buộc:
-1. **Giảm thiểu Ingest Logs (Cập nhật LOG_LEVEL=WARN)**:
-   * Đội ngũ SRE chạy lệnh AWS CLI sau để tăng mức độ lọc logs của ECS Fargate tasks. Việc này giúp giảm cước phí ghi log lên CloudWatch Logs:
-     ```bash
-     # Cập nhật LOG_LEVEL cho Telemetry API
-     aws ecs update-service \
-       --cluster tf4-cdo04-sandbox-cluster \
-       --service tf4-cdo04-sandbox-telemetry-api \
-       --force-new-deployment
-     ```
-     *(Lưu ý: Đảm bảo biến môi trường `LOG_LEVEL` trong Task Definition đã được cập nhật thành `WARN` để container lọc bỏ log INFO/DEBUG).*
-2. **Khóa cứng Cadence Dự báo (Prediction Cadence)**:
-   * Khóa cứng thời gian chạy của Prediction Worker ở mức **5 phút/lần** (cadence của Balanced Mode).
-   * Tuyệt đối không được chỉnh sửa EventBridge Scheduler xuống tần suất 1 phút/lần trong giai đoạn này.
+### Các bước xử lý
+
+1. **Freeze prediction cadence ở 5 phút**
+   - Không giảm EventBridge Scheduler xuống 1 phút.
+   - Không tăng số service/tenant synthetic ngoài scope demo.
+2. **Giảm optional spend thủ công**
+   - Dừng hoặc giảm k6/synthetic load.
+   - Giảm log verbosity về `WARN` trong task definition ở lần deploy tiếp theo.
+   - Review PromQL scoping: mọi query phải filter `tenant_id`, `service_id`, metric name và range 120 phút.
+3. **Tạo cost review note**
+   - Ghi lại nguyên nhân nghi ngờ: log volume, synthetic load, AMP active series, ECS task count, NAT data.
+   - Không thay đổi desired count của `telemetry-api`, `prediction-worker`, `ai-engine` ở mốc 80% nếu chưa có approval.
 
 ---
 
-## 3. Mốc Cảnh báo 100% Ngân sách ($200/tháng)
+## 3. Mốc 100% Ngân sách ($200/tháng)
 
-Mốc **Critical**. Nền tảng sẽ tự động kích hoạt **Cost Circuit Breaker** thông qua AWS Lambda để chặn đứng việc phát sinh chi phí.
+Mốc Critical. Cost breaker được phép scale down compute tốn kém nhưng không phá ingest/audit foundation.
 
-### Quy trình xác nhận và ứng phó:
-1. **Xác nhận trạng thái Circuit Breaker**:
-   * Kiểm tra hòm thư email của SRE xem có nhận được email tiêu đề `CRITICAL: CDO Platform Cost Limit Reached - Circuit Breaker Activated` hay không.
-   * Kiểm tra CloudWatch Logs của Lambda function `/aws/lambda/tf4-cdo04-cost-breaker-sandbox`.
-2. **Kiểm tra trạng thái ECS Fargate tasks**:
-   * Sử dụng lệnh CLI sau để xác nhận cả 2 services `prediction-worker` and `ai-engine` đã được scale về **0 tasks**:
-     ```bash
-     aws ecs describe-services \
-       --cluster tf4-cdo04-sandbox-cluster \
-       --services tf4-cdo04-sandbox-prediction-worker tf4-cdo04-sandbox-ai-engine \
-       --query "services[].{Service:serviceName, Desired:desiredCount, Running:runningCount}"
-     ```
-   * Đảm bảo service `telemetry-api` vẫn hoạt động bình thường (Desired = 2) để không làm mất các metrics của client gửi về.
+### Expected breaker behavior
+
+```text
+scale down:
+  - tf4-cdo04-<env>-prediction-worker -> desired_count = 0
+  - tf4-cdo04-<env>-ai-engine         -> desired_count = 0
+
+keep running:
+  - tf4-cdo04-<env>-telemetry-api
+  - SQS/DLQ
+  - DynamoDB audit/policy
+  - AMP workspace
+  - S3 failure buffer/evidence
+  - SNS/CloudWatch
+```
+
+### Quy trình xác nhận
+
+1. **Xác nhận alert**
+   - Kiểm tra email/SNS có tiêu đề tương đương `CRITICAL: CDO Platform Cost Limit Reached`.
+   - Kiểm tra CloudWatch Logs của Lambda cost breaker.
+2. **Xác nhận target scope**
+   ```bash
+   aws ecs describe-services \
+     --cluster tf4-cdo04-sandbox-cluster \
+     --services tf4-cdo04-sandbox-prediction-worker tf4-cdo04-sandbox-ai-engine tf4-cdo04-sandbox-telemetry-api \
+     --query "services[].{Service:serviceName,Desired:desiredCount,Running:runningCount}"
+   ```
+   - `prediction-worker` = 0 desired.
+   - `ai-engine` = 0 desired.
+   - `telemetry-api` vẫn >= 1 desired.
+3. **Ghi incident note**
+   - Lưu timestamp, Budget event, Lambda log link, ECS desired counts trước/sau.
 
 ---
 
-## 4. Quy trình Dọn dẹp sau khi Test (Post-Test Cleanup Runbook)
+## 4. Rollback sau breaker
 
-Sau khi hoàn tất đợt chạy test tải hoặc test drift, SRE cần dọn dẹp hàng đợi và phục hồi hệ thống để tránh tình trạng "Poison Message Loop" khi kích hoạt lại hệ thống.
+Chỉ rollback khi cycle chi phí mới bắt đầu hoặc owner phê duyệt tăng budget.
 
-### Các bước dọn dẹp bắt buộc:
-1. **Xóa sạch (Purge) SQS Queue**:
-   * Trước khi scale-up lại hệ thống, bắt buộc phải xóa sạch các bản tin test còn tồn đọng trong queue để tránh Prediction Worker bị quá tải ngay khi vừa khởi động lại. Chạy câu lệnh:
-     ```bash
-     # Purge hàng đợi chính
-     aws sqs purge-queue --queue-url https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/tf4-cdo04-prediction-sandbox
-     
-     # Purge hàng đợi lỗi (DLQ)
-     aws sqs purge-queue --queue-url https://sqs.us-east-1.amazonaws.com/<ACCOUNT_ID>/tf4-cdo04-prediction-dlq-sandbox
-     ```
-2. **Khôi phục (Scale-up) hệ thống**:
-   * Khi chu kỳ tính cước mới bắt đầu hoặc ngân sách được phê duyệt nâng thêm, khôi phục lại mong muốn hoạt động của các service:
-     ```bash
-     # Khôi phục AI Engine về 2 tasks
-     aws ecs update-service \
-       --cluster tf4-cdo04-sandbox-cluster \
-       --service tf4-cdo04-sandbox-ai-engine \
-       --desired-count 2
-     
-     # Khôi phục Prediction Worker về 1 task
-     aws ecs update-service \
-       --cluster tf4-cdo04-sandbox-cluster \
-       --service tf4-cdo04-sandbox-prediction-worker \
-       --desired-count 1
-     ```
+```bash
+aws ecs update-service \
+  --cluster tf4-cdo04-sandbox-cluster \
+  --service tf4-cdo04-sandbox-ai-engine \
+  --desired-count 2
+
+aws ecs update-service \
+  --cluster tf4-cdo04-sandbox-cluster \
+  --service tf4-cdo04-sandbox-prediction-worker \
+  --desired-count 1
+```
+
+Sau rollback:
+
+1. Kiểm tra ECS service stable.
+2. Kiểm tra SQS/DLQ depth trước khi bật lại worker ở môi trường nhiều test message.
+3. Nếu cần dọn test messages, purge queue/DLQ theo quy trình test-window, không purge production queue nếu chưa có approval.
+4. Ghi lại evidence rollback vào final QA report.
