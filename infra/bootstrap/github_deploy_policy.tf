@@ -255,13 +255,16 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
-    sid    = "AllowSSMAndServiceDiscoveryAccess"
+    sid    = "AllowUntaggedServicesAccess"
     effect = "Allow"
 
     actions = [
       "ssm:*",
       "servicediscovery:*",
-      "ecs:DeregisterTaskDefinition"
+      "ecs:DeregisterTaskDefinition",
+      "cloudwatch:*",
+      "sns:*",
+      "application-autoscaling:*"
     ]
 
     resources = [
