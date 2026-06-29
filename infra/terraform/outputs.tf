@@ -142,3 +142,36 @@ output "ai_sigv4_config_secret_arn" {
   description = "Secrets Manager ARN for AI SigV4 config"
   value       = module.data.ai_sigv4_config_secret_arn
 }
+output "eventbridge_scheduler_role_arn" {
+  description = "IAM role ARN used by EventBridge Scheduler"
+  value       = module.data.eventbridge_scheduler_role_arn
+}
+
+output "prediction_schedule_group_name" {
+  description = "EventBridge Scheduler group name for prediction jobs"
+  value       = module.data.prediction_schedule_group_name
+}
+
+output "prediction_schedule_names" {
+  description = "EventBridge Scheduler names for demo service prediction jobs"
+  value       = module.data.prediction_schedule_names
+}
+output "prediction_worker_task_definition_arn" {
+  description = "Prediction Worker ECS task definition ARN"
+  value       = module.compute.prediction_worker_task_definition_arn
+}
+
+output "prediction_worker_task_role_arn" {
+  description = "Prediction Worker ECS task role ARN"
+  value       = module.compute.prediction_worker_task_role_arn
+}
+
+output "prediction_worker_service_name" {
+  description = "Prediction Worker ECS service name"
+  value       = module.compute.prediction_worker_service_name
+}
+
+output "prediction_worker_log_group_name" {
+  description = "CloudWatch log group for Prediction Worker"
+  value       = module.compute.prediction_worker_log_group_name
+}

@@ -68,7 +68,7 @@ resource "aws_cloudwatch_dashboard" "cost_dashboard" {
         height = 6
         properties = {
           metrics = [
-            ["AWS/Billing", "EstimatedCharges", "Currency", "USD", { "stat": "Maximum" }]
+            ["AWS/Billing", "EstimatedCharges", "Currency", "USD", { "stat" : "Maximum" }]
           ]
           period  = 86400
           regions = ["us-east-1"]
