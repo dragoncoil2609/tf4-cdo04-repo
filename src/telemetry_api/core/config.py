@@ -34,6 +34,21 @@ class Settings:
     amp_workspace_id: str | None = None
     amp_remote_write_endpoint: str | None = None
 
+    # CDO-W12-020 Configs (S3 failure buffer & retry)
+    delivery_mode: str = "aws"
+    amp_delivery_enabled: bool = True
+    amp_delivery_max_retries: int = 3
+    amp_delivery_retry_base_delay_ms: int = 500
+    amp_delivery_retry_max_delay_ms: int = 5000
+
+    s3_failure_buffer_enabled: bool = True
+    s3_failure_buffer_bucket: str = "cdo-telemetry-failure-buffer"
+    s3_failure_buffer_prefix: str = "telemetry-failures/"
+    s3_failure_buffer_kms_key_id: str | None = None
+    s3_failure_buffer_object_age_alarm_seconds: int = 300
+
+    cloudwatch_namespace: str = "CDO/TelemetryApi"
+
 
 def _read_int(name: str, default: int) -> int:
     """Đọc biến môi trường kiểu số nguyên và báo lỗi rõ khi sai định dạng."""
@@ -93,4 +108,16 @@ def load_settings() -> Settings:
         aws_region=os.getenv("AWS_REGION", Settings.aws_region),
         amp_workspace_id=os.getenv("AMP_WORKSPACE_ID", Settings.amp_workspace_id),
         amp_remote_write_endpoint=os.getenv("AMP_REMOTE_WRITE_ENDPOINT", Settings.amp_remote_write_endpoint),
+        delivery_mode=os.getenv("DELIVERY_MODE", Settings.delivery_mode),
+        amp_delivery_enabled=_read_bool("AMP_DELIVERY_ENABLED", Settings.amp_delivery_enabled),
+        amp_delivery_max_retries=_read_int("AMP_DELIVERY_MAX_RETRIES", Settings.amp_delivery_max_retries),
+        amp_delivery_retry_base_delay_ms=_read_int("AMP_DELIVERY_RETRY_BASE_DELAY_MS", Settings.amp_delivery_retry_base_delay_ms),
+        amp_delivery_retry_max_delay_ms=_read_int("AMP_DELIVERY_RETRY_MAX_DELAY_MS", Settings.amp_delivery_retry_max_delay_ms),
+        s3_failure_buffer_enabled=_read_bool("S3_FAILURE_BUFFER_ENABLED", Settings.s3_failure_buffer_enabled),
+        s3_failure_buffer_bucket=os.getenv("S3_FAILURE_BUFFER_BUCKET", Settings.s3_failure_buffer_bucket),
+        s3_failure_buffer_prefix=os.getenv("S3_FAILURE_BUFFER_PREFIX", Settings.s3_failure_buffer_prefix),
+        s3_failure_buffer_kms_key_id=os.getenv("S3_FAILURE_BUFFER_KMS_KEY_ID", Settings.s3_failure_buffer_kms_key_id),
+        s3_failure_buffer_object_age_alarm_seconds=_read_int("S3_FAILURE_BUFFER_OBJECT_AGE_ALARM_SECONDS", Settings.s3_failure_buffer_object_age_alarm_seconds),
+        cloudwatch_namespace=os.getenv("CLOUDWATCH_NAMESPACE", Settings.cloudwatch_namespace),
     )
+

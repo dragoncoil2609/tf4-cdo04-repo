@@ -38,6 +38,44 @@ class PrometheusTelemetryExporter:
                 registry=self.registry,
             )
 
+        # CDO-W12-020 new prometheus metrics
+        from prometheus_client import Counter
+        self.amp_delivery_attempt_total = Counter(
+            "telemetry_amp_delivery_attempt_total",
+            "Total number of AMP delivery attempts",
+            registry=self.registry,
+        )
+        self.amp_delivery_retry_total = Counter(
+            "telemetry_amp_delivery_retry_total",
+            "Total number of AMP delivery retries",
+            registry=self.registry,
+        )
+        self.amp_delivery_failed_total = Counter(
+            "telemetry_amp_delivery_failed_total",
+            "Total number of failed AMP deliveries",
+            registry=self.registry,
+        )
+        self.s3_failure_buffer_write_total = Counter(
+            "telemetry_s3_failure_buffer_write_total",
+            "Total number of successful S3 failure buffer writes",
+            registry=self.registry,
+        )
+        self.s3_failure_buffer_failed_total = Counter(
+            "telemetry_s3_failure_buffer_failed_total",
+            "Total number of failed S3 failure buffer writes",
+            registry=self.registry,
+        )
+        self.ingest_buffered_total = Counter(
+            "telemetry_ingest_buffered_total",
+            "Total number of ingest payloads buffered to S3",
+            registry=self.registry,
+        )
+        self.failure_buffer_oldest_object_age_seconds = Gauge(
+            "telemetry_failure_buffer_oldest_object_age_seconds",
+            "Age of the oldest object in the S3 failure buffer in seconds",
+            registry=self.registry,
+        )
+
     def observe(self, payload: TelemetryPayload) -> None:
         """Cập nhật giá trị Prometheus Gauge tương ứng từ TelemetryPayload."""
 
@@ -68,3 +106,25 @@ class PrometheusTelemetryExporter:
             gauge.labels(**label_values).set(payload.value)
         except Exception as exc:
             logger.error("Failed to set Prometheus gauge for metric %s: %s", metric_type, exc)
+
+    def record_amp_delivery_attempt(self) -> None:
+        self.amp_delivery_attempt_total.inc()
+
+    def record_amp_delivery_retry(self) -> None:
+        self.amp_delivery_retry_total.inc()
+
+    def record_amp_delivery_failed(self) -> None:
+        self.amp_delivery_failed_total.inc()
+
+    def record_s3_failure_buffer_write(self) -> None:
+        self.s3_failure_buffer_write_total.inc()
+
+    def record_s3_failure_buffer_failed(self) -> None:
+        self.s3_failure_buffer_failed_total.inc()
+
+    def record_ingest_buffered(self) -> None:
+        self.ingest_buffered_total.inc()
+
+    def set_failure_buffer_oldest_object_age(self, age: float) -> None:
+        self.failure_buffer_oldest_object_age_seconds.set(age)
+

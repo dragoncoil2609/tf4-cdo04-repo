@@ -82,13 +82,14 @@ def test_valid_payload_returns_201_and_writes_jsonl(client: TestClient, telemetr
     response = post_ingest(client, valid_payload())
 
     assert response.status_code == 201
-    assert response.json() == {
-        "status": "accepted",
-        "correlation_id": "local-test-001",
-        "tenant_id": "demo-tenant-001",
-        "service_id": "payment-gateway",
-        "metric_type": "api_latency_ms",
-    }
+    res = response.json()
+    assert res["status"] == "accepted"
+    assert res["correlation_id"] == "local-test-001"
+    assert res["tenant_id"] == "demo-tenant-001"
+    assert res["service_id"] == "payment-gateway"
+    assert res["metric_type"] == "api_latency_ms"
+    assert "event_id" in res
+    assert "request_id" in res
 
     lines = telemetry_file.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1

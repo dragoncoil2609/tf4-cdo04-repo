@@ -66,3 +66,17 @@ class InternalTelemetryError(TelemetryApiError):
             message="Telemetry ingest failed",
             reason="internal_error",
         )
+
+
+class BothAMPAndS3FailedError(TelemetryApiError):
+    """Được raise khi cả gửi AMP và ghi S3 failure buffer đều thất bại."""
+
+    def __init__(self, event_id: str, message: str = "AMP delivery failed and S3 failure buffer failed") -> None:
+        super().__init__(
+            status_code=503,
+            error="ingest_failed",
+            message=message,
+            reason="amp_and_s3_failed",
+        )
+        self.event_id = event_id
+

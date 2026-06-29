@@ -93,34 +93,65 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
     # 6. Gọi service thực hiện lưu telemetry
     request.state.ingest_context = _context_from_payload(payload.model_dump())
     service = get_ingest_service(request)
-    record = service.ingest(payload, header_tenant_id, correlation_id)
+    result = service.ingest(payload, header_tenant_id, correlation_id)
 
     # 7. Ghi nhận metrics thành công và log sự kiện
     record_ingest_accepted()
-    log_structured(
-        logger,
-        logging.INFO,
-        "telemetry_ingest_accepted",
-        correlation_id=correlation_id,
-        tenant_id=record.tenant_id,
-        service_id=record.service_id,
-        metric_type=record.metric_type,
-        status_code=201,
-        received_at=record.received_at,
-        path=request.url.path,
-        method=request.method,
-    )
 
-    return JSONResponse(
-        status_code=201,
-        content={
-            "status": "accepted",
-            "correlation_id": correlation_id,
-            "tenant_id": record.tenant_id,
-            "service_id": record.service_id,
-            "metric_type": record.metric_type,
-        },
-    )
+    if result.status == "accepted":
+        log_structured(
+            logger,
+            logging.INFO,
+            "telemetry_ingest_accepted",
+            correlation_id=correlation_id,
+            tenant_id=result.record.tenant_id,
+            service_id=result.record.service_id,
+            metric_type=result.record.metric_type,
+            status_code=201,
+            received_at=result.record.received_at,
+            path=request.url.path,
+            method=request.method,
+        )
+
+        return JSONResponse(
+            status_code=201,
+            content={
+                "status": "accepted",
+                "event_id": result.event_id,
+                "request_id": correlation_id,
+                "correlation_id": correlation_id,
+                "tenant_id": result.record.tenant_id,
+                "service_id": result.record.service_id,
+                "metric_type": result.record.metric_type,
+            },
+        )
+    else:
+        # result.status == "buffered"
+        log_structured(
+            logger,
+            logging.INFO,
+            "telemetry_ingest_buffered",
+            correlation_id=correlation_id,
+            tenant_id=result.record.tenant_id,
+            service_id=result.record.service_id,
+            metric_type=result.record.metric_type,
+            status_code=202,
+            received_at=result.record.received_at,
+            path=request.url.path,
+            method=request.method,
+        )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "buffered",
+                "event_id": result.event_id,
+                "request_id": correlation_id,
+                "correlation_id": correlation_id,
+                "buffer": "s3",
+                "idempotency_key": result.idempotency_key,
+            },
+        )
 
 
 async def _parse_json_body(request: Request) -> dict[str, Any]:

@@ -1,0 +1,23 @@
+{
+  "AlarmName": "CDO-TelemetryApi-FailureBufferOldestObjectAgeAlarm",
+  "AlarmDescription": "Triggers if the oldest object in the S3 failure buffer is older than 5 minutes (300 seconds), indicating replay issues.",
+  "ActionsEnabled": true,
+  "OKActions": [],
+  "AlarmActions": [],
+  "InsufficientDataActions": [],
+  "MetricName": "FailureBufferOldestObjectAgeSeconds",
+  "Namespace": "CDO/TelemetryApi",
+  "Statistic": "Maximum",
+  "Dimensions": [
+    {
+      "Name": "BucketName",
+      "Value": "cdo-telemetry-failure-buffer"
+    }
+  ],
+  "Period": 60,
+  "EvaluationPeriods": 1,
+  "DatapointsToAlarm": 1,
+  "Threshold": 300.0,
+  "ComparisonOperator": "GreaterThanThreshold",
+  "TreatMissingData": "notBreaching"
+}

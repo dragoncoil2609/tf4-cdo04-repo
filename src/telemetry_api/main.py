@@ -43,11 +43,25 @@ def create_app(
     registry = CollectorRegistry()
     prometheus_exporter = PrometheusTelemetryExporter(registry=registry)
 
+    from telemetry_api.adapters.amp_delivery_adapter import AmpDeliveryAdapter
+    from telemetry_api.adapters.s3_failure_buffer_adapter import S3FailureBufferAdapter
+
+    amp_delivery_adapter = AmpDeliveryAdapter(resolved_settings)
+    s3_failure_buffer_adapter = S3FailureBufferAdapter(resolved_settings)
+
     app = FastAPI(title=resolved_settings.app_name)
     app.state.settings = resolved_settings
     app.state.prometheus_registry = registry
     app.state.prometheus_exporter = prometheus_exporter
-    app.state.ingest_service = IngestService(adapter, prometheus_exporter)
+    app.state.amp_delivery_adapter = amp_delivery_adapter
+    app.state.s3_failure_buffer_adapter = s3_failure_buffer_adapter
+    app.state.ingest_service = IngestService(
+        storage_adapter=adapter,
+        prometheus_exporter=prometheus_exporter,
+        amp_delivery_adapter=amp_delivery_adapter,
+        s3_failure_buffer_adapter=s3_failure_buffer_adapter,
+        settings=resolved_settings,
+    )
 
     app.add_middleware(PayloadSizeLimitMiddleware, max_payload_bytes=resolved_settings.max_ingest_payload_bytes)
     app.add_middleware(CorrelationIdMiddleware)
@@ -113,13 +127,18 @@ def _register_exception_handlers(app: FastAPI) -> None:
             denied_key=exc.denied_key,
             missing_label=exc.missing_label,
         )
+        content = {
+            "error": exc.error,
+            "message": exc.message,
+            "correlation_id": correlation_id,
+        }
+        if hasattr(exc, "event_id") and exc.event_id:
+            content["event_id"] = exc.event_id
+            content["request_id"] = correlation_id
+
         return JSONResponse(
             status_code=exc.status_code,
-            content={
-                "error": exc.error,
-                "message": exc.message,
-                "correlation_id": correlation_id,
-            },
+            content=content,
         )
 
     @app.exception_handler(RequestValidationError)
