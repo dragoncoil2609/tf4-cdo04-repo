@@ -28,6 +28,25 @@ output "telemetry_api_task_definition_arn" {
 }
 
 # TODO: service, ALB, scheduler, and ECR outputs belong to teammate-owned work.
+output "prediction_worker_task_definition_arn" {
+  description = "Prediction Worker ECS task definition ARN"
+  value       = aws_ecs_task_definition.prediction_worker.arn
+}
+
+output "prediction_worker_task_role_arn" {
+  description = "Prediction Worker ECS task role ARN"
+  value       = aws_iam_role.prediction_worker_task_role.arn
+}
+
+output "prediction_worker_service_name" {
+  description = "Prediction Worker ECS service name"
+  value       = aws_ecs_service.prediction_worker.name
+}
+
+output "prediction_worker_log_group_name" {
+  description = "CloudWatch log group for Prediction Worker"
+  value       = aws_cloudwatch_log_group.prediction_worker.name
+}
 
 output "ai_service_name" {
   description = "AI Engine ECS service name"
@@ -36,6 +55,5 @@ output "ai_service_name" {
 
 output "worker_service_name" {
   description = "Prediction Worker ECS service name"
-  value       = "${var.project_name}-${var.environment}-prediction-worker"
+  value       = aws_ecs_service.prediction_worker.name
 }
-
