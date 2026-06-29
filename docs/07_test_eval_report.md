@@ -1,9 +1,9 @@
 # Test & Eval Report - Task force 4 · CDO Foresight Lens
 
 <!-- Doc owner: Nhóm CDO / QA Lead
-     Status: DRAFT v1.3 - chờ review Tech Lead (anh An), số liệu thực tế sẽ điền sau khi chạy W12 -->
+     Status: DRAFT v1.3 - interim template, số liệu thực tế sẽ điền sau khi hoàn tất Batch 0-8 và chạy final validation -->
 
-> **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi chạy thực tế SC-01 → SC-04 trong Tuần 12 (xem mục 6 - Timeline). Tên service/ARN đồng bộ theo `02_infra_design.md` Architecture v1.0 (AWS ECS Fargate, region `us-east-1`).
+> **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi hoàn tất Batch 0-8 và chạy final E2E/QA. Tên service/ARN đồng bộ theo `02_infra_design.md` Architecture v1.0 (AWS ECS Fargate, region `us-east-1`).
 
 ---
 
@@ -75,12 +75,12 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
 
 ### 2.1 SLO breach analysis
 
-- Các ngưỡng cost (Circuit Breaker $40 cho SC-02, Sampling Throttle $30 cho SC-03) hiện là `[Hypothesis/TBD]`, cần calibrate lại sau Sandbox Run W12 trước khi dùng làm SLO chính thức.
+- Cost guard dùng policy platform 50/80/100 của `$200/month`: 50% alert only, 80% alert + manual review/runbook, 100% emergency breaker cho `prediction-worker` và `ai-engine` only. Không dùng ngưỡng scenario-local làm SLO chính thức.
 - Nếu `ledger_p99_latency_ms` vượt 350ms liên tục ≥ 60s ở SC-01, root cause nghi vấn ưu tiên: AMP remote-write/query backpressure (ledger-service ghi metric vào AMP) hoặc ECS Task CPU chạm ngưỡng 85%.
 
 ### 2.2 TF4 KPI Mapping
 
-> **Draft — chưa có số liệu thực.** Bảng này định nghĩa KPI cần đo sau khi chạy W12; giá trị Measured sẽ điền sau W12 Day 5.
+> **Draft — chưa có số liệu thực.** Bảng này định nghĩa KPI cần đo sau khi Batch 0-8 hoàn tất; giá trị Measured sẽ điền trong final E2E/QA run.
 
 | KPI | Định nghĩa | Target | Stretch target | Scenario liên quan | Measured | Pass/Fail |
 |---|---|---|---|---|---|---|
@@ -116,7 +116,7 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
 | P99 latency at peak | < 1,000ms (SC-02) / < 350ms (SC-01) | `<Xms>` |
 | Error rate at peak | < 5% (SC-02) | `<X%>` |
 | Auto-scale triggers (SC-02) | Scale-out ECS Task trong ≤ 2 phút | `<✓/✗>` |
-| Circuit Breaker trigger | Ngắt đúng khi chạm `$40 - TBD` (SC-02) | `<✓/✗>` |
+| Cost breaker dry-run | 100% budget event targets only `prediction-worker` and `ai-engine`; `telemetry-api` stays running | `<✓/✗>` |
 
 ### 3.3 Bottleneck identified
 
@@ -161,7 +161,7 @@ export const options = {
 
 export default function () {
   const res = http.post(
-    'https://<public-alb-dns>/v1/ingest',
+    'http://<public-alb-dns>/v1/ingest',
     JSON.stringify({ tenant_id: 'tenant-001', service_id: 'ledger-service', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 100 }),
     { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-01' } }
   );
@@ -203,7 +203,7 @@ export const options = {
 export default function () {
   const payload = JSON.stringify({ tenant_id: 'tenant-001', service_id: 'payment-gateway', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 1000 });
   const params  = { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-02' } };
-  const res = http.post('https://<public-alb-dns>/v1/ingest', payload, params);
+  const res = http.post('http://<public-alb-dns>/v1/ingest', payload, params);
   check(res, { 'status not 5xx': (r) => r.status < 500 });
 }
 ```
@@ -271,8 +271,8 @@ export default function () {
 
 ### 6.2 Test gaps acknowledged
 
-- **Gap 1**: Toàn bộ 4 scenario (SC-01 → SC-04) hiện mới ở dạng skeleton/draft, chưa chạy thật trên Staging - số liệu Measured/Achieved trong báo cáo này còn placeholder, sẽ điền sau W12 Day 5.
-- **Gap 2**: Ngưỡng cost/circuit breaker trong scenario là giả định `[Hypothesis/TBD]`, cần calibrate lại theo AWS Pricing thực tế sau Sandbox Run. Full-month platform estimate dùng `05_cost_analysis.md`, còn mock service/k6 cost là test-window-only.
+- **Gap 1**: Toàn bộ 4 scenario (SC-01 → SC-04) hiện mới ở dạng skeleton/draft, chưa chạy thật trên Staging - số liệu Measured/Achieved trong báo cáo này còn placeholder, sẽ điền sau khi hoàn tất Batch 0-8 và chạy final E2E/QA.
+- **Gap 2**: Cost breaker dùng policy platform 50/80/100 trong `05_cost_analysis.md`; mock service/k6 cost là test-window-only và không thay thế budget evidence thật.
 - **Gap 3**: Penetration test và vulnerability scan (mục 4) chưa có lịch chạy cụ thể, cần xác nhận tool và schedule với Security team.
 - **Gap 4**: Multi-tenant isolation test (mục 5) chưa chạy - đây là rủi ro cao nhất vì leak = SEV1, cần ưu tiên trước capstone.
 

@@ -25,3 +25,8 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# Runtime artifacts
+local-store/
+logs/
+
