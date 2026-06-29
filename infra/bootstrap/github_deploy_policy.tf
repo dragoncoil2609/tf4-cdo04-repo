@@ -264,7 +264,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "ecs:DeregisterTaskDefinition",
       "cloudwatch:*",
       "sns:*",
-      "application-autoscaling:*"
+      "application-autoscaling:*",
+      "scheduler:*"
     ]
 
     resources = [
