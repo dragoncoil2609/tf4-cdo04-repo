@@ -73,5 +73,14 @@ module "compute" {
 
 module "observability" {
   source = "./modules/observability"
-  # Placeholder module only; implementation belongs to CPOA-88 assignee.
+
+  project_name        = var.project_name
+  environment         = var.environment
+  aws_region          = var.aws_region
+  ecs_cluster_name    = module.compute.ecs_cluster_name
+  ecs_cluster_arn     = module.compute.ecs_cluster_arn
+  ai_service_name     = module.compute.ai_service_name
+  worker_service_name = module.compute.worker_service_name
+  alert_email         = var.alert_email
 }
+

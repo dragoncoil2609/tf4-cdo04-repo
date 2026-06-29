@@ -68,6 +68,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run Gitleaks Scan
         uses: gitleaks/gitleaks-action@v2
@@ -135,7 +137,7 @@ jobs:
   terraform-deploy:
     needs: [build-and-push]
     runs-on: ubuntu-latest
-    environment: sandbox # Manual Approval Gate configured via GitHub Environments
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'staging' }} # Dynamic environment (staging for develop, prod for main)
 
     steps:
       - name: Checkout Code
@@ -157,12 +159,12 @@ jobs:
         run: terraform -chdir=infra/terraform init
 
       - name: Terraform Plan
-        run: terraform -chdir=infra/terraform plan
+        run: terraform -chdir=infra/terraform plan -lock=false
 
       # Chạy Apply nếu đây là push/merge trực tiếp vào nhánh deploy
       - name: Terraform Apply
         if: github.event_name == 'push'
-        run: terraform -chdir=infra/terraform apply -auto-approve
+        run: terraform -chdir=infra/terraform apply -auto-approve -lock=false
 
       # Chạy Smoke Test sau khi deploy hạ tầng thành công (CPOA-78)
       - name: Run Post-Apply Smoke Test
