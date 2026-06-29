@@ -120,8 +120,8 @@ resource "aws_appautoscaling_policy" "prediction_worker_scale_in" {
 # ── AI Engine autoscaling ─────────────────────────────────────────────────────
 
 resource "aws_appautoscaling_target" "ai_engine" {
-  max_capacity       = 4
-  min_capacity       = 2
+  max_capacity       = var.ai_engine_max_capacity
+  min_capacity       = var.ai_engine_min_capacity
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.ai_engine.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
@@ -138,7 +138,7 @@ resource "aws_appautoscaling_policy" "ai_engine_cpu" {
     predefined_metric_specification {
       predefined_metric_type = "ECSServiceAverageCPUUtilization"
     }
-    target_value       = 70
+    target_value       = var.ai_engine_autoscale_cpu_target
     scale_in_cooldown  = 60
     scale_out_cooldown = 60
   }

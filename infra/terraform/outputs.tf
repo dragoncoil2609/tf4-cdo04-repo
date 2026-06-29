@@ -190,7 +190,6 @@ output "prediction_worker_log_group_name" {
   description = "CloudWatch log group for Prediction Worker"
   value       = module.compute.prediction_worker_log_group_name
 }
-
 output "telemetry_api_service_name" {
   description = "Telemetry API ECS service name"
   value       = module.compute.telemetry_api_service_name
@@ -200,12 +199,20 @@ output "ai_service_name" {
   description = "AI Engine ECS service name"
   value       = module.compute.ai_service_name
 }
-
 output "ai_engine_task_definition_arn" {
   description = "AI Engine ECS task definition ARN"
   value       = module.compute.ai_engine_task_definition_arn
 }
 
+output "ai_engine_task_role_arn" {
+  description = "AI Engine ECS task role ARN"
+  value       = module.compute.ai_engine_task_role_arn
+}
+
+output "ai_engine_service_name" {
+  description = "AI Engine ECS service name"
+  value       = module.compute.ai_engine_service_name
+}
 output "ai_engine_log_group_name" {
   description = "CloudWatch log group for AI Engine"
   value       = module.compute.ai_engine_log_group_name
@@ -234,4 +241,9 @@ output "prediction_queue_dlq_name" {
 output "operational_alerts_topic_arn" {
   description = "SNS topic ARN for operational CloudWatch alarms"
   value       = module.observability.operational_alerts_topic_arn
+}
+
+output "ai_engine_autoscaling_target_resource_id" {
+  description = "Application Auto Scaling target resource ID for AI Engine"
+  value       = module.compute.ai_engine_autoscaling_target_resource_id
 }

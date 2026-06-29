@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "namespace": "arn:aws:servicediscovery:us-east-1:511825856493:namespace/ns-vss5oena7vhjdkws",
+  "logConfiguration": {
+    "logDriver": "awslogs",
+    "options": {
+      "awslogs-group": "/ecs/prediction-worker",
+      "awslogs-region": "us-east-1",
+      "awslogs-stream-prefix": "service-connect"
+    }
+  }
+}

@@ -1,11 +1,12 @@
 # -----------------------------------------------------------------------------
-# Prediction Worker ECS Task Definition -- CDO-W12-010
+# Prediction Worker ECS Task Definition -- CDO-W12-010 / CDO-W12-012
 #
 # Scope:
 # - ECS Fargate task definition for Prediction Worker.
 # - IAM task role for SQS/AMP/DynamoDB/SNS/Secrets/SSM.
 # - CloudWatch log group /ecs/prediction-worker.
 # - ECS service runs in private subnets with no public IP.
+# - Service Connect client config to call AI by http://ai-engine:8080.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "prediction_worker" {
@@ -195,6 +196,10 @@ resource "aws_ecs_task_definition" "prediction_worker" {
           value = var.ai_service_name
         },
         {
+          name  = "AI_ENGINE_BASE_URL"
+          value = "http://ai-engine:8080"
+        },
+        {
           name  = "AI_PREDICT_PATH"
           value = var.ai_predict_path
         },
@@ -251,17 +256,26 @@ resource "aws_ecs_service" "prediction_worker" {
     rollback = true
   }
 
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.main.arn
+
+    log_configuration {
+      log_driver = "awslogs"
+
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.prediction_worker.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "service-connect"
+      }
+    }
+  }
+
   network_configuration {
     subnets          = var.private_subnet_ids
     security_groups  = [var.prediction_worker_sg_id]
     assign_public_ip = false
   }
-
-  service_connect_configuration {
-    enabled   = true
-    namespace = aws_service_discovery_http_namespace.main.arn
-  }
-
   lifecycle {
     ignore_changes = [desired_count]
   }
