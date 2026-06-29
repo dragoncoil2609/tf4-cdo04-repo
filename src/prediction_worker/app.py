@@ -3,6 +3,7 @@ import json
 import time
 from datetime import datetime, timezone
 import uuid
+from decimal import Decimal
 
 import boto3
 import requests
@@ -182,6 +183,11 @@ def get_static_threshold_fallback(tenant_id, service_name):
     return 85.0
 
 
+def as_dynamodb_number(value):
+    """Convert Python numeric values to DynamoDB-safe Decimal values."""
+    return Decimal(str(value))
+
+
 def save_audit_log(
     prediction_id, tenant_id, service_name, decision, prediction_source, score,
     evidence_status="complete_window", anomaly=False, severity=0.0, reasoning="",
@@ -215,13 +221,13 @@ def save_audit_log(
         "timestamp": now_epoch,
         "decision": decision,
         "prediction_source": prediction_source,
-        "score": score,  # Lưu dạng số (float/int)
+        "score": as_dynamodb_number(score),
         "evidence_status": evidence_status,
         "anomaly": anomaly,
-        "severity": severity,
+        "severity": as_dynamodb_number(severity),
         "reasoning": reasoning,
-        "ai_status_code": ai_status_code,
-        "ai_latency_ms": ai_latency_ms,
+        "ai_status_code": as_dynamodb_number(ai_status_code),
+        "ai_latency_ms": as_dynamodb_number(ai_latency_ms),
         "deployment_version": deployment_version,
         "baseline_version": baseline_version,
         "expires_at_epoch": expires_at_epoch
@@ -232,7 +238,7 @@ def save_audit_log(
         item["recommendation_action"] = recommendation.get("action_verb", "INVESTIGATE")
         item["recommendation_target"] = recommendation.get("target", "")
         item["recommendation_from_to"] = recommendation.get("from_to", "")
-        item["recommendation_confidence"] = recommendation.get("confidence", 0.0)
+        item["recommendation_confidence"] = as_dynamodb_number(recommendation.get("confidence", 0.0))
         item["recommendation_evidence"] = recommendation.get("evidence_link", "")
 
     if audit_id:
