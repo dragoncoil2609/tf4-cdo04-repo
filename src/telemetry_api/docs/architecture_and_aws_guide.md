@@ -1,82 +1,111 @@
-# Tài liệu Kiến trúc Telemetry API & Định hướng Tích hợp AWS
+# CDO Telemetry API — Hướng dẫn Mapping Code Hạ tầng AWS & Kiểm thử
 
-Tài liệu này giải thích cấu trúc mã nguồn hiện tại của dự án Telemetry API và vạch ra lộ trình tích hợp hạ tầng dịch vụ đám mây AWS khi hạ tầng sẵn sàng.
+Tài liệu này hướng dẫn chi tiết cách ánh xạ (mapping) cấu trúc code Python/FastAPI hiện tại sang các dịch vụ hạ tầng AWS tương ứng và cách thực hiện kiểm thử vận hành ở cả hai chế độ `APP_MODE=local` và `APP_MODE=aws`.
 
 ---
 
-## 1. Giải thích Cấu trúc mã nguồn hiện tại
+## 1. Bản đồ Ánh xạ: Code Components ↔ AWS Infrastructure
 
-Dự án áp dụng mô hình thiết kế phân lớp (**Layered/Clean Architecture**), giúp tách biệt logic nghiệp vụ khỏi các adapter lưu trữ bên ngoài:
+Chế độ chạy của hệ thống được chuyển đổi linh hoạt qua biến môi trường `APP_MODE`:
+
+| Thành phần trong Code (`src/`) | Tài nguyên AWS tương ứng (Production) | Mô tả hành vi & Vai trò |
+| :--- | :--- | :--- |
+| **`APP_MODE=aws`** | **ECS Fargate / ALB** | Kích hoạt cấu hình production, sử dụng các SDK AWS thực tế và tắt các file mock cục bộ. |
+| **`storage_adapter` (`AmpTelemetryAdapter`)** | **Amazon Managed Service for Prometheus (AMP)** | Thực hiện lưu trữ No-Op tại Ingest API. Đột phá qua việc lưu in-memory Prometheus Gauges và expose tại `/metrics` để ADOT Collector scrape. |
+| **`prometheus_exporter`** | **ADOT Collector (Sidecar)** | Expose endpoint `/metrics` định dạng Prometheus. ADOT Collector scrape định kỳ (15s) và remote_write về AMP sử dụng chữ ký IAM SigV4. |
+| **`s3_failure_buffer_adapter`** | **Amazon S3 Bucket** | Ghi các telemetry payload thất bại sau 3 lần retry vào S3 bucket chỉ định (`S3_FAILURE_BUFFER_BUCKET`). |
+| **`replay_service`** | **ECS Scheduled Task / EventBridge** | Quét bucket S3 định kỳ, đọc các bản ghi lỗi, gửi lại (replay) tới AMP và dọn dẹp (delete) object khi hoàn tất. |
+| **`idempotency.py`** | **AMP Deduplication & S3 Key Partitioning** | Sinh khóa duy nhất dựa trên SHA-256 bhash các trường dữ liệu được sắp xếp nhằm chống trùng lặp dữ liệu trên AMP và làm khóa phân vùng S3. |
+| **`core/logging.py`** | **Amazon CloudWatch Logs** | Ghi log dưới định dạng JSON cấu trúc (Structured JSON Logs) chuyển tiếp trực tiếp vào CloudWatch Log Group `/ecs/tf4-cdo04-telemetry-api`. |
+
+---
+
+## 2. Quy tắc Phân vùng Dữ liệu S3 (S3 Partitioning Schema)
+
+Khi AMP remote_write gặp sự cố tạm thời hoặc kéo dài, dữ liệu được ghi xuống S3 theo cấu trúc phân vùng tối ưu hóa cho truy vấn Athena/Glue:
 
 ```text
-src/telemetry_api/
-├── main.py                # Điểm khởi chạy FastAPI, cấu hình Middleware & Exception Handlers
-├── requirements.txt       # Định nghĩa các thư viện phụ thuộc (FastAPI, Pydantic, etc.)
-├── core/                  # Cấu hình hệ thống, logging và các class lỗi (Custom Errors)
-│   ├── config.py
-│   ├── errors.py
-│   └── logging.py
-├── middleware/            # Bộ lọc tiền xử lý HTTP Request (kích thước, tracing ID)
-│   ├── correlation_id.py
-│   └── payload_size_limit.py
-├── schemas/               # Định nghĩa cấu trúc dữ liệu đầu vào và đầu ra qua Pydantic
-│   └── telemetry.py
-├── validators/            # Các quy tắc validation cụ thể (bảo mật PII, lọc High-cardinality)
-│   └── labels.py
-├── routes/                # Tầng tiếp nhận HTTP Request từ Client
-│   └── ingest.py
-├── services/              # Tầng xử lý logic nghiệp vụ chính (Business Logic)
-│   └── ingest_service.py
-├── adapters/              # Giao tiếp với hạ tầng lưu trữ (Storage Backend)
-│   ├── base.py
-│   ├── local_jsonl_adapter.py  # Ghi log cục bộ dạng file JSONL phục vụ local-first
-│   └── amp_adapter_stub.py      # Stub giả lập tích hợp với Amazon Managed Prometheus
-└── tests/                 # Mã nguồn kiểm thử tự động
-    └── telemetry_api/
-        ├── test_ingest_api.py
-        └── test_local_jsonl_adapter.py
+s3://<S3_FAILURE_BUFFER_BUCKET>/telemetry-failures/tenant_id=<tenant_id>/service_id=<service_id>/metric_type=<metric_type>/date=<YYYY-MM-DD>/idempotency_key=<hash>.json
 ```
 
-### Các thành phần chính và luồng xử lý (Data Flow):
-1. **Middleware (`payload_size_limit.py`)**: Kiểm tra kích thước gói tin gửi lên. Nếu vượt quá giới hạn cấu hình (ví dụ: `MAX_INGEST_PAYLOAD_BYTES`), server lập tức ngắt kết nối và trả về HTTP `413 Payload Too Large` để tránh quá tải RAM.
-2. **Middleware (`correlation_id.py`)**: Trích xuất hoặc sinh mã `X-Correlation-Id` (UUID) để trace toàn bộ hành trình xử lý gói tin trong log.
-3. **Route (`routes/ingest.py`)**: Tiếp nhận request `POST /v1/ingest`, kiểm tra tính toàn vẹn của JSON và đảm bảo có đủ 5 trường bắt buộc.
-4. **Service (`services/ingest_service.py`)**: Thực hiện kiểm tra bảo mật chéo. Giá trị header xác thực `X-Tenant-Id` bắt buộc phải khớp với thuộc tính `tenant_id` nằm trong phần thân (body) của dữ liệu. Nếu khớp, nó sẽ tạo một `TelemetryRecord` và gọi Adapter để lưu trữ.
-5. **Adapter (`adapters/local_jsonl_adapter.py`)**: Ghi dữ liệu nối tiếp vào file cục bộ `local-store/telemetry.jsonl` (cách tiếp cận local-first do chưa có hạ tầng AWS thực tế).
+* **`date`**: Định dạng `YYYY-MM-DD` được trích xuất động từ trường thời gian `ts` của telemetry payload.
+* **`idempotency_key`**: Khóa SHA-256 mã hóa của:
+  `sha256(tenant_id + service_id + metric_type + ts + value + sorted_labels)`
 
 ---
 
-## 2. Định hướng tích hợp khi có hạ tầng AWS (AWS Integration Roadmap)
+## 3. Hướng dẫn Kiểm thử & Xác minh Vận hành (Testing & Operation Guide)
 
-Khi hạ tầng AWS được CDO/Terraform thiết lập hoàn chỉnh, ứng dụng sẽ chuyển đổi từ chế độ local sang môi trường cloud Production theo lộ trình sau:
+### 3.1 Kiểm thử Unit & Integration cục bộ (Local Testing)
+Để đảm bảo toàn bộ 113 kịch bản kiểm thử (Idempotency, Schema Validation, Denial lists, Retries, Failure Buffer, Replay) hoạt động tốt:
 
-```mermaid
-graph TD
-    Client[Client / Producer Service] -->|1. POST /v1/ingest| APIGW[AWS API Gateway]
-    APIGW -->|2. IAM SigV4 Auth & Limit| TelemetryAPI[Telemetry API ECS Fargate]
-    TelemetryAPI -->|3. Validate & Check| SQS[AWS SQS Queue / Buffer]
-    SQS -->|4. Poll Message| Worker[Telemetry Ingestion Worker]
-    Worker -->|5. Write Metrics| AMP[Amazon Managed Prometheus / Timestream]
-    Worker -->|6. Encrypted Archive| S3[Amazon S3 + KMS Encryption]
+```bash
+# Chạy bộ kiểm thử tự động bằng pytest từ thư mục src/
+cd src/
+python -m pytest
 ```
 
-### Chi tiết các bước chuyển đổi hạ tầng:
+### 3.2 Diễn tập Kiểm thử trên Môi trường AWS (AWS Verification & Game Day)
 
-### A. Thay thế bộ lưu trữ (Storage Backend Integration)
-* **Hiện tại (Local-first):** Lưu file JSONL thông qua `LocalJsonlTelemetryAdapter`.
-* **Khi có AWS:** 
-  - Kích hoạt cấu hình `TELEMETRY_STORAGE_BACKEND=amp` để kích hoạt `AmpTelemetryAdapter`.
-  - Adapter này sẽ gửi các metrics qua giao thức **Prometheus remote_write** trực tiếp vào **Amazon Managed Service for Prometheus (AMP)** hoặc **Amazon Timestream** để lưu trữ cơ sở dữ liệu chuỗi thời gian (Time-series Database).
+#### Bước 1: Khởi tạo Telemetry API ở chế độ AWS
+Thiết lập các biến môi trường trong ECS Task Definition:
+```env
+APP_MODE=aws
+ENV=prod
+AWS_REGION=us-east-1
+S3_FAILURE_BUFFER_BUCKET=cdo-telemetry-failure-buffer
+AMP_REMOTE_WRITE_ENDPOINT=https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxx/api/v1/remote_write
+```
 
-### B. Tách biệt Ingest API và Worker để chịu tải lớn (Asynchronous Ingestion)
-* **Mục tiêu:** Đáp ứng Volume SLA 50,000 events/sec peak mà không làm sập API.
-* **Tích hợp AWS SQS:** 
-  - API nhận `POST /v1/ingest` chỉ làm nhiệm vụ cực kỳ nhẹ là validate cấu trúc và đẩy nhanh dữ liệu vào một **AWS SQS Queue** rồi trả về HTTP `202 Accepted` ngay cho client.
-  - Một nhóm các **Telemetry Workers** (triển khai trên AWS ECS Fargate) sẽ chạy ngầm, liên tục poll dữ liệu từ SQS Queue và thực hiện việc ghi khối lượng lớn vào Prometheus/Timestream (Batch Write).
+#### Bước 2: Kiểm tra trạng thái sức khỏe
+```bash
+curl -i http://<ALB_DNS_NAME>/health
+```
+**Kết quả mong đợi (HTTP 200 OK):**
+```json
+{
+  "status": "ok",
+  "service": "telemetry-api",
+  "version": "0.1.0",
+  "environment": "prod",
+  "app_mode": "aws",
+  "storage_backend": "prometheus_amp"
+}
+```
 
-### C. Nâng cấp Bảo mật và Xác thực (Authentication & Compliance)
-* **IAM SigV4 Integration:** Thay thế việc kiểm tra header thủ công bằng cơ chế xác thực **AWS Signature Version 4 (SigV4)** thông qua AWS API Gateway. Client bắt buộc phải ký request bằng IAM Credentials hợp lệ.
-* **Multi-tenant Isolation:** Sử dụng **AWS STS Session Tags** với giá trị `tenant_id` để phân tách quyền truy cập tài nguyên giữa các Tenant khác nhau trên AWS, tránh rò rỉ dữ liệu chéo.
-* **Ghi bằng chứng mã hóa (Security Audit):**
-  - Mọi dữ liệu telemetry lưu trên Amazon Timestream/Prometheus và lưu trữ dự phòng ở Amazon S3 đều phải được cấu hình mã hóa ở chế độ Rest bằng khóa **AWS KMS** quản lý riêng của Tenant.
-  - Thiết lập vòng đời lưu trữ (S3 Lifecycle Policy) tối thiểu là 90 ngày cho dữ liệu nóng và tự động lưu trữ dài hạn (Glacier) theo chuẩn PCI-DSS/SOC2.
+#### Bước 3: Gửi Telemetry Hợp lệ
+```bash
+curl -X POST http://<ALB_DNS_NAME>/v1/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant-001" \
+  -H "X-Correlation-Id: test-aws-ingest-001" \
+  -d '{
+    "ts": "2026-06-29T11:00:00Z",
+    "tenant_id": "demo-tenant-001",
+    "service_id": "payment-gateway",
+    "metric_type": "api_latency_ms",
+    "value": 250.0,
+    "labels": {
+      "region": "us-east-1"
+    }
+  }'
+```
+* **Phản hồi**: `201 Created`
+* **Xác minh**: Truy xuất endpoint `/metrics` để xem Prometheus Gauge được cập nhật.
+
+#### Bước 4: Giả lập Sự cố AMP (Trích xuất lỗi sang S3 Buffer)
+1. Cấu hình biến môi trường tạm thời: `FORCE_AMP_DELIVERY_FAIL=true`
+2. Thực hiện lại request `POST /v1/ingest`.
+3. **Phản hồi**: `202 Accepted` (Trạng thái dữ liệu được ghi nhận vào S3 thành công).
+4. **Kiểm tra S3**:
+   ```bash
+   aws s3 ls s3://cdo-telemetry-failure-buffer/telemetry-failures/ --recursive
+   ```
+
+#### Bước 5: Kiểm tra Replay thủ công
+Khi sự cố AMP được khắc phục (Gỡ bỏ `FORCE_AMP_DELIVERY_FAIL`), chạy replay để đẩy lại dữ liệu:
+```bash
+python -m telemetry_api.services.replay_service
+```
+* **Log output**:
+  `INFO: Replay success for s3://cdo-telemetry-failure-buffer/telemetry-failures/... Deleting object.`
