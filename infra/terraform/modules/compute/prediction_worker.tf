@@ -157,14 +157,6 @@ resource "aws_ecs_task_definition" "prediction_worker" {
       image     = var.prediction_worker_image
       essential = true
 
-      # Placeholder command so the demo container does not exit immediately.
-      # Replace this when the real Prediction Worker image is ready.
-      command = [
-        "python",
-        "-c",
-        "import time, signal, sys; signal.signal(signal.SIGTERM, lambda s,f: sys.exit(0)); print('prediction-worker placeholder running', flush=True); time.sleep(10**9)"
-      ]
-
       # Graceful shutdown support for SQS message processing.
       # ECS sends SIGTERM first, then waits stopTimeout before SIGKILL.
       stopTimeout = var.prediction_worker_stop_timeout_seconds
@@ -183,11 +175,19 @@ resource "aws_ecs_task_definition" "prediction_worker" {
           value = var.prediction_queue_url
         },
         {
+          name  = "SQS_QUEUE_URL"
+          value = var.prediction_queue_url
+        },
+        {
           name  = "AMP_QUERY_ENDPOINT"
           value = var.amp_query_endpoint
         },
         {
           name  = "AUDIT_TABLE_NAME"
+          value = var.audit_table_name
+        },
+        {
+          name  = "DYNAMODB_AUDIT_TABLE"
           value = var.audit_table_name
         },
         {
@@ -199,8 +199,16 @@ resource "aws_ecs_task_definition" "prediction_worker" {
           value = var.ai_predict_path
         },
         {
+          name  = "AI_ENGINE_ENDPOINT"
+          value = "http://ai-engine:8080/v1/predict"
+        },
+        {
           name  = "LOOKBACK_WINDOW_MINUTES"
           value = tostring(var.lookback_window_minutes)
+        },
+        {
+          name  = "AI_TIMEOUT_SECONDS"
+          value = "2"
         },
         {
           name  = "GRACEFUL_SHUTDOWN_SECONDS"
@@ -247,6 +255,15 @@ resource "aws_ecs_service" "prediction_worker" {
     subnets          = var.private_subnet_ids
     security_groups  = [var.prediction_worker_sg_id]
     assign_public_ip = false
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.main.arn
+  }
+
+  lifecycle {
+    ignore_changes = [desired_count]
   }
 
   tags = merge(var.tags, {

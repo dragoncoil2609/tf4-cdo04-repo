@@ -21,3 +21,8 @@ output "cost_dashboard_name" {
   description = "CloudWatch cost dashboard name"
   value       = aws_cloudwatch_dashboard.cost_dashboard.dashboard_name
 }
+
+output "operational_alerts_topic_arn" {
+  description = "SNS topic ARN for operational alerts (alarms)"
+  value       = aws_sns_topic.operational_alerts.arn
+}

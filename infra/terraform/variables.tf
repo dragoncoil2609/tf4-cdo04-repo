@@ -48,8 +48,25 @@ variable "telemetry_api_image_tag" {
   default     = "MOCK_PLACEHOLDER_TELEMETRY_API:latest"
 }
 
+variable "prediction_worker_image_tag" {
+  description = "Docker image tag/URI for the Prediction Worker ECS task definition (CPOA-47)"
+  type        = string
+  default     = "MOCK_PLACEHOLDER_PREDICTION_WORKER:latest"
+}
+
+variable "ai_engine_image_tag" {
+  description = "Docker image tag/URI for the AI Engine ECS task definition (CPOA-48)"
+  type        = string
+  default     = "MOCK_PLACEHOLDER_AI_ENGINE:latest"
+}
+
+variable "app_port" {
+  description = "Application container port used by Telemetry API and AI Engine"
+  type        = number
+  default     = 8080
+}
+
 # TODO (CPOA-40): allowed_ingress_cidrs and security group tuning belong to Security Groups owner.
-# TODO (CPOA-47/CPOA-48): prediction_worker_image_tag and ai_engine_image_tag belong to ECS service owners.
 # TODO (CPOA-78): acm_certificate_arn and deployment pipeline variables belong to CI/CD owner.
 # TODO (CPOA-88/CPOA-98): alert_email and budget_limit belong to Observability/Cost owners.
 

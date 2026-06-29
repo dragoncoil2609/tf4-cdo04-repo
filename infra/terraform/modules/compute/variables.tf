@@ -52,8 +52,54 @@ variable "telemetry_api_image_tag" {
   type        = string
 }
 
-# TODO (CPOA-40/CPOA-47/CPOA-48/CPOA-49/CPOA-44): add SG, Worker, AI,
-# Service Connect, ALB, Scheduler, and service variables in assignee-owned work.
+# TODO (CPOA-40/CPOA-44): add SG, ALB, Scheduler, and additional service variables in assignee-owned work.
+
+variable "vpc_id" {
+  description = "VPC ID for ALB placement"
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "List of public subnet IDs for ALB"
+  type        = list(string)
+}
+
+variable "alb_sg_id" {
+  description = "Security group ID for the public ALB"
+  type        = string
+}
+
+variable "app_port" {
+  description = "Application container port used by Telemetry API and AI Engine"
+  type        = number
+  default     = 8080
+}
+
+variable "ai_engine_image" {
+  description = "Container image for AI Engine"
+  type        = string
+  default     = "MOCK_PLACEHOLDER_AI_ENGINE:latest"
+}
+
+variable "ai_engine_sg_id" {
+  description = "Security group ID for the AI Engine ECS service"
+  type        = string
+}
+
+variable "evidence_bucket_name" {
+  description = "S3 evidence bucket name for AI Engine baseline access"
+  type        = string
+}
+
+variable "prediction_queue_name" {
+  description = "SQS prediction queue name (for worker env reference)"
+  type        = string
+}
+
+variable "prediction_queue_dlq_name" {
+  description = "SQS prediction DLQ name (for worker env reference)"
+  type        = string
+}
 
 variable "private_subnet_ids" {
   description = "List of private subnet IDs for ECS tasks"

@@ -159,12 +159,20 @@ jobs:
         run: terraform -chdir=infra/terraform init
 
       - name: Terraform Plan
-        run: terraform -chdir=infra/terraform plan -lock=false
+        run: |
+          terraform -chdir=infra/terraform plan -lock=false \
+            -var="telemetry_api_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
+            -var="prediction_worker_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
+            -var="ai_engine_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
       # Chạy Apply nếu đây là push/merge trực tiếp vào nhánh deploy
       - name: Terraform Apply
         if: github.event_name == 'push'
-        run: terraform -chdir=infra/terraform apply -auto-approve -lock=false
+        run: |
+          terraform -chdir=infra/terraform apply -auto-approve -lock=false \
+            -var="telemetry_api_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
+            -var="prediction_worker_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
+            -var="ai_engine_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
 
       # Chạy Smoke Test sau khi deploy hạ tầng thành công (CPOA-78)
       - name: Run Post-Apply Smoke Test

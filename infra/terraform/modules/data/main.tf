@@ -71,12 +71,12 @@ resource "aws_sqs_queue" "prediction" {
   name                    = "${var.project_name}-prediction-${var.environment}"
   sqs_managed_sse_enabled = true
 
-  visibility_timeout_seconds = 300
+  visibility_timeout_seconds = 180
   message_retention_seconds  = 345600
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.prediction_dlq.arn
-    maxReceiveCount     = 3
+    maxReceiveCount     = 5
   })
 }
 

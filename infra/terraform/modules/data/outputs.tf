@@ -42,6 +42,11 @@ output "prediction_queue_arn" {
   value       = aws_sqs_queue.prediction.arn
 }
 
+output "prediction_queue_name" {
+  description = "SQS prediction queue name"
+  value       = aws_sqs_queue.prediction.name
+}
+
 output "prediction_queue_dlq_url" {
   description = "SQS prediction DLQ URL"
   value       = aws_sqs_queue.prediction_dlq.url
@@ -50,6 +55,11 @@ output "prediction_queue_dlq_url" {
 output "prediction_queue_dlq_arn" {
   description = "SQS prediction DLQ ARN"
   value       = aws_sqs_queue.prediction_dlq.arn
+}
+
+output "prediction_queue_dlq_name" {
+  description = "SQS prediction DLQ name"
+  value       = aws_sqs_queue.prediction_dlq.name
 }
 
 output "evidence_bucket_name" {
