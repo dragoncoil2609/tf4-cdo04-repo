@@ -19,11 +19,12 @@ resource "aws_lb" "public" {
 }
 
 resource "aws_lb_target_group" "telemetry_api" {
-  name        = "${var.project_name}-${var.environment}-telemetry-tg"
-  port        = var.app_port
-  protocol    = "HTTP"
-  target_type = "ip"
-  vpc_id      = var.vpc_id
+  name                 = "${var.project_name}-${var.environment}-telemetry-tg"
+  port                 = var.app_port
+  protocol             = "HTTP"
+  target_type          = "ip"
+  vpc_id               = var.vpc_id
+  deregistration_delay = 30
 
   health_check {
     path                = "/health"
