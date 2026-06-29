@@ -60,9 +60,9 @@ variable "prediction_services" {
   description = "Demo services that receive scheduled prediction jobs"
   type        = list(string)
   default = [
-    "payment-gateway",
-    "ledger-service",
-    "kyc-worker"
+    "payment-gw",
+    "ledger",
+    "fraud-detector"
   ]
 }
 

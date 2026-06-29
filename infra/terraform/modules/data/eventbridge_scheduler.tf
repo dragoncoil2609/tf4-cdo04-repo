@@ -3,8 +3,8 @@
 #
 # Scope:
 # - Create EventBridge Scheduler jobs that send prediction jobs to SQS every 5 minutes.
-# - Scheduler IAM role only has sqs:SendMessage permission to prediction queue.
-# - One schedule per demo service: payment-gateway, ledger-service, kyc-worker.
+# - Scheduler IAM role has sqs:SendMessage to prediction queue and scheduler DLQ.
+# - One schedule per demo service: payment-gw, ledger, fraud-detector.
 # -----------------------------------------------------------------------------
 
 resource "aws_iam_role" "eventbridge_scheduler_role" {
@@ -44,7 +44,10 @@ resource "aws_iam_policy" "eventbridge_scheduler_send_sqs" {
         Action = [
           "sqs:SendMessage"
         ]
-        Resource = aws_sqs_queue.prediction.arn
+        Resource = [
+          aws_sqs_queue.prediction.arn,
+          aws_sqs_queue.scheduler_dlq.arn,
+        ]
       }
     ]
   })
@@ -58,6 +61,17 @@ resource "aws_iam_policy" "eventbridge_scheduler_send_sqs" {
 resource "aws_iam_role_policy_attachment" "eventbridge_scheduler_send_sqs" {
   role       = aws_iam_role.eventbridge_scheduler_role.name
   policy_arn = aws_iam_policy.eventbridge_scheduler_send_sqs.arn
+}
+
+resource "aws_sqs_queue" "scheduler_dlq" {
+  name                      = "${var.project_name}-scheduler-dlq-${var.environment}"
+  sqs_managed_sse_enabled   = true
+  message_retention_seconds = 1209600
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-${var.environment}-scheduler-dlq"
+    Purpose = "prediction-scheduler-dlq"
+  })
 }
 
 resource "aws_scheduler_schedule_group" "prediction" {
@@ -86,6 +100,10 @@ resource "aws_scheduler_schedule" "prediction_jobs" {
   target {
     arn      = aws_sqs_queue.prediction.arn
     role_arn = aws_iam_role.eventbridge_scheduler_role.arn
+
+    dead_letter_config {
+      arn = aws_sqs_queue.scheduler_dlq.arn
+    }
 
     input = jsonencode({
       tenant_id               = var.prediction_tenant_id

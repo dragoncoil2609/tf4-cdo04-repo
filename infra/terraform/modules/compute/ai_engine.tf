@@ -7,7 +7,7 @@
 # - CloudWatch log group /ecs/ai-engine.
 # - ECS service with Service Connect server discovery, circuit breaker,
 #   private subnets, no public IP.
-# - Python/FastAPI mock server cmd for sandbox verification.
+# - Real AI Engine app runs via Dockerfile CMD.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "ai_engine" {
@@ -155,14 +155,6 @@ resource "aws_ecs_task_definition" "ai_engine" {
       image     = var.ai_engine_image
       essential = true
 
-      # Placeholder FastAPI-like HTTP server for infrastructure validation.
-      # It exposes /health and /v1/predict until the real AI image is ready.
-      command = [
-        "python",
-        "-c",
-        "from http.server import BaseHTTPRequestHandler, HTTPServer\nimport json\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        print('GET ' + self.path, flush=True)\n        if self.path == '/health':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(b'{\"status\":\"ok\"}')\n        else:\n            self.send_response(404); self.end_headers()\n    def do_POST(self):\n        print('POST ' + self.path, flush=True)\n        if self.path == '/v1/predict':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(json.dumps({'anomaly': False, 'severity': 0.0, 'recommendation': {'action_verb': 'INVESTIGATE', 'target': 'demo', 'from_to': 'none', 'confidence': 0.5, 'evidence_link': 'placeholder'}, 'reasoning': 'placeholder ai engine', 'audit_id': 'placeholder'}).encode())\n        else:\n            self.send_response(404); self.end_headers()\nHTTPServer(('0.0.0.0', 8080), H).serve_forever()"
-      ]
-
       portMappings = [
         {
           name          = "http"
@@ -204,6 +196,10 @@ resource "aws_ecs_task_definition" "ai_engine" {
         {
           name  = "AMP_REMOTE_WRITE_ENDPOINT"
           value = var.amp_remote_write_endpoint
+        },
+        {
+          name  = "BASELINE_BACKEND"
+          value = "s3"
         },
         {
           name  = "BASELINE_S3_BUCKET"

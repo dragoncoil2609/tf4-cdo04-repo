@@ -80,11 +80,6 @@ resource "aws_sqs_queue" "prediction" {
   })
 }
 
-# -----------------------------------------------------------------------------
-# TODO (CPOA-44): EventBridge Scheduler DLQ -- owned by Truong An.
-# Placeholder only: create scheduler target DLQ together with scheduler resource.
-# -----------------------------------------------------------------------------
-
 resource "aws_s3_bucket" "evidence" {
   bucket        = "${var.project_name}-evidence-${var.environment}"
   force_destroy = false
@@ -187,6 +182,16 @@ resource "aws_s3_bucket_policy" "evidence" {
       }
     ]
   })
+}
+
+resource "aws_s3_object" "ai_baseline" {
+  for_each = toset(var.prediction_services)
+
+  bucket       = aws_s3_bucket.evidence.id
+  key          = "${var.baseline_s3_prefix}${each.value}.json"
+  source       = "${path.root}/../../src/ai_engine/baselines/${each.value}.json"
+  etag         = filemd5("${path.root}/../../src/ai_engine/baselines/${each.value}.json")
+  content_type = "application/json"
 }
 
 # -----------------------------------------------------------------------------

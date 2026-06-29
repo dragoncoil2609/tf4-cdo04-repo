@@ -3,12 +3,11 @@
 #
 # Vinh-owned scope kept here:
 #   - CPOA-41: ECS Cluster + Service Connect namespace
-#   - CPOA-46: Telemetry API ECS task definition
-#   - CPOA-45: ECS service deployment circuit breaker
 #   - CPOA-78: ECR repos and lifecycle policies
 # -----------------------------------------------------------------------------
 #
-# Resources owned by teammates and implemented in sibling .tf files:
+# Service-specific resources live in sibling files:
+#   - CPOA-45/CPOA-46: Telemetry API task and service (telemetry_api.tf)
 #   - CPOA-47: Prediction Worker task definition (prediction_worker.tf)
 #   - CPOA-48: AI Engine task definition (ai_engine.tf)
 #   - CPOA-49: Service Connect AI route (ai_engine.tf)
@@ -17,11 +16,8 @@
 # -----------------------------------------------------------------------------
 
 locals {
-  cluster_name                = "${var.project_name}-${var.environment}-cluster"
-  service_connect_namespace   = "${var.project_name}-${var.environment}.local"
-  telemetry_api_task_cpu      = 512
-  telemetry_api_task_memory   = 1024
-  telemetry_api_container_url = var.telemetry_api_image_tag
+  cluster_name              = "${var.project_name}-${var.environment}-cluster"
+  service_connect_namespace = "${var.project_name}-${var.environment}.local"
 }
 
 # -----------------------------------------------------------------------------
@@ -44,14 +40,6 @@ resource "aws_service_discovery_http_namespace" "main" {
   description = "ECS Service Connect namespace for ${var.project_name}-${var.environment}"
 }
 
-# -----------------------------------------------------------------------------
-# Telemetry API task definition support (CPOA-46)
-# -----------------------------------------------------------------------------
-resource "aws_cloudwatch_log_group" "telemetry_api" {
-  name              = "/ecs/telemetry-api"
-  retention_in_days = 14
-}
-
 resource "aws_iam_role" "ecs_execution" {
   name = "${var.project_name}-${var.environment}-ecs-execution"
 
@@ -72,128 +60,6 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_iam_role" "telemetry_api_task" {
-  name = "${var.project_name}-${var.environment}-telemetry-api-task"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect    = "Allow"
-        Principal = { Service = "ecs-tasks.amazonaws.com" }
-        Action    = "sts:AssumeRole"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "telemetry_api_task" {
-  name = "${var.project_name}-${var.environment}-telemetry-api-task"
-  role = aws_iam_role.telemetry_api_task.name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["aps:RemoteWrite"]
-        Resource = var.amp_workspace_arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["sqs:SendMessage"]
-        Resource = var.prediction_queue_arn
-      }
-    ]
-  })
-}
-
-resource "aws_ecs_task_definition" "telemetry_api" {
-  family                   = "${var.project_name}-${var.environment}-telemetry-api"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = local.telemetry_api_task_cpu
-  memory                   = local.telemetry_api_task_memory
-
-  execution_role_arn = aws_iam_role.ecs_execution.arn
-  task_role_arn      = aws_iam_role.telemetry_api_task.arn
-
-  runtime_platform {
-    operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
-  }
-
-  container_definitions = jsonencode([
-    {
-      name      = "telemetry-api"
-      image     = local.telemetry_api_container_url
-      essential = true
-      portMappings = [
-        {
-          name          = "http"
-          containerPort = 8080
-          protocol      = "tcp"
-        }
-      ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.telemetry_api.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "telemetry-api"
-        }
-      }
-      environment = [
-        { name = "AWS_REGION", value = var.aws_region },
-        { name = "ENVIRONMENT", value = var.environment },
-        { name = "AMP_REMOTE_WRITE_ENDPOINT", value = var.amp_remote_write_endpoint },
-        { name = "PREDICTION_QUEUE_URL", value = var.prediction_queue_url },
-      ]
-      healthCheck = {
-        command  = ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-        interval = 30
-        timeout  = 5
-        retries  = 3
-      }
-    }
-  ])
-}
-
-# -----------------------------------------------------------------------------
-# Telemetry API ECS Service with Circuit Breaker Rollback (CPOA-45/CPOA-78)
-# -----------------------------------------------------------------------------
-resource "aws_ecs_service" "telemetry_api" {
-  name            = "${var.project_name}-${var.environment}-telemetry-api"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.telemetry_api.arn
-  desired_count   = 2
-  launch_type     = "FARGATE"
-
-  deployment_circuit_breaker {
-    enable   = true
-    rollback = true
-  }
-
-  deployment_controller {
-    type = "ECS"
-  }
-
-  network_configuration {
-    subnets          = var.private_subnet_ids
-    security_groups  = [var.telemetry_api_sg_id]
-    assign_public_ip = false
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.telemetry_api.arn
-    container_name   = "telemetry-api"
-    container_port   = var.app_port
-  }
-
-  lifecycle {
-    ignore_changes = [desired_count]
-  }
-}
 # -----------------------------------------------------------------------------
 # TASK: CPOA-103 | CDO-W12-058 - Retention policies
 # OWNER: Tạ Hoàng Huy
@@ -214,10 +80,10 @@ resource "aws_ecr_lifecycle_policy" "services" {
         rulePriority = 1
         description  = "Xoa cac anh untagged cu hon 14 ngay truoc de giai phong bo nho"
         selection = {
-          tagStatus     = "untagged"
-          countType     = "sinceImagePushed"
-          countUnit     = "days"
-          countNumber   = 14
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 14
         }
         action = {
           type = "expire"
@@ -227,9 +93,9 @@ resource "aws_ecr_lifecycle_policy" "services" {
         rulePriority = 2
         description  = "Sau do, gioi han chi giu toi đa 10 anh co tag gan nhat de an toan cho Production"
         selection = {
-          tagStatus     = "any"
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
         }
         action = {
           type = "expire"

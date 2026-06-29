@@ -9,16 +9,16 @@
 
 ## 0. Synthetic Test Scenarios (TF4 - Scenario Design cho W12 Build)
 
-> **Lưu ý :** `ledger-service`, `payment-gateway`, `kyc-worker` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API, Prediction Worker và AI Engine. Compute/k6 runner cho các mock service là test-window-only và không nằm trong full-month platform estimate cost.
+> **Lưu ý :** `ledger`, `payment-gw`, `fraud-detector` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API, Prediction Worker và AI Engine. Compute/k6 runner cho các mock service là test-window-only và không nằm trong full-month platform estimate cost.
 
 ### 0.1 Bảng tổng hợp 4 scenario
 
 | Scenario | Service mapping | Load profile | Mục tiêu mô phỏng |
 |---|---|---|---|
-| **SC-01 Gradual Drift** | `ledger-service` | Ramping-up 200 → 1,500 RPS trong 45 phút | Suy giảm hiệu năng dần do tăng tải tịnh tiến (p99 latency + AMP remote-write ingestion) |
-| **SC-02 Sudden Spike** | `payment-gateway` | Burst 200 → 4,500 RPS trong 30s, duy trì 5 phút | Đột biến tải tức thời (flash sale/DDoS-like), test scale-out + circuit breaker |
-| **SC-03 Slow Leak** | `ledger-service` | Soak 800 RPS liên tục trong 2 tiếng | Memory/thread leak tích lũy dần, không giải phóng sau GC, dẫn tới OOM |
-| **SC-04 Noisy Baseline & AI Down** | `kyc-worker` | Răng cưa 100 → 2,000 RPS liên tục, kèm inject AI API timeout | Queue backlog tăng do AI timeout/down, test Fallback Engine kích hoạt đúng ngưỡng |
+| **SC-01 Gradual Drift** | `ledger` | Ramping-up 200 → 1,500 RPS trong 45 phút | Suy giảm hiệu năng dần do tăng tải tịnh tiến (p99 latency + AMP remote-write ingestion) |
+| **SC-02 Sudden Spike** | `payment-gw` | Burst 200 → 4,500 RPS trong 30s, duy trì 5 phút | Đột biến tải tức thời (flash sale/DDoS-like), test scale-out + circuit breaker |
+| **SC-03 Slow Leak** | `ledger` | Soak 800 RPS liên tục trong 2 tiếng | Memory/thread leak tích lũy dần, không giải phóng sau GC, dẫn tới OOM |
+| **SC-04 Noisy Baseline & AI Down** | `fraud-detector` | Răng cưa 100 → 2,000 RPS liên tục, kèm inject AI API timeout | Queue backlog tăng do AI timeout/down, test Fallback Engine kích hoạt đúng ngưỡng |
 
 ### 0.2 Chi tiết từng scenario
 
@@ -26,28 +26,28 @@ Tất cả scenario phải tạo hoặc forward thành các signal đúng AI Tel
 
 Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry vào AMP qua `remote_write`, Prediction Worker query được PromQL `query_range` đủ 120 phút, và AI request vẫn giữ schema contract. Demo acceptance không tự động chứng minh 50k events/sec production ceiling; ceiling đó cần load test riêng với bounded samples/event và label cardinality.
 
-**SC-01 - Gradual Drift (`ledger-service`)**
+**SC-01 - Gradual Drift (`ledger`)**
 
 - **Expected Warning**: `WARN_LEDGER_DRIFT_DETECTED` - `api_latency_ms`, `cpu_usage_percent` và `db_connection_pool_pct` tăng tuyến tính +15% mỗi 10 phút, khớp pattern anomaly lịch sử.
-- **Expected Recommendation**: "Phát hiện xu hướng trôi dạt hiệu năng tại `ledger-service`. Đề xuất scale-out task hoặc tối ưu batch/query trước khi AI SLO p99 500ms/platform p99 800ms bị vi phạm trong ~35 phút tới."
+- **Expected Recommendation**: "Phát hiện xu hướng trôi dạt hiệu năng tại `ledger`. Đề xuất scale-out task hoặc tối ưu batch/query trước khi AI SLO p99 500ms/platform p99 800ms bị vi phạm trong ~35 phút tới."
 - **Metrics cần tạo/forward**: `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`, `db_connection_pool_pct`; dashboard phụ có thể đo `amp_remote_write_latency_ms`.
 
-**SC-02 - Sudden Spike (`payment-gateway`)**
+**SC-02 - Sudden Spike (`payment-gw`)**
 
 - **Expected Warning**: `CRITICAL_PAYMENT_SPIKE_DETECTED` - `active_connections` và `api_latency_ms` tăng nhanh, 5xx nội bộ vượt ngưỡng fallback, scale-out đang được trigger.
-- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gateway` qua Target Tracking. Nếu budget alarm tiệm cận 90-100%, pause synthetic load test thay vì tắt audit/fallback. Khuyến nghị bật rate limiting ứng dụng theo quota demo."
+- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gw` qua Target Tracking. Nếu budget alarm tiệm cận 90-100%, pause synthetic load test thay vì tắt audit/fallback. Khuyến nghị bật rate limiting ứng dụng theo quota demo."
 - **Metrics cần tạo/forward**: `active_connections`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`; `error_rate` chỉ dùng fallback/dashboard.
 
-**SC-03 - Slow Leak (`ledger-service`)**
+**SC-03 - Slow Leak (`ledger`)**
 
 - **Expected Warning**: `WARN_LEDGER_RESOURCE_LEAK` - `memory_usage_percent` và `api_latency_ms` tăng liên tục không có plateau sau warm-up, dự báo OOM risk.
-- **Expected Recommendation**: "Dự báo `ledger-service` OOM trong ~4.2 tiếng. Khuyến nghị rolling restart và heap dump phân tích; nếu budget gần ngưỡng, giảm synthetic load/log verbosity, không giảm prediction cadence dưới 5 phút."
+- **Expected Recommendation**: "Dự báo `ledger` OOM trong ~4.2 tiếng. Khuyến nghị rolling restart và heap dump phân tích; nếu budget gần ngưỡng, giảm synthetic load/log verbosity, không giảm prediction cadence dưới 5 phút."
 - **Metrics cần tạo/forward**: `memory_usage_percent`, `cpu_usage_percent`, `api_latency_ms`, `active_connections`.
 
-**SC-04 - Noisy Baseline & AI Down (`kyc-worker`)**
+**SC-04 - Noisy Baseline & AI Down (`fraud-detector`)**
 
 - **Expected Warning**: `CRITICAL_QUEUE_BACKLOG_ANOMALY` - `queue_depth` vượt baseline, AI `/v1/predict` timeout hoặc trả 5xx/503, Worker kích hoạt static threshold fallback.
-- **Expected Recommendation**: "Queue `kyc-worker` quá tải - Worker chuyển sang Static Rules, ghi Audit Decision vào DynamoDB và không delete SQS job trước khi audit write thành công. Cần điều tra DLQ/replay sau khi AI hồi phục."
+- **Expected Recommendation**: "Queue `fraud-detector` quá tải - Worker chuyển sang Static Rules, ghi Audit Decision vào DynamoDB và không delete SQS job trước khi audit write thành công. Cần điều tra DLQ/replay sau khi AI hồi phục."
 - **Metrics cần tạo/forward**: `queue_depth`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`; dashboard phụ có thể đo DLQ/fallback counters.
 
 ---
@@ -57,7 +57,7 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
 | Test type | Tool | Coverage / Scope |
 |---|---|---|
 | Unit test | pytest / go test | `<X%>` - chưa có số liệu, cần bổ sung từ CI report |
-| Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger-service` → collector/app remote_write → AMP) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `kyc-worker` → AI/Fallback Engine → Amazon DynamoDB) |
+| Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger` → collector/app remote_write → AMP) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `fraud-detector` → AI/Fallback Engine → Amazon DynamoDB) |
 | E2E test | k6 (4 scenario script, xem §3.5) | SC-01 Gradual Drift, SC-02 Sudden Spike, SC-03 Slow Leak, SC-04 Noisy Baseline & AI Down |
 | Load test | k6 (`stages` cho SC-01/03, `ramping-arrival-rate` cho SC-02) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target synthetic có thể scale down trong sandbox tùy ngân sách |
 | Chaos test | Manual + k6 injected fault | 4 kịch bản: Gradual Drift, Sudden Spike, Slow Leak (memory), AI Down/Fallback |
@@ -69,14 +69,14 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
 | SLO | Target | Measured | Window | Pass/Fail |
 |---|---|---|---|---|
 | API availability | ≥ 99.5% | `<X%>` | 2 weeks build period | `<✓/✗>` |
-| P99 latency (ledger-service / payment-gateway) | < 350ms (SLA cứng theo SC-01/02) | `<Xms>` | Rolling 60s trong test window | `<✓/✗>` |
+| P99 latency (ledger / payment-gw) | < 350ms (SLA cứng theo SC-01/02) | `<Xms>` | Rolling 60s trong test window | `<✓/✗>` |
 | Error rate (5xx, SC-02 spike) | < 5% | `<X%>` | Rolling 30s tại peak | `<✓/✗>` |
 | Budget / cost guard | Platform estimate < $200/month before buffer | `<X USD>` | Full-month estimate + W12 test window actual | `<✓/✗>` |
 
 ### 2.1 SLO breach analysis
 
 - Cost guard dùng policy platform 50/80/100 của `$200/month`: 50% alert only, 80% alert + manual review/runbook, 100% emergency breaker cho `prediction-worker` và `ai-engine` only. Không dùng ngưỡng scenario-local làm SLO chính thức.
-- Nếu `ledger_p99_latency_ms` vượt 350ms liên tục ≥ 60s ở SC-01, root cause nghi vấn ưu tiên: AMP remote-write/query backpressure (ledger-service ghi metric vào AMP) hoặc ECS Task CPU chạm ngưỡng 85%.
+- Nếu `ledger_p99_latency_ms` vượt 350ms liên tục ≥ 60s ở SC-01, root cause nghi vấn ưu tiên: AMP remote-write/query backpressure (ledger ghi metric vào AMP) hoặc ECS Task CPU chạm ngưỡng 85%.
 
 ### 2.2 TF4 KPI Mapping
 
@@ -102,9 +102,9 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
   - SC-03 Slow Leak: soak 800 RPS liên tục trong 2 tiếng
   - SC-04 Noisy Baseline: răng cưa 100 → 2,000 RPS liên tục
 - **Tenants/targets simulated**:
-  - `ledger-service` (3 Tasks, 1 vCPU / 2 GB RAM)
-  - `payment-gateway` (2 Tasks, 4 vCPU / 8 GB RAM)
-  - `kyc-worker` (5 Tasks, 2 vCPU / 4 GB RAM)
+  - `ledger` (3 Tasks, 1 vCPU / 2 GB RAM)
+  - `payment-gw` (2 Tasks, 4 vCPU / 8 GB RAM)
+  - `fraud-detector` (5 Tasks, 2 vCPU / 4 GB RAM)
 - **Tool**: k6, executor `ramping-arrival-rate` (đã tối ưu hóa để kiểm soát RPS thực tế)
 
 ### 3.2 Results
@@ -122,23 +122,33 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
 
 > **Lưu ý:** Đây là **hypothesis thiết kế** dựa trên kinh nghiệm và pattern kiến trúc, chưa phải kết quả đo thực tế. Cần verify sau khi chạy W12.
 
-- **SC-01 (hypothesis)**: Độ trễ ghi (RemoteWrite Latency) hoặc query của AMP có thể tăng dưới áp lực backpressure/cardinality khi `ledger-service` ghi lượng lớn — cần quan sát CloudWatch metric trong W12.
-- **SC-02 (hypothesis)**: Public ALB ingest path hoặc ECS Service Connect proxy/task headroom có thể thành bottleneck khi `payment-gateway` gặp tải burst — cần đo thực tế thời gian scale-out và proxy CPU/memory.
-- **SC-03 (hypothesis)**: `ledger-service` có thể có memory/thread leak không giải phóng sau GC — nguy cơ OOM ước tính ~4.2 tiếng, cần soak test thực tế xác nhận.
+- **SC-01 (hypothesis)**: Độ trễ ghi (RemoteWrite Latency) hoặc query của AMP có thể tăng dưới áp lực backpressure/cardinality khi `ledger` ghi lượng lớn — cần quan sát CloudWatch metric trong W12.
+- **SC-02 (hypothesis)**: Public ALB ingest path hoặc ECS Service Connect proxy/task headroom có thể thành bottleneck khi `payment-gw` gặp tải burst — cần đo thực tế thời gian scale-out và proxy CPU/memory.
+- **SC-03 (hypothesis)**: `ledger` có thể có memory/thread leak không giải phóng sau GC — nguy cơ OOM ước tính ~4.2 tiếng, cần soak test thực tế xác nhận.
 - **SC-04 (hypothesis)**: AI timeout vượt Worker hard limit 2,000ms có thể làm tắc nghẽn SQS và đẩy message xuống DLQ — cần verify Fallback Engine kích hoạt đúng ngưỡng.
 
 ### 3.4 Infrastructure prerequisites (Đồng bộ Architecture v1.0)
 
 | ECS Service | Task CPU / RAM | Task Count | Ghi chú |
 |---|---|---|---|
-| `ledger-service` mock fixture | 1 vCPU / 2 GB RAM | 3 Tasks trong test window | ECS Auto-scaling **disabled** với SC-01, SC-03; không nằm trong monthly platform estimate |
-| `payment-gateway` mock fixture | 4 vCPU / 8 GB RAM | 2 Tasks trong test window | Rate limiter **disabled** tại ALB để đo raw capacity trong SC-02; không nằm trong monthly platform estimate |
-| `kyc-worker` mock fixture | 2 vCPU / 4 GB RAM | 5 Tasks trong test window | SQS visibility timeout = 30s; AI endpoint mock-timeout cho SC-04; không nằm trong monthly platform estimate |
+| `ledger` mock fixture | 1 vCPU / 2 GB RAM | 3 Tasks trong test window | ECS Auto-scaling **disabled** với SC-01, SC-03; không nằm trong monthly platform estimate |
+| `payment-gw` mock fixture | 4 vCPU / 8 GB RAM | 2 Tasks trong test window | Rate limiter **disabled** tại ALB để đo raw capacity trong SC-02; không nằm trong monthly platform estimate |
+| `fraud-detector` mock fixture | 2 vCPU / 4 GB RAM | 5 Tasks trong test window | SQS visibility timeout = 30s; AI endpoint mock-timeout cho SC-04; không nằm trong monthly platform estimate |
 | k6 Runner | 8 vCPU / 16 GB RAM | 1 EC2 riêng | Tách khỏi ECS Cluster để tránh rủi ro noisy neighbor |
 
 ### 3.5 Khung k6 Load Script Skeletons (Đạt tiêu chí: Sẵn sàng cho W12 Build)
 
-#### SC-01 — Gradual Drift Configuration (ledger-service)
+> **Cập nhật W12:** Các kịch bản k6 giờ đã được triển khai thành file thực tế trong `tests/k6/` thay vì inline skeleton dưới đây:
+> - `sc01_gradual_drift.js` — SC-01 Gradual Drift (ledger, ramp 200→1500 RPS)
+> - `sc02_spike.js` — SC-02 Sudden Spike (payment-gw, burst 4500 RPS)
+> - `sc03_slow_leak.js` — SC-03 Slow Leak (ledger, soak 800 RPS)
+> - `sc04_noisy_baseline.js` — SC-04 Noisy Baseline (fraud-detector, sawtooth 100→2000 RPS)
+>
+> Tất cả script dùng endpoint `POST /v1/ingest`, payload `TelemetryPayload` (ts, tenant_id, service_id, metric_type, value, labels), labels low-cardinality, biến môi trường `TELEMETRY_API_HOST`. Chạy: `k6 run tests/k6/<script>.js -e TELEMETRY_API_HOST=<host>`.
+>
+> **Inline skeletons cũ (giữ lại để tham khảo thiết kế gốc):**
+
+#### SC-01 — Gradual Drift Configuration (ledger)
 
 ```javascript
 import http from 'k6/http';
@@ -162,7 +172,7 @@ export const options = {
 export default function () {
   const res = http.post(
     'http://<public-alb-dns>/v1/ingest',
-    JSON.stringify({ tenant_id: 'tenant-001', service_id: 'ledger-service', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 100 }),
+    JSON.stringify({ tenant_id: 'tenant-001', service_id: 'ledger', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 100 }),
     { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-01' } }
   );
   p99Latency.add(res.timings.duration);
@@ -171,7 +181,7 @@ export default function () {
 }
 ```
 
-#### SC-02 — Sudden Spike Configuration (payment-gateway)
+#### SC-02 — Sudden Spike Configuration (payment-gw)
 
 ```javascript
 import http from 'k6/http';
@@ -201,7 +211,7 @@ export const options = {
 };
 
 export default function () {
-  const payload = JSON.stringify({ tenant_id: 'tenant-001', service_id: 'payment-gateway', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 1000 });
+  const payload = JSON.stringify({ tenant_id: 'tenant-001', service_id: 'payment-gw', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 1000 });
   const params  = { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-02' } };
   const res = http.post('http://<public-alb-dns>/v1/ingest', payload, params);
   check(res, { 'status not 5xx': (r) => r.status < 500 });
@@ -216,14 +226,14 @@ export default function () {
   ```bash
   aws ecs update-service \
     --cluster foresight-staging \
-    --service ledger-service \
+    --service ledger \
     --force-new-deployment \
     --region us-east-1
   ```
 - **Purge Hàng đợi (SC-04):** Xóa sạch tin nhắn tồn đọng trên SQS và DLQ trước khi chạy kịch bản tiếp theo:
   ```bash
-  aws sqs purge-queue --queue-url $KYC_SQS_URL  --region us-east-1
-  aws sqs purge-queue --queue-url $KYC_DLQ_URL  --region us-east-1
+  aws sqs purge-queue --queue-url $FRAUD_DETECTOR_SQS_URL  --region us-east-1
+  aws sqs purge-queue --queue-url $FRAUD_DETECTOR_DLQ_URL  --region us-east-1
   ```
 
 ---
@@ -253,8 +263,8 @@ export default function () {
 |---|---|---|
 | Tenant A reads Tenant B data via API | Inject token tenant A, request tenant B evidence/query | ❌ Should fail with 403 - `<chưa chạy>` |
 | Cross-tenant queue contamination | Tenant A enqueue SQS với `tenant_id` của B (liên quan flow SC-04) | Audit log (DynamoDB) catches mismatch - `<chưa chạy>` |
-| AMP label isolation | Query AMP series của tenant khác qua API trên `ledger-service` | Should return empty / error - `<chưa chạy>` |
-| DB/DLQ row-level isolation | Inspect SQS DLQ messages của `kyc-worker` sau SC-04, kiểm tra `tenant_id` | Không lẫn dữ liệu giữa tenant - `<chưa chạy>` |
+| AMP label isolation | Query AMP series của tenant khác qua API trên `ledger` | Should return empty / error - `<chưa chạy>` |
+| DB/DLQ row-level isolation | Inspect SQS DLQ messages của `fraud-detector` sau SC-04, kiểm tra `tenant_id` | Không lẫn dữ liệu giữa tenant - `<chưa chạy>` |
 
 > **All tests must pass** - any leak = SEV1 incident.
 
