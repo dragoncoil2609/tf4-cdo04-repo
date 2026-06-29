@@ -54,7 +54,9 @@ variable "github_repo" {
 }
 
 variable "github_allowed_feature_branches" {
-  description = "Optional temporary feature branches allowed to assume the deploy role for smoke testing; keep empty by default"
+  description = "Temporary feature branches allowed to assume the deploy role for smoke testing"
   type        = list(string)
-  default     = []
+  default = [
+    "An_CDO-W12-002-github-oidc"
+  ]
 }
