@@ -4,13 +4,21 @@
 # Vinh-owned scope kept here:
 #   - CPOA-41: ECS Cluster + Service Connect namespace
 #   - CPOA-46: Telemetry API ECS task definition
-#   - CPOA-50: ECS autoscaling policy placeholder (not implemented yet)
+#   - CPOA-45: ECS service deployment circuit breaker
+#   - CPOA-78: ECR repos and lifecycle policies
+# -----------------------------------------------------------------------------
+#
+# Resources owned by teammates and implemented in sibling .tf files:
+#   - CPOA-47: Prediction Worker task definition (prediction_worker.tf)
+#   - CPOA-48: AI Engine task definition (ai_engine.tf)
+#   - CPOA-49: Service Connect AI route (ai_engine.tf)
+#   - CPOA-50: ECS autoscaling policies (autoscaling.tf)
+#   - CPOA-51: AI baseline S3 access (ai_engine.tf)
 # -----------------------------------------------------------------------------
 
 locals {
   cluster_name                = "${var.project_name}-${var.environment}-cluster"
   service_connect_namespace   = "${var.project_name}-${var.environment}.local"
-  log_group_prefix            = "/ecs/${var.project_name}-${var.environment}"
   telemetry_api_task_cpu      = 512
   telemetry_api_task_memory   = 1024
   telemetry_api_container_url = var.telemetry_api_image_tag
@@ -40,7 +48,7 @@ resource "aws_service_discovery_http_namespace" "main" {
 # Telemetry API task definition support (CPOA-46)
 # -----------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "telemetry_api" {
-  name              = "${local.log_group_prefix}-telemetry-api"
+  name              = "/ecs/telemetry-api"
   retention_in_days = 14
 }
 
@@ -176,6 +184,12 @@ resource "aws_ecs_service" "telemetry_api" {
     assign_public_ip = false
   }
 
+  load_balancer {
+    target_group_arn = aws_lb_target_group.telemetry_api.arn
+    container_name   = "telemetry-api"
+    container_port   = var.app_port
+  }
+
   lifecycle {
     ignore_changes = [desired_count]
   }
@@ -219,33 +233,6 @@ resource "aws_ecr_lifecycle_policy" "services" {
     ]
   })
 }
-
-# -----------------------------------------------------------------------------
-# TODO (CPOA-47): Prediction Worker task definition -- owned by Truong An.
-# Placeholder only; no Worker task/service is implemented in Vinh scope.
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# TODO (CPOA-48): AI Engine task definition -- owned by Truong An.
-# Placeholder only; no AI task/service is implemented in Vinh scope.
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# TODO (CPOA-49): ECS Service Connect config for AI -- owned by Truong An.
-# Placeholder only; Worker -> AI Service Connect service/client_alias belongs here.
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# TODO (CPOA-44): EventBridge Scheduler -- owned by Truong An.
-# Placeholder only; scheduler role, schedule, retry policy, and DLQ wiring are not
-# implemented in Vinh-owned Terraform slice.
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# TODO (CPOA-50): ECS Autoscaling Policy -- Nguyễn Thành Vinh.
-# Chưa triển khai. Add aws_appautoscaling_target and aws_appautoscaling_policy
-# after ECS services are owned/defined by each service assignee.
-# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # ECR repos, deploy wiring, ALB/service rollout, and smoke deployment (CPOA-78)

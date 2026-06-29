@@ -2,7 +2,8 @@
 # Security Groups -- CDO-W12-004
 #
 # Security boundary:
-# - Public ALB exposes only HTTPS ingress.
+# - Public ALB exposes HTTP (port 80) ingress for current scope.
+#   HTTPS/ACM is deferred to team assignment; do NOT add HTTPS here.
 # - Telemetry API only accepts traffic from ALB.
 # - Prediction Worker has no public inbound.
 # - AI Engine only accepts private traffic from Worker/Service Connect path.
@@ -10,7 +11,7 @@
 
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-alb-sg"
-  description = "Public ALB security group for /v1/ingest"
+  description = "Public ALB security group for /v1/ingest (HTTP)"
   vpc_id      = aws_vpc.main.id
 
   tags = merge(var.tags, {
@@ -19,14 +20,14 @@ resource "aws_security_group" "alb" {
   })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "alb_https_from_public" {
+resource "aws_vpc_security_group_ingress_rule" "alb_http_from_public" {
   security_group_id = aws_security_group.alb.id
-  description       = "Allow HTTPS from public/demo clients"
+  description       = "Allow HTTP from public/demo clients"
 
   cidr_ipv4   = var.alb_ingress_cidr
-  from_port   = 443
+  from_port   = 80
   ip_protocol = "tcp"
-  to_port     = 443
+  to_port     = 80
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_telemetry_api" {

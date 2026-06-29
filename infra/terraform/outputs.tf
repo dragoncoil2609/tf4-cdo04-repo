@@ -89,6 +89,21 @@ output "alb_sg_id" {
   value       = module.networking.alb_sg_id
 }
 
+output "alb_dns_name" {
+  description = "ALB public DNS name"
+  value       = module.compute.alb_dns_name
+}
+
+output "alb_zone_id" {
+  description = "ALB hosted zone ID"
+  value       = module.compute.alb_zone_id
+}
+
+output "alb_listener_arn" {
+  description = "ALB HTTP listener ARN"
+  value       = module.compute.alb_listener_arn
+}
+
 output "telemetry_api_sg_id" {
   description = "Security group ID for the Telemetry API ECS service"
   value       = module.networking.telemetry_api_sg_id
@@ -174,4 +189,49 @@ output "prediction_worker_service_name" {
 output "prediction_worker_log_group_name" {
   description = "CloudWatch log group for Prediction Worker"
   value       = module.compute.prediction_worker_log_group_name
+}
+
+output "telemetry_api_service_name" {
+  description = "Telemetry API ECS service name"
+  value       = module.compute.telemetry_api_service_name
+}
+
+output "ai_service_name" {
+  description = "AI Engine ECS service name"
+  value       = module.compute.ai_service_name
+}
+
+output "ai_engine_task_definition_arn" {
+  description = "AI Engine ECS task definition ARN"
+  value       = module.compute.ai_engine_task_definition_arn
+}
+
+output "ai_engine_log_group_name" {
+  description = "CloudWatch log group for AI Engine"
+  value       = module.compute.ai_engine_log_group_name
+}
+
+output "telemetry_api_alb_p99_step_policy_arn" {
+  description = "Telemetry API ALB p99 step scaling policy ARN (for observability alarm)"
+  value       = module.compute.telemetry_api_alb_p99_step_policy_arn
+}
+
+output "ai_engine_latency_step_policy_arn" {
+  description = "AI Engine latency step scaling policy ARN (for observability alarm)"
+  value       = module.compute.ai_engine_latency_step_policy_arn
+}
+
+output "prediction_queue_name" {
+  description = "SQS prediction queue name"
+  value       = module.data.prediction_queue_name
+}
+
+output "prediction_queue_dlq_name" {
+  description = "SQS prediction DLQ name"
+  value       = module.data.prediction_queue_dlq_name
+}
+
+output "operational_alerts_topic_arn" {
+  description = "SNS topic ARN for operational CloudWatch alarms"
+  value       = module.observability.operational_alerts_topic_arn
 }

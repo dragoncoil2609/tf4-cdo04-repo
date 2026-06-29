@@ -56,10 +56,22 @@ module "compute" {
   amp_workspace_arn         = module.data.amp_workspace_arn
   amp_query_endpoint        = module.data.amp_query_endpoint
 
-  prediction_queue_url = module.data.prediction_queue_url
-  prediction_queue_arn = module.data.prediction_queue_arn
+  prediction_queue_url      = module.data.prediction_queue_url
+  prediction_queue_arn      = module.data.prediction_queue_arn
+  prediction_queue_name     = module.data.prediction_queue_name
+  prediction_queue_dlq_name = module.data.prediction_queue_dlq_name
 
   telemetry_api_image_tag = var.telemetry_api_image_tag
+
+  vpc_id            = module.networking.vpc_id
+  public_subnet_ids = module.networking.public_subnet_ids
+  alb_sg_id         = module.networking.alb_sg_id
+
+  app_port                = var.app_port
+  prediction_worker_image = var.prediction_worker_image_tag
+  ai_engine_image         = var.ai_engine_image_tag
+  ai_engine_sg_id         = module.networking.ai_engine_sg_id
+  evidence_bucket_name    = module.data.evidence_bucket_name
 
   private_subnet_ids      = module.networking.private_subnet_ids
   telemetry_api_sg_id     = module.networking.telemetry_api_sg_id
@@ -85,8 +97,6 @@ module "compute" {
 # -----------------------------------------------------------------------------
 # TODO (CPOA-40): Security Groups module -- owned by Truong An.
 # TODO (CPOA-44): EventBridge Scheduler -- owned by Truong An.
-# TODO (CPOA-47/CPOA-48/CPOA-49/CPOA-51): Worker/AI task definitions,
-# Service Connect AI route, and AI baseline S3 access -- owned by Truong An.
 # TODO (CPOA-78): CI/CD & Deployment -- owned by Nguyen Huy Hoang.
 # TODO (CPOA-88): Observability & Testing -- owned by Nguyen Quach Khang Ninh.
 # TODO (CPOA-98): Cost & Operations -- owned by Huy Tạ Hoàng.
@@ -104,4 +114,18 @@ module "observability" {
   ai_service_name     = module.compute.ai_service_name
   worker_service_name = module.compute.worker_service_name
   alert_email         = var.alert_email
+
+  telemetry_api_service_name = module.compute.telemetry_api_service_name
+  ai_engine_service_name     = module.compute.ai_service_name
+
+  alb_arn_suffix                        = module.compute.alb_arn_suffix
+  telemetry_api_target_group_arn_suffix = module.compute.telemetry_api_target_group_arn_suffix
+
+  prediction_queue_name     = module.data.prediction_queue_name
+  prediction_queue_dlq_name = module.data.prediction_queue_dlq_name
+
+  telemetry_api_alb_p99_scale_out_policy_arn = module.compute.telemetry_api_alb_p99_step_policy_arn
+  prediction_worker_scale_out_policy_arn     = module.compute.prediction_worker_scale_out_policy_arn
+  prediction_worker_scale_in_policy_arn      = module.compute.prediction_worker_scale_in_policy_arn
+  ai_engine_latency_scale_out_policy_arn     = module.compute.ai_engine_latency_step_policy_arn
 }

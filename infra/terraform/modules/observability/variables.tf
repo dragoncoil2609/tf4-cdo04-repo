@@ -53,3 +53,63 @@ variable "worker_service_name" {
   description = "Prediction Worker ECS service name"
   type        = string
 }
+
+# -----------------------------------------------------------------------------
+# Operational alarm inputs (CPOA-88 observability wiring)
+# -----------------------------------------------------------------------------
+
+variable "telemetry_api_service_name" {
+  description = "ECS service name for the Telemetry API (CloudWatch dimensions)"
+  type        = string
+}
+
+variable "ai_engine_service_name" {
+  description = "ECS service name for the AI Engine (CloudWatch dimensions)"
+  type        = string
+}
+
+variable "alb_arn_suffix" {
+  description = "ALB ARN suffix for CloudWatch dimensions (empty if ALB not yet deployed)"
+  type        = string
+  default     = ""
+}
+
+variable "telemetry_api_target_group_arn_suffix" {
+  description = "Target group ARN suffix for ALB CloudWatch dimensions (empty if not yet deployed)"
+  type        = string
+  default     = ""
+}
+
+variable "prediction_queue_name" {
+  description = "SQS prediction queue name (CloudWatch dimension)"
+  type        = string
+}
+
+variable "prediction_queue_dlq_name" {
+  description = "SQS prediction DLQ name (CloudWatch dimension)"
+  type        = string
+}
+
+variable "telemetry_api_alb_p99_scale_out_policy_arn" {
+  description = "Step scaling policy ARN for ALB p99 scale-out (empty if not yet deployed)"
+  type        = string
+  default     = ""
+}
+
+variable "prediction_worker_scale_out_policy_arn" {
+  description = "Step scaling policy ARN for prediction worker scale-out (empty if not yet deployed)"
+  type        = string
+  default     = ""
+}
+
+variable "prediction_worker_scale_in_policy_arn" {
+  description = "Step scaling policy ARN for prediction worker scale-in (empty if not yet deployed)"
+  type        = string
+  default     = ""
+}
+
+variable "ai_engine_latency_scale_out_policy_arn" {
+  description = "Step scaling policy ARN for AI Engine latency scale-out (empty if not yet deployed)"
+  type        = string
+  default     = ""
+}

@@ -14,7 +14,19 @@ az_count = 2
 # Replace after Telemetry API image exists.
 telemetry_api_image_tag = "MOCK_PLACEHOLDER_TELEMETRY_API:latest"
 
+# CPOA-47: Prediction Worker task definition image.
+# Replace after Prediction Worker image exists.
+prediction_worker_image_tag = "MOCK_PLACEHOLDER_PREDICTION_WORKER:latest"
+
+# CPOA-48: AI Engine task definition image.
+# Replace after AI Engine image exists.
+ai_engine_image_tag = "MOCK_PLACEHOLDER_AI_ENGINE:latest"
+
+# Application container port for Telemetry API and AI Engine.
+app_port = 8080
+
 # TODO (CPOA-40): ALB ingress CIDRs/security groups belong to Truong An.
-# TODO (CPOA-47/CPOA-48): Worker/AI image vars belong to Truong An.
 # TODO (CPOA-78): deployment/certificate variables belong to Nguyen Huy Hoang.
+# Note: Current scope is HTTP ALB (no HTTPS/ACM). Certificate and HTTPS listener
+# wiring are deferred to team assignment scope.
 # TODO (CPOA-88/CPOA-98): alert/budget variables belong to Ninh/Huy.

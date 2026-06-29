@@ -1,6 +1,8 @@
 import os
 import json
 import time
+from datetime import datetime, timezone
+
 import boto3
 import requests
 from botocore.exceptions import ClientError
@@ -11,6 +13,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL")
 AMP_QUERY_ENDPOINT = os.getenv("AMP_QUERY_ENDPOINT")  # e.g., https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxx
 AI_ENGINE_ENDPOINT = os.getenv("AI_ENGINE_ENDPOINT", "http://ai-engine.cdo-services/v1/predict")
+AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "2"))
 DYNAMODB_AUDIT_TABLE = os.getenv("DYNAMODB_AUDIT_TABLE", "cdo04-audit-logs")
 DYNAMODB_POLICY_TABLE = os.getenv("DYNAMODB_POLICY_TABLE", "cdo04-service-policies")
 
@@ -40,7 +43,8 @@ def query_amp_metrics(tenant_id, service_name, duration_minutes=120):
     # Query PromQL lọc theo Tenant và Service
     query = f'http_requests_total{{tenant_id="{tenant_id}", service="{service_name}"}}'
     
-    url = f"{AMP_QUERY_ENDPOINT}/api/v1/query_range"
+    amp_base_url = AMP_QUERY_ENDPOINT.rstrip("/").removesuffix("/api/v1/query")
+    url = f"{amp_base_url}/api/v1/query_range"
     params = {
         "query": query,
         "start": start_time,
@@ -76,11 +80,15 @@ def save_audit_log(prediction_id, tenant_id, service_name, decision, prediction_
     Lưu quyết định dự báo vào DynamoDB Audit Logs Table.
     Ném lỗi nếu ghi thất bại để tránh xóa tin nhắn SQS trước khi audit thành công.
     """
+    now = datetime.now(timezone.utc)
     item = {
-        "prediction_id": prediction_id,
         "tenant_id": tenant_id,
+        "service_time": now.isoformat(),
+        "prediction_status": "complete",
+        "prediction_timestamp": now.isoformat(),
+        "prediction_id": prediction_id,
         "service_name": service_name,
-        "timestamp": int(time.time()),
+        "timestamp": int(now.timestamp()),
         "decision": decision,
         "prediction_source": prediction_source,
         "score": str(score)
@@ -130,7 +138,7 @@ def process_job(job_data):
     if metrics:
         try:
             payload = {"tenant_id": tenant_id, "service_name": service_name, "metrics": metrics}
-            response = requests.post(AI_ENGINE_ENDPOINT, json=payload, timeout=5)
+            response = requests.post(AI_ENGINE_ENDPOINT, json=payload, timeout=AI_TIMEOUT_SECONDS)
             
             if response.status_code == 200:
                 result = response.json()
