@@ -152,6 +152,37 @@ resource "aws_ecs_task_definition" "telemetry_api" {
 }
 
 # -----------------------------------------------------------------------------
+# Telemetry API ECS Service with Circuit Breaker Rollback (CPOA-45/CPOA-78)
+# -----------------------------------------------------------------------------
+resource "aws_ecs_service" "telemetry_api" {
+  name            = "${var.project_name}-${var.environment}-telemetry-api"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.telemetry_api.arn
+  desired_count   = 2
+  launch_type     = "FARGATE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  deployment_controller {
+    type = "ECS"
+  }
+
+  network_configuration {
+    subnets          = var.private_subnet_ids
+    security_groups  = [var.telemetry_api_sg_id]
+    assign_public_ip = false
+  }
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+}
+
+
+# -----------------------------------------------------------------------------
 # TODO (CPOA-47): Prediction Worker task definition -- owned by Truong An.
 # Placeholder only; no Worker task/service is implemented in Vinh scope.
 # -----------------------------------------------------------------------------
@@ -179,6 +210,20 @@ resource "aws_ecs_task_definition" "telemetry_api" {
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# TODO (CPOA-78/CPOA-81): ECR repos, deploy wiring, ALB/service rollout, and
-# smoke deployment pipeline are CI/CD/deployment-owned work, not Vinh scope.
+# ECR repos, deploy wiring, ALB/service rollout, and smoke deployment (CPOA-78)
 # -----------------------------------------------------------------------------
+resource "aws_ecr_repository" "services" {
+  for_each             = toset(["telemetry_api", "prediction_worker", "ai_engine"])
+  name                 = "foresight-lens/${each.key}"
+  image_tag_mutability = "IMMUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-${each.key}-ecr"
+    Purpose = "ecr-repository"
+  })
+}
+

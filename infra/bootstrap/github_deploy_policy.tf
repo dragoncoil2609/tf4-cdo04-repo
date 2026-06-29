@@ -217,6 +217,57 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       ]
     }
   }
+
+  statement {
+    sid    = "AllowTerraformStateAccess"
+    effect = "Allow"
+
+    actions = [
+      "s3:ListBucket",
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject"
+    ]
+
+    resources = [
+      "arn:aws:s3:::tf4-cdo04-terraform-state-*",
+      "arn:aws:s3:::tf4-cdo04-terraform-state-*/*"
+    ]
+  }
+
+  statement {
+    sid    = "AllowECRPushAccess"
+    effect = "Allow"
+
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage"
+    ]
+
+    resources = [
+      "arn:aws:ecr:*:*:repository/foresight-lens/*"
+    ]
+  }
+
+  statement {
+    sid    = "AllowSSMAndServiceDiscoveryAccess"
+    effect = "Allow"
+
+    actions = [
+      "ssm:*",
+      "servicediscovery:*"
+    ]
+
+    resources = [
+      "arn:aws:ssm:*:*:parameter/tf4-cdo04/*",
+      "*"
+    ]
+  }
 }
 
 resource "aws_iam_policy" "github_deploy_policy" {

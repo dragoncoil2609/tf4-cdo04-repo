@@ -49,3 +49,21 @@ variable "telemetry_api_image_tag" {
 
 # TODO (CPOA-40/CPOA-47/CPOA-48/CPOA-49/CPOA-44): add SG, Worker, AI,
 # Service Connect, ALB, Scheduler, and service variables in assignee-owned work.
+
+variable "private_subnet_ids" {
+  description = "List of private subnet IDs for ECS tasks"
+  type        = list(string)
+}
+
+variable "telemetry_api_sg_id" {
+  description = "Security group ID for the Telemetry API ECS service"
+  type        = string
+}
+
+variable "tags" {
+  description = "A map of tags to add to all resources"
+  type        = map(string)
+  default     = {}
+}
+
+
