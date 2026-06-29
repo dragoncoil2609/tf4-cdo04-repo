@@ -116,7 +116,7 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/health"
     -Body '{
       "ts": "2026-06-25T10:30:00Z",
       "tenant_id": "demo-tenant-001",
-      "service_id": "payment-gateway",
+      "service_id": "payment-gw",
       "metric_type": "api_latency_ms",
       "value": 450.5,
       "labels": { "region": "us-east-1" }
@@ -131,7 +131,7 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/health"
         -Body '{
           "ts": "2026-06-25T10:30:00Z",
           "tenant_id": "demo-tenant-001",
-          "service_id": "payment-gateway",
+          "service_id": "payment-gw",
           "metric_type": "random_metric",
           "value": 100,
           "labels": { "region": "us-east-1" }

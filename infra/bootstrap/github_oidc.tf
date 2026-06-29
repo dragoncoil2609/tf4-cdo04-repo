@@ -14,6 +14,7 @@ locals {
     [
       "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/main",
       "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/develop",
+      "repo:${var.github_owner}/${var.github_repo}:pull_request",
       "repo:${var.github_owner}/${var.github_repo}:environment:staging",
       "repo:${var.github_owner}/${var.github_repo}:environment:prod"
     ],
@@ -61,11 +62,9 @@ data "aws_iam_policy_document" "github_oidc_trust" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "repo:${var.github_owner}/${var.github_repo}:*"
-      ]
+      values   = local.github_oidc_allowed_subjects
     }
   }
 }
