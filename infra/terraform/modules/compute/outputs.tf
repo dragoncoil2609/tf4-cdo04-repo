@@ -57,3 +57,27 @@ output "worker_service_name" {
   description = "Prediction Worker ECS service name"
   value       = aws_ecs_service.prediction_worker.name
 }
+output "ai_engine_task_definition_arn" {
+  description = "AI Engine ECS task definition ARN"
+  value       = aws_ecs_task_definition.ai_engine.arn
+}
+
+output "ai_engine_task_role_arn" {
+  description = "AI Engine ECS task role ARN"
+  value       = aws_iam_role.ai_engine_task_role.arn
+}
+
+output "ai_engine_service_name" {
+  description = "AI Engine ECS service name"
+  value       = aws_ecs_service.ai_engine.name
+}
+
+output "ai_engine_log_group_name" {
+  description = "CloudWatch log group for AI Engine"
+  value       = aws_cloudwatch_log_group.ai_engine.name
+}
+
+output "ai_engine_autoscaling_target_resource_id" {
+  description = "Application Auto Scaling target resource ID for AI Engine"
+  value       = aws_appautoscaling_target.ai_engine.resource_id
+}

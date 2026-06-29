@@ -170,3 +170,67 @@ variable "ai_sigv4_config_secret_arn" {
   description = "Secrets Manager ARN for AI SigV4 config"
   type        = string
 }
+# -----------------------------------------------------------------------------
+# AI Engine variables -- CDO-W12-011
+# -----------------------------------------------------------------------------
+
+variable "ai_engine_sg_id" {
+  description = "Security group ID for AI Engine"
+  type        = string
+}
+
+variable "ai_engine_image" {
+  description = "Container image for AI Engine"
+  type        = string
+
+  # Placeholder image for infrastructure validation/demo.
+  # Replace with real AI Engine image once artifact is ready.
+  default = "public.ecr.aws/docker/library/python:3.11-slim"
+}
+
+variable "ai_engine_desired_count" {
+  description = "Desired count for AI Engine ECS service"
+  type        = number
+  default     = 2
+}
+
+variable "ai_engine_min_capacity" {
+  description = "Minimum autoscaling capacity for AI Engine"
+  type        = number
+  default     = 2
+}
+
+variable "ai_engine_max_capacity" {
+  description = "Maximum autoscaling capacity for AI Engine"
+  type        = number
+  default     = 4
+}
+
+variable "ai_engine_autoscale_cpu_target" {
+  description = "Target CPU utilization for AI Engine autoscaling"
+  type        = number
+  default     = 70
+}
+
+variable "baseline_s3_bucket_name" {
+  description = "S3 bucket name that stores AI baseline files"
+  type        = string
+}
+
+variable "baseline_s3_prefix" {
+  description = "S3 prefix that stores AI baseline files"
+  type        = string
+  default     = "baselines/"
+}
+
+variable "ai_engine_ssm_parameter_arns" {
+  description = "SSM parameter ARNs the AI Engine can read"
+  type        = list(string)
+  default     = ["*"]
+}
+
+variable "ai_engine_secret_arns" {
+  description = "Secrets Manager secret ARNs the AI Engine can read"
+  type        = list(string)
+  default     = ["*"]
+}

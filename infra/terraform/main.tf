@@ -80,7 +80,22 @@ module "compute" {
   ai_service_name         = "ai-engine"
   ai_predict_path         = "/v1/predict"
   lookback_window_minutes = 120
+
+  ai_engine_sg_id = module.networking.ai_engine_sg_id
+
+  baseline_s3_bucket_name = module.data.evidence_bucket_name
+  baseline_s3_prefix      = "baselines/"
+
+  ai_engine_secret_arns = [
+    module.data.ai_sigv4_config_secret_arn
+  ]
+
+  ai_engine_desired_count        = 2
+  ai_engine_min_capacity         = 2
+  ai_engine_max_capacity         = 4
+  ai_engine_autoscale_cpu_target = 70
 }
+
 
 # -----------------------------------------------------------------------------
 # TODO (CPOA-40): Security Groups module -- owned by Truong An.
@@ -101,7 +116,7 @@ module "observability" {
   tags                = local.common_tags
   ecs_cluster_name    = module.compute.ecs_cluster_name
   ecs_cluster_arn     = module.compute.ecs_cluster_arn
-  ai_service_name     = module.compute.ai_service_name
-  worker_service_name = module.compute.worker_service_name
+  ai_service_name     = "${var.project_name}-${var.environment}-ai-engine"
+  worker_service_name = "${var.project_name}-${var.environment}-prediction-worker"
   alert_email         = var.alert_email
 }
