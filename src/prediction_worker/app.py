@@ -32,32 +32,51 @@ aws_auth = AWS4Auth(
 
 def query_amp_metrics(tenant_id, service_name, duration_minutes=120):
     """
-    Truy vấn dữ liệu metric lịch sử từ Amazon Managed Prometheus (AMP)
+    TASK: CPOA-101 | CDO-W12-056 - AMP Query Optimization
+    OWNER: Tạ Hoàng Huy
+    
+    Truy vấn tuần tự 7 tín hiệu cốt lõi từ Amazon Managed Prometheus (AMP).
+    Ép buộc filter nhãn tường minh tenant_id và service_id để bảo vệ quota,
+    tránh quét diện rộng gây bùng nổ cardinality.
     """
     end_time = int(time.time())
     start_time = end_time - (duration_minutes * 60)
-    
-    # Query PromQL lọc theo Tenant và Service
-    query = f'http_requests_total{{tenant_id="{tenant_id}", service="{service_name}"}}'
-    
+
+    signals = [
+        "cpu_usage_percent",
+        "memory_usage_percent",
+        "active_connections",
+        "db_connection_pool_pct",
+        "queue_depth",
+        "cache_hit_rate_pct",
+        "api_latency_ms"
+    ]
+
+    combined_metrics = {}
     url = f"{AMP_QUERY_ENDPOINT}/api/v1/query_range"
-    params = {
-        "query": query,
-        "start": start_time,
-        "end": end_time,
-        "step": "60s"  # Lấy mẫu 1 phút/lần
-    }
-    
-    try:
-        response = requests.get(url, auth=aws_auth, params=params, timeout=10)
-        if response.status_code == 200:
-            return response.json().get("data", {}).get("result", [])
-        else:
-            print(f"Lỗi truy vấn AMP: HTTP {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        print(f"Không thể kết nối AMP: {str(e)}")
-        return None
+
+    for signal in signals:
+        # Bảo vệ quota bằng cách lọc tường minh tenant_id và service_id
+        query = f'{signal}{{tenant_id="{tenant_id}", service_id="{service_name}"}}'
+        params = {
+            "query": query,
+            "start": start_time,
+            "end": end_time,
+            "step": "60s"
+        }
+
+        try:
+            print(f"Executing PromQL query: {query}")
+            response = requests.get(url, auth=aws_auth, params=params, timeout=10)
+            if response.status_code == 200:
+                result = response.json().get("data", {}).get("result", [])
+                combined_metrics[signal] = result
+            else:
+                print(f"Lỗi truy vấn AMP cho {signal}: HTTP {response.status_code}")
+        except Exception as e:
+            print(f"Không thể kết nối AMP để truy vấn {signal}: {str(e)}")
+
+    return combined_metrics
 
 def get_static_threshold_fallback(tenant_id, service_name):
     """
