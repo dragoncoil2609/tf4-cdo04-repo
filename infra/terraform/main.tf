@@ -141,4 +141,5 @@ module "observability" {
   prediction_worker_scale_out_policy_arn     = module.compute.prediction_worker_scale_out_policy_arn
   prediction_worker_scale_in_policy_arn      = module.compute.prediction_worker_scale_in_policy_arn
   ai_engine_latency_scale_out_policy_arn     = module.compute.ai_engine_latency_step_policy_arn
+  kms_key_arn                                = module.data.kms_key_arn
 }

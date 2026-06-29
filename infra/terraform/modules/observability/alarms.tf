@@ -393,3 +393,131 @@ resource "aws_cloudwatch_metric_alarm" "ai_engine_running_tasks" {
 
   dimensions = local.ai_engine_ecs_dimensions
 }
+
+# -----------------------------------------------------------------------------
+# TASK: CPOA-102 | CDO-W12-057 - Service Connect proxy cost/headroom check
+# OWNER: Tạ Hoàng Huy
+# -----------------------------------------------------------------------------
+
+locals {
+  telemetry_api_service_name_custom = "${var.project_name}-${var.environment}-telemetry-api"
+  worker_service_name_custom        = var.worker_service_name
+  ai_service_name_custom            = var.ai_service_name
+}
+
+# =============================================================================
+# 1. Telemetry API Alarms (Giám sát tải API hấp thụ telemetry)
+# =============================================================================
+resource "aws_cloudwatch_metric_alarm" "telemetry_api_cpu_high" {
+  alarm_name          = "${var.project_name}-${var.environment}-telemetry-api-cpu-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "Cảnh báo khi Telemetry API CPU utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
+  alarm_actions       = [aws_sns_topic.budget_alert.arn]
+
+  dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = local.telemetry_api_service_name_custom
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "telemetry_api_memory_high" {
+  alarm_name          = "${var.project_name}-${var.environment}-telemetry-api-memory-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "MemoryUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "Cảnh báo khi Telemetry API Memory utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
+  alarm_actions       = [aws_sns_topic.budget_alert.arn]
+
+  dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = local.telemetry_api_service_name_custom
+  }
+}
+
+# =============================================================================
+# 2. Prediction Worker Alarms (Giám sát tải của worker chạy phân tích)
+# =============================================================================
+resource "aws_cloudwatch_metric_alarm" "worker_cpu_high" {
+  alarm_name          = "${var.project_name}-${var.environment}-worker-cpu-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "Cảnh báo khi Prediction Worker CPU utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
+  alarm_actions       = [aws_sns_topic.budget_alert.arn]
+
+  dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = local.worker_service_name_custom
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "worker_memory_high" {
+  alarm_name          = "${var.project_name}-${var.environment}-worker-memory-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "MemoryUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "Cảnh báo khi Prediction Worker Memory utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
+  alarm_actions       = [aws_sns_topic.budget_alert.arn]
+
+  dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = local.worker_service_name_custom
+  }
+}
+
+# =============================================================================
+# 3. AI Engine Alarms (Giám sát tải của AI serving container)
+# =============================================================================
+resource "aws_cloudwatch_metric_alarm" "ai_cpu_high" {
+  alarm_name          = "${var.project_name}-${var.environment}-ai-cpu-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "Cảnh báo khi AI Engine CPU utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
+  alarm_actions       = [aws_sns_topic.budget_alert.arn]
+
+  dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = local.ai_service_name_custom
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "ai_memory_high" {
+  alarm_name          = "${var.project_name}-${var.environment}-ai-memory-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "MemoryUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 85
+  alarm_description   = "Cảnh báo khi AI Engine Memory utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
+  alarm_actions       = [aws_sns_topic.budget_alert.arn]
+
+  dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = local.ai_service_name_custom
+  }
+}

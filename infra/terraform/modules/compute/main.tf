@@ -194,6 +194,15 @@ resource "aws_ecs_service" "telemetry_api" {
     ignore_changes = [desired_count]
   }
 }
+# -----------------------------------------------------------------------------
+# TASK: CPOA-103 | CDO-W12-058 - Retention policies
+# OWNER: Tạ Hoàng Huy
+#
+# DESCRIPTION:
+# Cấu hình chính sách vòng đời ECR:
+# 1. Ưu tiên 1 (Priority 1): Dọn sạch ảnh không tag (untagged) cũ hơn 14 ngày.
+# 2. Ưu tiên 2 (Priority 2): Giữ lại tối đa 10 ảnh gần nhất của bất kỳ tag nào để an toàn cho staging/prod.
+# -----------------------------------------------------------------------------
 resource "aws_ecr_lifecycle_policy" "services" {
   for_each = aws_ecr_repository.services
 
@@ -203,29 +212,25 @@ resource "aws_ecr_lifecycle_policy" "services" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep release images and version tags"
-
+        description  = "Xoa cac anh untagged cu hon 14 ngay truoc de giai phong bo nho"
         selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["release", "v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 50
+          tagStatus     = "untagged"
+          countType     = "sinceImagePushed"
+          countUnit     = "days"
+          countNumber   = 14
         }
-
         action = {
           type = "expire"
         }
       },
       {
         rulePriority = 2
-        description  = "Keep last 30 recent images of any tag status"
-
+        description  = "Sau do, gioi han chi giu toi đa 10 anh co tag gan nhat de an toan cho Production"
         selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 30
+          tagStatus     = "any"
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
         }
-
         action = {
           type = "expire"
         }

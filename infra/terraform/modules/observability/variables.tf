@@ -113,3 +113,8 @@ variable "ai_engine_latency_scale_out_policy_arn" {
   type        = string
   default     = ""
 }
+
+variable "kms_key_arn" {
+  description = "KMS Key ARN for CloudWatch Logs encryption"
+  type        = string
+}
