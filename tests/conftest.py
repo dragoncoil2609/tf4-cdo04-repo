@@ -1,4 +1,4 @@
-"""Bootstrap pytest để import package theo layout src mà không cần cài đặt."""
+"""Bootstrap pytest imports for src-layout packages."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "src"
 
 if str(SRC_DIR) not in sys.path:

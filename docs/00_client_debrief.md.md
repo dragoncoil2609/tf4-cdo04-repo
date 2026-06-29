@@ -41,6 +41,8 @@ Nhóm CDO chọn 3 service tier-1 sau cho demo:
 | `ledger-service`  | Ghi nhận giao dịch/sổ cái, ảnh hưởng tính đúng đắn tài chính | RDS-heavy / DB connection-heavy |
 | `kyc-worker`      | Ảnh hưởng onboarding, xử lý hồ sơ qua queue                  | Queue-heavy                     |
 
+> Implementation ID mapping: `payment-gateway` → `payment-gw`, `ledger-service` → `ledger`, `kyc-worker` → `fraud-detector`. See `contracts/addendum-2026-06.md`.
+
 Ba service này đại diện cho ba dạng capacity risk khác nhau:
 
 * `payment-gateway`: traffic spike, latency, ALB/API pressure.

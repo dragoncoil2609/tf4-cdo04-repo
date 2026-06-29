@@ -25,7 +25,7 @@
 | AI lookback window | Đúng/đủ 120 phút gần nhất |
 | Budget target | ≤ $200/month |
 
-All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service trong private subnet, expose bằng ECS Service Connect service name, có health check, scaling, canary rollback và IAM task role rõ ràng. Route 53/private DNS không nằm trong MVP; Service Connect cung cấp private service discovery/load balancing cho Worker → AI. Lambda AI được giữ như future cost optimization only, không phải final decision.
+All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service trong private subnet, expose bằng ECS Service Connect service name, có health check, scaling, ECS rolling deployment circuit breaker rollback và IAM task role rõ ràng. Route 53/private DNS không nằm trong MVP; Service Connect cung cấp private service discovery/load balancing cho Worker → AI. Lambda AI được giữ như future cost optimization only, không phải final decision.
 
 ### 1.2 us-east-1 + AMP aligned with `02_infra_design.md`
 

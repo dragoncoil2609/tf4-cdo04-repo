@@ -39,6 +39,8 @@ k6 run tests/k6/sc04_noisy_baseline.js -e TELEMETRY_API_HOST=localhost:8080
 
 ## TF4 Evidence Requirements
 
+These scripts are harness prep only. Final QA must run them against staging and record measured output before claiming pass/fail.
+
 Required TF4 evidence covers at least:
 
 - Gradual drift
@@ -49,3 +51,5 @@ Required TF4 evidence covers at least:
 - Lead time >= 15 minutes
 - False-positive rate <= 12%
 - Catch rate >= 80%
+
+Current status: scenario scripts exist; measured evidence is TBD during final E2E.

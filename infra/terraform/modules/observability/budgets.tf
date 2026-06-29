@@ -7,10 +7,11 @@
 # It configures:
 # 1. An SNS topic 'budget_alert' used by AWS Budgets to publish spend notifications.
 # 2. A subscription to send emails to the SRE team at all levels (50%, 80%, 100%).
-# 3. A Lambda Subscription to filter out ACTUAL budget breaches, acting as a circuit breaker.
+# 3. A Lambda Subscription to receive ACTUAL budget breaches; threshold routing happens in Lambda.
 # 4. IAM execution role & least privilege policy for the Lambda allowing:
 #    - ecs:UpdateService and ecs:DescribeServices for both 'ai-engine' and 'prediction-worker'.
 #    - sns:Publish to notify of action taken.
+#    - sqs:SendMessage to the Lambda failure DLQ.
 #    - logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents restricted to its own log group.
 # 5. The aws_lambda_function cost_breaker which runs Python code to scale down services.
 # 6. The monthly aws_budgets_budget to trigger SNS alerts at 50%, 80%, and 100% thresholds.
@@ -57,13 +58,13 @@ resource "aws_sns_topic_subscription" "email_sub" {
   endpoint  = var.alert_email
 }
 
-# Subscription 2: Chỉ cho phép kích hoạt Lambda NGẮT MẠCH tại mốc 100% chi phí
+# Subscription 2: Lambda nhận ACTUAL budget events; code chỉ scale down tại mốc 100%.
 resource "aws_sns_topic_subscription" "lambda_sub" {
   topic_arn = aws_sns_topic.budget_alert.arn
   protocol  = "lambda"
   endpoint  = aws_lambda_function.cost_breaker.arn
 
-  # Chốt chặn Operational Logic: Lọc tin nhắn từ AWS Budget dựa trên nội dung text
+  # SNS filter policy chỉ đọc message attributes; threshold body routing nằm trong Lambda.
   filter_policy = jsonencode({
     "NotificationType" = ["ACTUAL"]
   })
@@ -111,6 +112,11 @@ resource "aws_iam_policy" "cost_breaker_policy" {
         Resource = aws_sns_topic.budget_alert.arn
       },
       {
+        Effect   = "Allow"
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.cost_breaker_dlq.arn
+      },
+      {
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
@@ -126,6 +132,12 @@ resource "aws_iam_policy" "cost_breaker_policy" {
 resource "aws_iam_role_policy_attachment" "cost_breaker_attach" {
   role       = aws_iam_role.cost_breaker.name
   policy_arn = aws_iam_policy.cost_breaker_policy.arn
+}
+
+resource "aws_sqs_queue" "cost_breaker_dlq" {
+  name                      = "${var.project_name}-cost-breaker-dlq-${var.environment}"
+  message_retention_seconds = 1209600
+  sqs_managed_sse_enabled   = true
 }
 
 # Khởi tạo Lambda Function Trình ngắt mạch chi phí
@@ -144,10 +156,26 @@ resource "aws_lambda_function" "cost_breaker" {
       SERVICE_NAME        = var.ai_service_name
       WORKER_SERVICE_NAME = var.worker_service_name
       SNS_TOPIC_ARN       = aws_sns_topic.budget_alert.arn
+      DRY_RUN             = "false"
     }
   }
 
   depends_on = [data.archive_file.lambda_zip]
+}
+
+resource "aws_cloudwatch_log_group" "cost_breaker" {
+  name              = "/aws/lambda/${aws_lambda_function.cost_breaker.function_name}"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function_event_invoke_config" "cost_breaker" {
+  function_name = aws_lambda_function.cost_breaker.function_name
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.cost_breaker_dlq.arn
+    }
+  }
 }
 
 # Cấp quyền cho phép SNS gọi thực thi Lambda

@@ -105,6 +105,70 @@ keep running:
 
 ---
 
+## 3a. Dry-run kiểm tra breaker
+
+Dry-run dùng để kiểm tra event parsing và target scope mà không scale ECS thật. Bật `DRY_RUN=true` trong Lambda environment ở môi trường test, rồi invoke payload mẫu:
+
+```bash
+aws lambda invoke \
+  --function-name tf4-cdo04-sandbox-cost-breaker \
+  --payload '{"Records":[{"Sns":{"Message":"{\"thresholdInfo\":{\"thresholdValue\":100}}"}}]}' \
+  --cli-binary-format raw-in-base64-out \
+  /tmp/cost-breaker-dry-run.json
+```
+
+Kiểm tra CloudWatch Logs:
+
+```text
+DRY_RUN: Would scale down AI Engine
+DRY_RUN: Would scale down Prediction Worker
+```
+
+Xác nhận desired count không đổi:
+
+```bash
+aws ecs describe-services \
+  --cluster tf4-cdo04-sandbox-cluster \
+  --services tf4-cdo04-sandbox-prediction-worker tf4-cdo04-sandbox-ai-engine tf4-cdo04-sandbox-telemetry-api \
+  --query "services[].{Service:serviceName,Desired:desiredCount,Running:runningCount}"
+```
+
+---
+
+## 3b. Lambda DLQ / failure handling
+
+Nếu cost breaker Lambda lỗi hoặc timeout, AWS Lambda gửi async failure record vào SQS DLQ `tf4-cdo04-cost-breaker-dlq-<env>`.
+
+Quy trình xử lý:
+
+1. Kiểm tra CloudWatch Logs của Lambda `tf4-cdo04-cost-breaker-<env>`.
+2. Kiểm tra DLQ:
+   ```bash
+   aws sqs get-queue-attributes \
+     --queue-url <cost_breaker_dlq_url> \
+     --attribute-names ApproximateNumberOfMessages
+   ```
+3. Nguyên nhân thường gặp: sai ECS service name, thiếu IAM permission, Lambda timeout.
+4. Sau khi fix, replay bằng manual Lambda invoke nếu cần; không purge DLQ trước khi ghi incident note.
+
+---
+
+## 3c. SNS email subscription confirmation
+
+SNS email subscription không active cho tới khi người nhận bấm confirm link trong email AWS Notifications.
+
+Kiểm tra trạng thái:
+
+```bash
+aws sns list-subscriptions-by-topic \
+  --topic-arn <budget_alert_topic_arn> \
+  --query "Subscriptions[].{Endpoint:Endpoint,Status:SubscriptionArn}"
+```
+
+`PendingConfirmation` nghĩa là email chưa confirm; 50/80/100 alert email sẽ không tới mailbox đó.
+
+---
+
 ## 4. Rollback sau breaker
 
 Chỉ rollback khi cycle chi phí mới bắt đầu hoặc owner phê duyệt tăng budget.
