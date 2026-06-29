@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowCloudWatchLogsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "logs:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowPrometheusAccess",
+      "Effect": "Allow",
+      "Action": [
+        "aps:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowProjectS3Access",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::tf4-cdo04-evidence-sandbox",
+        "arn:aws:s3:::tf4-cdo04-evidence-sandbox/*"
+      ]
+    },
+    {
+      "Sid": "DenyStateS3Access",
+      "Effect": "Deny",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": [
+        "arn:aws:s3:::tf4-cdo04-terraform-state-0e0bped4",
+        "arn:aws:s3:::tf4-cdo04-terraform-state-0e0bped4/*"
+      ]
+    }
+  ]
+}

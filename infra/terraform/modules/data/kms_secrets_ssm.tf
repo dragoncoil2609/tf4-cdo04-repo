@@ -11,10 +11,50 @@
 # - Secret values should be inserted manually through AWS Console/CLI after apply.
 # -----------------------------------------------------------------------------
 
+data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy_document" "kms_policy" {
+  statement {
+    sid    = "EnableIAMUserPermissions"
+    effect = "Allow"
+    actions = [
+      "kms:*"
+    ]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid    = "AllowCloudWatchLogs"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt*",
+      "kms:Decrypt*",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:Describe*"
+    ]
+    resources = ["*"]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.us-east-1.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:aws:logs:us-east-1:${data.aws_caller_identity.current.account_id}:log-group:*"]
+    }
+  }
+}
+
 resource "aws_kms_key" "project" {
   description             = "KMS key for ${var.project_name}-${var.environment} CDO platform encryption"
   deletion_window_in_days = 7
   enable_key_rotation     = true
+  policy                  = data.aws_iam_policy_document.kms_policy.json
 
   tags = merge(var.tags, {
     Name    = "${var.project_name}-${var.environment}-kms"

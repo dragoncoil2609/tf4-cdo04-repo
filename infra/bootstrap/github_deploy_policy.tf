@@ -187,7 +187,9 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "iam:DeletePolicy",
       "iam:CreatePolicyVersion",
       "iam:DeletePolicyVersion",
-      "iam:SetDefaultPolicyVersion"
+      "iam:SetDefaultPolicyVersion",
+      "iam:TagPolicy",
+      "iam:UntagPolicy"
     ]
 
     resources = [
@@ -220,19 +222,16 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
-    sid    = "AllowTerraformStateAccess"
+    sid    = "AllowProjectS3Access"
     effect = "Allow"
 
     actions = [
-      "s3:ListBucket",
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:DeleteObject"
+      "s3:*"
     ]
 
     resources = [
-      "arn:aws:s3:::tf4-cdo04-terraform-state-*",
-      "arn:aws:s3:::tf4-cdo04-terraform-state-*/*"
+      "arn:aws:s3:::tf4-cdo04-*",
+      "arn:aws:s3:::tf4-cdo04-*/*"
     ]
   }
 

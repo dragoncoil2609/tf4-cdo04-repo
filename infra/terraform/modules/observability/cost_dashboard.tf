@@ -71,7 +71,7 @@ resource "aws_cloudwatch_dashboard" "cost_dashboard" {
             ["AWS/Billing", "EstimatedCharges", "Currency", "USD", { "stat": "Maximum" }]
           ]
           period  = 86400
-          regions = ["us-east-1"]
+          region  = "us-east-1"
           title   = "Estimated Charges (USD)"
           view    = "timeSeries"
           stacked = false

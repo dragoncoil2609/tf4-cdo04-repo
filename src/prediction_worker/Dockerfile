@@ -1,18 +1,17 @@
-# Stage 1: Build dependencies
-FROM python:3.10-slim as builder
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-
-# Stage 2: Runtime
 FROM python:3.10-slim
-WORKDIR /app
-COPY --from=builder /root/.local /root/.local
-COPY app.py .
-ENV PATH=/root/.local/bin:$PATH
 
-# Run as non-root user (Security Baseline)
-RUN useradd -u 10001 appuser
+# Create a non-root user
+RUN useradd -u 10001 -m appuser
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY app.py .
+
+# Switch to non-root user
 USER appuser
 
 CMD ["python", "app.py"]

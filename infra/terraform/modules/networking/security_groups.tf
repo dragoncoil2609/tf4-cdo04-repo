@@ -11,7 +11,7 @@
 
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-alb-sg"
-  description = "Public ALB security group for /v1/ingest (HTTP)"
+  description = "Public ALB security group for /v1/ingest"
   vpc_id      = aws_vpc.main.id
 
   tags = merge(var.tags, {

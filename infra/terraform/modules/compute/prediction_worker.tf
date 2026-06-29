@@ -9,6 +9,8 @@
 # - Service Connect client config to call AI by http://ai-engine:8080.
 # -----------------------------------------------------------------------------
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_cloudwatch_log_group" "prediction_worker" {
   name              = "/ecs/prediction-worker"
   retention_in_days = var.app_log_retention_days
@@ -222,6 +224,10 @@ resource "aws_ecs_task_definition" "prediction_worker" {
         {
           name  = "AI_SIGV4_CONFIG_SECRET_ARN"
           value = var.ai_sigv4_config_secret_arn
+        },
+        {
+          name  = "ALERT_TOPIC_ARN"
+          value = "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.project_name}-operational-alerts-${var.environment}"
         }
       ]
 
