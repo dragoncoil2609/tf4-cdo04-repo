@@ -285,6 +285,7 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "lambda:GetFunctionConfiguration",
       "lambda:GetPolicy",
       "lambda:ListTags",
+      "lambda:ListVersionsByFunction",
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration",
       "lambda:DeleteFunction",
@@ -322,6 +323,19 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       variable = "aws:PrincipalAccount"
       values   = [data.aws_caller_identity.current.account_id]
     }
+  }
+
+  # budgets:ListTagsForResource Hỗ TRỢ resource-level ARN (khác với các action trên)
+  # Có thể scope chính xác vào ARN của budget dự án
+  statement {
+    sid    = "AllowBudgetTagRead"
+    effect = "Allow"
+
+    actions = ["budgets:ListTagsForResource"]
+
+    resources = [
+      "arn:aws:budgets::${data.aws_caller_identity.current.account_id}:budget/tf4-cdo04-*"
+    ]
   }
 }
 
