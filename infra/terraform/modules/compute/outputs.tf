@@ -28,3 +28,14 @@ output "telemetry_api_task_definition_arn" {
 }
 
 # TODO: service, ALB, scheduler, and ECR outputs belong to teammate-owned work.
+
+output "ai_service_name" {
+  description = "AI Engine ECS service name"
+  value       = "${var.project_name}-${var.environment}-ai-engine"
+}
+
+output "worker_service_name" {
+  description = "Prediction Worker ECS service name"
+  value       = "${var.project_name}-${var.environment}-prediction-worker"
+}
+
