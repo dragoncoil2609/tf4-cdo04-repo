@@ -282,6 +282,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration",
       "lambda:DeleteFunction",
+      "lambda:PutFunctionEventInvokeConfig",
+      "lambda:DeleteFunctionEventInvokeConfig",
       "lambda:AddPermission",
       "lambda:RemovePermission"
     ]
