@@ -92,9 +92,14 @@ resource "aws_ecs_task_definition" "telemetry_api" {
         }
       }
       environment = [
+        { name = "APP_MODE", value = "aws" },
         { name = "AWS_REGION", value = var.aws_region },
+        { name = "ENV", value = var.environment },
         { name = "ENVIRONMENT", value = var.environment },
+        { name = "TELEMETRY_STORAGE_BACKEND", value = "prometheus_amp" },
         { name = "AMP_REMOTE_WRITE_ENDPOINT", value = var.amp_remote_write_endpoint },
+        { name = "S3_FAILURE_BUFFER_BUCKET", value = var.evidence_bucket_name },
+        { name = "S3_FAILURE_BUFFER_PREFIX", value = "failure-buffer/" },
         { name = "PREDICTION_QUEUE_URL", value = var.prediction_queue_url },
       ]
       healthCheck = {
