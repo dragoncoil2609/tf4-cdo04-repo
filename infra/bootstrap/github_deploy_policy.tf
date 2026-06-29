@@ -213,7 +213,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
         "ecs-tasks.amazonaws.com",
         "ecs.amazonaws.com",
         "codedeploy.amazonaws.com",
-        "scheduler.amazonaws.com"
+        "scheduler.amazonaws.com",
+        "lambda.amazonaws.com"
       ]
     }
   }
@@ -282,6 +283,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "lambda:CreateFunction",
       "lambda:GetFunction",
       "lambda:GetFunctionConfiguration",
+      "lambda:GetPolicy",
+      "lambda:ListTags",
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration",
       "lambda:DeleteFunction",
@@ -298,11 +301,27 @@ data "aws_iam_policy_document" "github_deploy_policy" {
     sid    = "AllowManageProjectBudgets"
     effect = "Allow"
 
+    # AWS Budgets không hỗ trợ resource-level ARN restriction (AWS limitation).
+    # Bắt buộc dùng resources = ["*"], nhưng đã thu hẹp bằng:
+    # 1. Chỉ liệt kê đúng các action Terraform cần (không dùng budgets:*)
+    # 2. Condition giới hạn theo Account ID của project
     actions = [
-      "budgets:*"
+      "budgets:CreateBudget",
+      "budgets:ModifyBudget",
+      "budgets:DeleteBudget",
+      "budgets:ViewBudget",
+      "budgets:DescribeBudget",
+      "budgets:DescribeBudgets",
+      "budgets:DescribeBudgetActionsForBudget"
     ]
 
     resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:PrincipalAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
   }
 }
 
