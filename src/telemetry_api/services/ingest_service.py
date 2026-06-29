@@ -8,11 +8,22 @@ from telemetry_api.schemas.telemetry import TelemetryPayload, TelemetryRecord
 from telemetry_api.core.errors import BadRequestError
 
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from telemetry_api.observability.prometheus_exporter import PrometheusTelemetryExporter
+
+
 class IngestService:
     """Điều phối kiểm tra tenant, tạo record và ghi xuống storage."""
 
-    def __init__(self, storage_adapter: TelemetryStorageAdapter) -> None:
+    def __init__(
+        self,
+        storage_adapter: TelemetryStorageAdapter,
+        prometheus_exporter: PrometheusTelemetryExporter | None = None,
+    ) -> None:
         self.storage_adapter = storage_adapter
+        self.prometheus_exporter = prometheus_exporter
 
     def ingest(
         self,
@@ -34,6 +45,10 @@ class IngestService:
             labels=payload.labels or {},
         )
         self.storage_adapter.store(record)
+
+        if self.prometheus_exporter is not None:
+            self.prometheus_exporter.observe(payload)
+
         return record
 
 

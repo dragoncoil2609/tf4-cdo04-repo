@@ -20,7 +20,10 @@ from telemetry_api.middleware.payload_size_limit import PayloadSizeLimitMiddlewa
 from telemetry_api.observability.metrics import record_ingest_rejected
 from telemetry_api.routes.health import router as health_router
 from telemetry_api.routes.ingest import router as ingest_router
+from telemetry_api.routes.metrics import router as metrics_router
 from telemetry_api.services.ingest_service import IngestService
+from telemetry_api.observability.prometheus_exporter import PrometheusTelemetryExporter
+from prometheus_client import CollectorRegistry
 
 
 logger = logging.getLogger("telemetry_api.ingest")
@@ -36,9 +39,15 @@ def create_app(
     configure_logging(resolved_settings.log_level)
     adapter = storage_adapter or build_storage_adapter(resolved_settings)
 
+    # Khởi tạo Prometheus registry và exporter cục bộ cho app instance
+    registry = CollectorRegistry()
+    prometheus_exporter = PrometheusTelemetryExporter(registry=registry)
+
     app = FastAPI(title=resolved_settings.app_name)
     app.state.settings = resolved_settings
-    app.state.ingest_service = IngestService(adapter)
+    app.state.prometheus_registry = registry
+    app.state.prometheus_exporter = prometheus_exporter
+    app.state.ingest_service = IngestService(adapter, prometheus_exporter)
 
     app.add_middleware(PayloadSizeLimitMiddleware, max_payload_bytes=resolved_settings.max_ingest_payload_bytes)
     app.add_middleware(CorrelationIdMiddleware)
@@ -46,14 +55,9 @@ def create_app(
     # Đăng ký các router hoạt động
     app.include_router(health_router)
     app.include_router(ingest_router)
+    app.include_router(metrics_router)
 
     _register_exception_handlers(app)
-
-    @app.get("/metrics")
-    async def metrics() -> dict[str, Any]:
-        """Trả về ảnh chụp nhanh các số liệu đo lường (accepted/rejected)."""
-        from telemetry_api.observability.metrics import get_metrics_snapshot
-        return get_metrics_snapshot()
 
     return app
 

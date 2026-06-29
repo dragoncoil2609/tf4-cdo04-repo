@@ -27,6 +27,13 @@ class Settings:
     local_telemetry_file: str = "local-store/telemetry.jsonl"
     log_level: str = "INFO"
 
+    # CDO-W12-019 Configs
+    app_metrics_enabled: bool = True
+    prometheus_metrics_path: str = "/metrics"
+    aws_region: str = "us-east-1"
+    amp_workspace_id: str | None = None
+    amp_remote_write_endpoint: str | None = None
+
 
 def _read_int(name: str, default: int) -> int:
     """Đọc biến môi trường kiểu số nguyên và báo lỗi rõ khi sai định dạng."""
@@ -40,8 +47,26 @@ def _read_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer") from exc
 
 
+def _read_bool(name: str, default: bool) -> bool:
+    """Đọc biến môi trường kiểu boolean."""
+
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in ("true", "1", "yes", "on")
+
+
 def load_settings() -> Settings:
     """Nạp cấu hình Telemetry API từ biến môi trường của process."""
+
+    # Cho phép TELEMETRY_API_PORT ghi đè PORT mặc định nếu được cung cấp
+    port_env = os.getenv("TELEMETRY_API_PORT") or os.getenv("PORT")
+    port = Settings.port
+    if port_env is not None:
+        try:
+            port = int(port_env)
+        except ValueError as exc:
+            raise ValueError(f"PORT must be an integer") from exc
 
     return Settings(
         app_name=os.getenv("APP_NAME", Settings.app_name),
@@ -49,7 +74,7 @@ def load_settings() -> Settings:
         build_id=os.getenv("BUILD_ID", Settings.build_id),
         git_commit_sha=os.getenv("GIT_COMMIT_SHA", Settings.git_commit_sha),
         env=os.getenv("ENV", Settings.env),
-        port=_read_int("PORT", Settings.port),
+        port=port,
         max_ingest_payload_bytes=_read_int(
             "MAX_INGEST_PAYLOAD_BYTES",
             Settings.max_ingest_payload_bytes,
@@ -63,4 +88,9 @@ def load_settings() -> Settings:
             Settings.local_telemetry_file,
         ),
         log_level=os.getenv("LOG_LEVEL", Settings.log_level),
+        app_metrics_enabled=_read_bool("APP_METRICS_ENABLED", Settings.app_metrics_enabled),
+        prometheus_metrics_path=os.getenv("PROMETHEUS_METRICS_PATH", Settings.prometheus_metrics_path),
+        aws_region=os.getenv("AWS_REGION", Settings.aws_region),
+        amp_workspace_id=os.getenv("AMP_WORKSPACE_ID", Settings.amp_workspace_id),
+        amp_remote_write_endpoint=os.getenv("AMP_REMOTE_WRITE_ENDPOINT", Settings.amp_remote_write_endpoint),
     )

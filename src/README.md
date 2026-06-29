@@ -272,8 +272,50 @@ $env:PYTHONPATH="src"
 python -m uvicorn telemetry_api.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 2. Chạy toàn bộ 94 unit tests tự động:
+### 2. Chạy toàn bộ 102 unit tests tự động:
 ```bash
 $env:PYTHONPATH="src"
 pytest -sv src/telemetry_api
 ```
+
+---
+
+## CDO-W12-019 — ADOT/Prometheus Agent remote_write path
+
+### 1. Mục tiêu & Quyết định thiết kế
+Mục tiêu của task là cấu hình luồng truyền telemetry dữ liệu thực tế từ Telemetry API vào Amazon Managed Service for Prometheus (AMP). Chúng tôi sử dụng ADOT Collector làm scrape agent trung gian để:
+- Scrape endpoint `/metrics` định kỳ mỗi 15 giây.
+- Đóng gói dữ liệu và tự động `remote_write` lên AMP.
+- Ký mã hóa SigV4 bằng IAM Role mà không cần dùng long-lived token/API Key.
+
+### 2. Tại sao không tự viết raw remote_write?
+Direct `remote_write` yêu cầu xử lý gói tin nhị phân Protobuf, thuật toán nén Snappy, cơ chế hàng đợi (queueing), retry exponential backoff và ký SigV4 ở tầng ứng dụng. Đây là các tác vụ hạ tầng phức tạp, không thuộc về nghiệp vụ chính của Telemetry Ingest API. ADOT Collector sinh ra để giải quyết vấn đề này hiệu quả và tin cậy nhất.
+
+### 3. Thiết kế metrics & Safe Labels
+Chỉ có 7 AI signal metrics được phép observe vào Prometheus Exporter:
+- `cpu_usage_percent`, `memory_usage_percent`, `active_connections`, `api_latency_ms` (Labels: `tenant_id`, `service_id`, `region`, `env`, `service_tier`)
+- `db_connection_pool_pct` (Labels: `tenant_id`, `service_id`, `region`, `db_type`, `env`, `service_tier`)
+- `queue_depth` (Labels: `tenant_id`, `service_id`, `region`, `queue_name`, `env`, `service_tier`)
+- `cache_hit_rate_pct` (Labels: `tenant_id`, `service_id`, `region`, `cache_type`, `env`, `service_tier`)
+
+Các nhãn nhạy cảm (email, phone, user_id...) hoặc cardinality cao (session_id, request_id...) sẽ bị loại bỏ hoàn toàn.
+
+### 4. Cấu hình & Sử dụng
+- **ADOT Collector Config:** Xem tại `infra/adot/collector-config.yaml`
+- **IAM Policy:** Xem tại `infra/iam/amp-remote-write-policy.json`
+- **Bằng chứng tích hợp (Evidence):** Xem tại thư mục `evidence/cdo-w12-019/`
+
+### 5. Cách kiểm tra /metrics cục bộ
+Sau khi khởi chạy ứng dụng, thực hiện POST ingest và gọi GET:
+```bash
+curl http://localhost:8000/metrics | grep api_latency_ms
+```
+Expected:
+```text
+api_latency_ms{env="production",region="us-east-1",service_id="payment-gateway",service_tier="",tenant_id="demo-tenant-001"} 450.5
+```
+
+### 6. Xử lý sự cố (Troubleshooting)
+- **403 Forbidden / AccessDenied:** Kiểm tra xem IAM Policy đã có `aps:RemoteWrite` và được đính kèm vào ECS Task Role hay chưa.
+- **Không thấy metric trên AMP:** Kiểm tra ADOT collector logs xem có lỗi kết nối hoặc scrape hay không.
+

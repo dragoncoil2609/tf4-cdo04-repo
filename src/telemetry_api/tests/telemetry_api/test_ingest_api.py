@@ -106,9 +106,9 @@ def test_valid_payload_returns_201_and_writes_jsonl(client: TestClient, telemetr
 # --- 2. KIỂM THỬ PHÂN TÍCH METRICS & LỖI THIẾU TRƯỜNG ---
 
 def test_metrics_endpoint_initial_state(client: TestClient) -> None:
-    """Kiểm tra giá trị ban đầu của /metrics khi chưa có request."""
+    """Kiểm tra giá trị ban đầu của /debug/metrics-json khi chưa có request."""
 
-    response = client.get("/metrics")
+    response = client.get("/debug/metrics-json")
     assert response.status_code == 200
     data = response.json()
     assert data["telemetry_ingest_accepted_total"] == 0
@@ -122,7 +122,7 @@ def test_accepted_request_increments_metric(client: TestClient) -> None:
     response = post_ingest(client, valid_payload())
     assert response.status_code == 201
 
-    metrics_resp = client.get("/metrics")
+    metrics_resp = client.get("/debug/metrics-json")
     data = metrics_resp.json()
     assert data["telemetry_ingest_accepted_total"] == 1
     assert data["telemetry_ingest_rejected_total"] == 0
@@ -142,7 +142,7 @@ def test_missing_required_fields_return_400(client: TestClient, missing_field: s
     assert response.json()["correlation_id"] == "local-test-001"
 
     # Kiểm tra metric ghi nhận lý do thiếu trường
-    metrics_data = client.get("/metrics").json()
+    metrics_data = client.get("/debug/metrics-json").json()
     assert metrics_data["telemetry_ingest_rejected_total"] == 1
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["missing_required_field"] == 1
 
@@ -170,7 +170,7 @@ def test_timestamp_validation(client: TestClient, ts_val: Any, expected_status: 
 
     if expected_status == 400:
         assert response.json()["error"] == "bad_request"
-        metrics_data = client.get("/metrics").json()
+        metrics_data = client.get("/debug/metrics-json").json()
         assert metrics_data["telemetry_ingest_rejected_total"] == 1
         assert metrics_data["telemetry_ingest_rejected_by_reason"][expected_reason] == 1
 
@@ -194,7 +194,7 @@ def test_value_validation(client: TestClient, value_val: Any, expected_status: i
     assert response.status_code == expected_status
 
     if expected_status == 400:
-        metrics_data = client.get("/metrics").json()
+        metrics_data = client.get("/debug/metrics-json").json()
         assert metrics_data["telemetry_ingest_rejected_total"] == 1
         assert metrics_data["telemetry_ingest_rejected_by_reason"][expected_reason] == 1
 
@@ -230,7 +230,7 @@ def test_non_empty_string_fields(client: TestClient, field: str, val: Any, expec
     response = post_ingest(client, payload)
     assert response.status_code == 400
 
-    metrics_data = client.get("/metrics").json()
+    metrics_data = client.get("/debug/metrics-json").json()
     assert metrics_data["telemetry_ingest_rejected_total"] == 1
     assert metrics_data["telemetry_ingest_rejected_by_reason"][expected_reason] == 1
 
@@ -262,7 +262,7 @@ def test_labels_validation(client: TestClient, labels_val: Any, expected_status:
     assert response.status_code == expected_status
 
     if expected_status == 400:
-        metrics_data = client.get("/metrics").json()
+        metrics_data = client.get("/debug/metrics-json").json()
         assert metrics_data["telemetry_ingest_rejected_total"] == 1
         assert metrics_data["telemetry_ingest_rejected_by_reason"][expected_reason] == 1
 
@@ -281,7 +281,7 @@ def test_missing_tenant_header_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     assert response.json()["message"] == "X-Tenant-Id header is required"
 
-    metrics_data = client.get("/metrics").json()
+    metrics_data = client.get("/debug/metrics-json").json()
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["missing_tenant_header"] == 1
 
 
@@ -296,7 +296,7 @@ def test_tenant_header_body_mismatch_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     assert response.json()["message"] == "X-Tenant-Id does not match body tenant_id"
 
-    metrics_data = client.get("/metrics").json()
+    metrics_data = client.get("/debug/metrics-json").json()
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["tenant_mismatch"] == 1
 
 
@@ -314,7 +314,7 @@ def test_invalid_json_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
 
-    metrics_data = client.get("/metrics").json()
+    metrics_data = client.get("/debug/metrics-json").json()
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["invalid_json"] == 1
 
 
@@ -349,7 +349,7 @@ def test_payload_too_large_rejection_metrics(tmp_path: Path) -> None:
         "correlation_id": "local-test-001",
     }
 
-    metrics_data = client.get("/metrics").json()
+    metrics_data = client.get("/debug/metrics-json").json()
     assert metrics_data["telemetry_ingest_rejected_total"] == 1
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["payload_too_large"] == 1
 
@@ -561,7 +561,7 @@ def test_pii_and_cardinality_metrics_increments(client: TestClient) -> None:
     """Kiểm tra PII và Cardinality rejection tăng đúng các bộ đếm metrics chuyên biệt."""
 
     # Ban đầu
-    m0 = client.get("/metrics").json()
+    m0 = client.get("/debug/metrics-json").json()
     assert m0["telemetry_ingest_pii_rejected_total"] == 0
     assert m0["telemetry_ingest_cardinality_rejected_total"] == 0
 
@@ -570,7 +570,7 @@ def test_pii_and_cardinality_metrics_increments(client: TestClient) -> None:
     payload1["labels"] = {"region": "us-east-1", "email": "user@example.com"}
     post_ingest(client, payload1)
 
-    m1 = client.get("/metrics").json()
+    m1 = client.get("/debug/metrics-json").json()
     assert m1["telemetry_ingest_pii_rejected_total"] == 1
     assert m1["telemetry_ingest_cardinality_rejected_total"] == 0
     assert m1["telemetry_ingest_rejected_by_reason"]["pii_denylist_label"] == 1
@@ -585,7 +585,7 @@ def test_pii_and_cardinality_metrics_increments(client: TestClient) -> None:
     payload3["labels"] = {"region": "us-east-1", "path": "/users/123/orders"}
     post_ingest(client, payload3)
 
-    m2 = client.get("/metrics").json()
+    m2 = client.get("/debug/metrics-json").json()
     assert m2["telemetry_ingest_pii_rejected_total"] == 1
     assert m2["telemetry_ingest_cardinality_rejected_total"] == 2
     assert m2["telemetry_ingest_rejected_by_reason"]["high_cardinality_label"] == 1
@@ -680,7 +680,7 @@ def test_unsupported_metrics_rejected(client: TestClient, unsupported_metric: st
     assert "not in AI signal allowlist" in response.json()["message"]
 
     # Đảm bảo ghi nhận metrics
-    m = client.get("/metrics").json()
+    m = client.get("/debug/metrics-json").json()
     assert m["telemetry_ingest_unsupported_metric_rejected_total"] == 1
     assert m["telemetry_ingest_rejected_by_reason"]["unsupported_metric_type"] == 1
 
@@ -701,7 +701,7 @@ def test_internal_only_metrics_rejected(client: TestClient, internal_metric: str
     assert "is internal-only and must not be sent as AI signal" in response.json()["message"]
 
     # Đảm bảo ghi nhận metrics
-    m = client.get("/metrics").json()
+    m = client.get("/debug/metrics-json").json()
     assert m["telemetry_ingest_internal_only_metric_rejected_total"] == 1
     assert m["telemetry_ingest_rejected_by_reason"]["internal_only_metric_not_ai_signal"] == 1
 
@@ -724,7 +724,7 @@ def test_missing_required_labels(client: TestClient, metric_type: str, labels: d
     assert f"requires label: {missing_label}" in response.json()["message"]
 
     # Đảm bảo ghi nhận metrics
-    m = client.get("/metrics").json()
+    m = client.get("/debug/metrics-json").json()
     assert m["telemetry_ingest_metric_label_rejected_total"] == 1
     assert m["telemetry_ingest_rejected_by_reason"]["missing_required_label"] == 1
 
@@ -742,7 +742,7 @@ def test_required_label_empty_or_whitespace(client: TestClient, empty_val: str) 
     assert "cannot be empty" in response.json()["message"]
 
     # Đảm bảo ghi nhận metrics
-    m = client.get("/metrics").json()
+    m = client.get("/debug/metrics-json").json()
     assert m["telemetry_ingest_metric_label_rejected_total"] == 1
     assert m["telemetry_ingest_rejected_by_reason"]["empty_required_label"] == 1
 
