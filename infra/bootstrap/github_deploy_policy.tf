@@ -280,12 +280,13 @@ data "aws_iam_policy_document" "github_deploy_policy" {
     effect = "Allow"
 
     actions = [
+      # Read: dùng wildcard Get*/List* để cover toàn bộ sub-API mà Terraform
+      # gọi khi refresh aws_lambda_function (GetFunction, GetPolicy,
+      # GetFunctionCodeSigningConfig, ListVersionsByFunction, ListTags, ...)
+      "lambda:Get*",
+      "lambda:List*",
+      # Write: liệt kê cụ thể từng action cần thiết
       "lambda:CreateFunction",
-      "lambda:GetFunction",
-      "lambda:GetFunctionConfiguration",
-      "lambda:GetPolicy",
-      "lambda:ListTags",
-      "lambda:ListVersionsByFunction",
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration",
       "lambda:DeleteFunction",
