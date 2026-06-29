@@ -37,23 +37,19 @@ variable "alert_email" {
 variable "ecs_cluster_name" {
   description = "ECS cluster name used by the cost breaker Lambda"
   type        = string
-  default     = "tf4-cdo04-sandbox-cluster"
 }
 
 variable "ecs_cluster_arn" {
   description = "ECS cluster ARN used by the cost breaker Lambda"
   type        = string
-  default     = "*"
 }
 
 variable "ai_service_name" {
   description = "AI Engine ECS service name"
   type        = string
-  default     = "tf4-cdo04-sandbox-ai-engine"
 }
 
 variable "worker_service_name" {
   description = "Prediction Worker ECS service name"
   type        = string
-  default     = "tf4-cdo04-sandbox-prediction-worker"
 }

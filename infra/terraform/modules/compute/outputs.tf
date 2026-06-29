@@ -47,3 +47,13 @@ output "prediction_worker_log_group_name" {
   description = "CloudWatch log group for Prediction Worker"
   value       = aws_cloudwatch_log_group.prediction_worker.name
 }
+
+output "ai_service_name" {
+  description = "AI Engine ECS service name"
+  value       = "${var.project_name}-${var.environment}-ai-engine"
+}
+
+output "worker_service_name" {
+  description = "Prediction Worker ECS service name"
+  value       = aws_ecs_service.prediction_worker.name
+}
