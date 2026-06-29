@@ -135,7 +135,7 @@ jobs:
   terraform-deploy:
     needs: [build-and-push]
     runs-on: ubuntu-latest
-    environment: sandbox # Manual Approval Gate configured via GitHub Environments
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'staging' }} # Dynamic environment (staging for develop, prod for main)
 
     steps:
       - name: Checkout Code
