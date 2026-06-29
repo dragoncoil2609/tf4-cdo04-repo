@@ -63,7 +63,7 @@ jobs:
 
       - name: Run Pytest / Unit Tests
         env:
-          PYTHONPATH: src:src/ai_engine:src/telemetry_api:src/prediction_worker
+          PYTHONPATH: src/ai_engine:src
         run: pytest
 
 
