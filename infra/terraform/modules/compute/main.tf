@@ -189,29 +189,25 @@ resource "aws_ecr_lifecycle_policy" "services" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep release images and version tags"
-
+        description  = "Xoa cac anh untagged cu hon 14 ngay truoc de giai phong bo nho"
         selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["release", "v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 50
+          tagStatus     = "untagged"
+          countType     = "sinceImagePushed"
+          countUnit     = "days"
+          countNumber   = 14
         }
-
         action = {
           type = "expire"
         }
       },
       {
         rulePriority = 2
-        description  = "Keep last 30 recent images of any tag status"
-
+        description  = "Sau do, gioi han chi giu toi đa 10 anh co tag gan nhat de an toan cho Production"
         selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 30
+          tagStatus     = "any"
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
         }
-
         action = {
           type = "expire"
         }

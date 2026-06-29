@@ -92,22 +92,27 @@ def get_static_threshold_fallback(tenant_id, service_name):
 
 def save_audit_log(prediction_id, tenant_id, service_name, decision, prediction_source, score):
     """
-    Lưu quyết định dự báo vào DynamoDB Audit Logs Table
+    Lưu quyết định dự báo vào DynamoDB Audit Logs Table kèm TTL 90 ngày
     """
+    now = int(time.time()) # Tối ưu: Gọi 1 lần duy nhất
+    retention_seconds = 90 * 24 * 60 * 60
+    expires_at_epoch = now + retention_seconds
+
     item = {
         "prediction_id": prediction_id,
         "tenant_id": tenant_id,
         "service_name": service_name,
-        "timestamp": int(time.time()),
+        "timestamp": now,
         "decision": decision,
         "prediction_source": prediction_source,
-        "score": str(score)
+        "score": str(score),
+        "expires_at_epoch": expires_at_epoch # Đảm bảo đúng chuẩn TTL cột
     }
     try:
         audit_table.put_item(Item=item)
-        print(f"Đã lưu audit log cho {prediction_id} thành công.")
+        print(f"Successfully saved audit log for prediction: {prediction_id}")
     except Exception as e:
-        print(f"Lỗi ghi DynamoDB audit log: {str(e)}")
+        print(f"Failed to save audit log: {str(e)}")
 
 def process_job(job_data):
     """

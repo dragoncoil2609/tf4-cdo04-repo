@@ -104,4 +104,5 @@ module "observability" {
   ai_service_name     = module.compute.ai_service_name
   worker_service_name = module.compute.worker_service_name
   alert_email         = var.alert_email
+  kms_key_arn         = module.data.kms_key_arn
 }

@@ -53,3 +53,8 @@ variable "worker_service_name" {
   description = "Prediction Worker ECS service name"
   type        = string
 }
+
+variable "kms_key_arn" {
+  description = "KMS Key ARN for CloudWatch Logs encryption"
+  type        = string
+}
