@@ -227,3 +227,38 @@ resource "aws_ecr_repository" "services" {
   })
 }
 
+resource "aws_ecr_lifecycle_policy" "services" {
+  for_each   = aws_ecr_repository.services
+  repository = each.value.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep release images and version tags"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = ["release", "v"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 50
+        }
+        action = {
+          type = "expire"
+        }
+      },
+      {
+        rulePriority = 2
+        description  = "Keep last 30 recent images of any tag status"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 30
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
