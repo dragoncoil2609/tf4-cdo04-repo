@@ -30,6 +30,17 @@ aws ecs wait services-stable \
   --cluster "${ECS_CLUSTER_NAME}" \
   --services "${TELEMETRY_API_SERVICE_NAME}" "${PREDICTION_WORKER_SERVICE_NAME}" "${AI_ENGINE_SERVICE_NAME}"
 
+echo "Reading initial DLQ depth"
+initial_dlq_depth=$(aws sqs get-queue-attributes \
+  --queue-url "${PREDICTION_QUEUE_DLQ_URL}" \
+  --attribute-names ApproximateNumberOfMessages \
+  --query 'Attributes.ApproximateNumberOfMessages' \
+  --output text)
+
+if [[ "${initial_dlq_depth}" != "0" ]]; then
+  echo "Prediction DLQ already has ${initial_dlq_depth} message(s); smoke will fail only if it grows"
+fi
+
 echo "Checking ${BASE_URL}/health"
 for attempt in $(seq 1 15); do
   status=$(http_code "${BASE_URL}/health" || true)
@@ -100,9 +111,12 @@ dlq_depth=$(aws sqs get-queue-attributes \
   --attribute-names ApproximateNumberOfMessages \
   --query 'Attributes.ApproximateNumberOfMessages' \
   --output text)
-if [[ "${dlq_depth}" != "0" ]]; then
-  echo "Prediction DLQ is not empty: ${dlq_depth}" >&2
+if (( dlq_depth > initial_dlq_depth )); then
+  echo "Prediction DLQ grew during smoke: ${initial_dlq_depth} -> ${dlq_depth}" >&2
   exit 1
+fi
+if (( dlq_depth > 0 )); then
+  echo "Prediction DLQ still has ${dlq_depth} pre-existing message(s)"
 fi
 
 echo "Post-apply smoke checks passed"

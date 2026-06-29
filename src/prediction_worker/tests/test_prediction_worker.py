@@ -5,6 +5,7 @@ Strategy: monkeypatch boto3 before import to avoid AWS network calls.
 
 import sys
 import os
+from decimal import Decimal
 from unittest import mock
 from datetime import datetime, timezone
 
@@ -243,7 +244,10 @@ class TestSaveAuditLog:
         assert item["tenant_id"] == "t1"
         assert item["prediction_id"] == "pred-001"
         assert item["decision"] == "KEEP_ALIVE"
-        assert item["score"] == 0.75
+        assert item["score"] == Decimal("0.75")
+        assert item["severity"] == Decimal("0.2")
+        assert item["ai_status_code"] == Decimal("0")
+        assert item["ai_latency_ms"] == Decimal("0")
         assert item["prediction_source"] == "AI_ENGINE"
         # ConditionExpression must enforce idempotency
         assert "attribute_not_exists(tenant_id)" in call_kwargs["ConditionExpression"]
@@ -295,7 +299,7 @@ class TestSaveAuditLog:
         assert item["recommendation_action"] == "SCALE_UP"
         assert item["recommendation_target"] == "cpu"
         assert item["recommendation_from_to"] == "2->4"
-        assert item["recommendation_confidence"] == 0.88
+        assert item["recommendation_confidence"] == Decimal("0.88")
         assert item["recommendation_evidence"] == "s3://logs/ev-001"
 
 
