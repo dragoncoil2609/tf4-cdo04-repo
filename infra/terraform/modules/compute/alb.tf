@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Public HTTP Application Load Balancer -- CDO-W12-055
 #
-# Exposes /v1/ingest on port 80 only (no HTTPS/ACM).
+# Exposes /health and /v1/ingest on port 80 only (no HTTPS/ACM).
 # HTTPS and certificate wiring are deferred to team assignment scope.
 # -----------------------------------------------------------------------------
 
@@ -73,7 +73,7 @@ resource "aws_lb_listener_rule" "ingest" {
 
   condition {
     path_pattern {
-      values = ["/v1/ingest"]
+      values = ["/health", "/v1/ingest"]
     }
   }
 
