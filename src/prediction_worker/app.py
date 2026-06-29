@@ -94,14 +94,31 @@ def process_job(job_data):
     """
     Xử lý một bản tin dự báo từ SQS
     """
+    # 1. Parse các trường dữ liệu bắt buộc (CPOA-61)
     prediction_id = job_data.get("prediction_id")
     tenant_id = job_data.get("tenant_id")
     service_name = job_data.get("service_name")
+    lookback_window_minutes = job_data.get("lookback_window_minutes")
+    correlation_id = job_data.get("correlation_id", prediction_id)
     
-    print(f"Đang xử lý job {prediction_id} cho tenant {tenant_id}...")
+    print(f"Nhận job: correlation_id={correlation_id}, tenant_id={tenant_id}, service={service_name}, lookback={lookback_window_minutes}")
     
-    # 1. Query metrics từ AMP
-    metrics = query_amp_metrics(tenant_id, service_name)
+    # 2. Validate lookback_window_minutes = 120 (CPOA-61)
+    if lookback_window_minutes is None:
+        print("Cảnh báo: lookback_window_minutes trống. Thiết lập về 120.")
+        lookback_window_minutes = 120
+    else:
+        try:
+            lookback_val = int(lookback_window_minutes)
+            if lookback_val != 120:
+                print(f"Cảnh báo: lookback_window_minutes là {lookback_val}, điều chỉnh thành 120 theo yêu cầu.")
+                lookback_window_minutes = 120
+        except ValueError:
+            print("Lỗi định dạng lookback_window_minutes. Sử dụng 120.")
+            lookback_window_minutes = 120
+            
+    # 3. Query metrics từ AMP
+    metrics = query_amp_metrics(tenant_id, service_name, duration_minutes=lookback_window_minutes)
     
     # 2. Gọi AI Engine để lấy kết quả (Fail-Open Fallback)
     decision = "UNKNOWN"
