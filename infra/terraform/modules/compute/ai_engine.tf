@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# AI Engine ECS Task Definition -- CDO-W12-011
+# AI Engine ECS Task Definition -- CDO-W12-011 / CDO-W12-012
 #
 # Scope:
 # - ECS Fargate task definition for AI Engine.
@@ -9,6 +9,7 @@
 # - Health check path /health.
 # - CloudWatch log group /ecs/ai-engine.
 # - Optional S3 baseline read access from baselines/ prefix.
+# - Service Connect registration for private name: ai-engine:8080.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "ai_engine" {
@@ -143,18 +144,20 @@ resource "aws_ecs_task_definition" "ai_engine" {
       essential = true
 
       # Placeholder FastAPI-like HTTP server for infrastructure validation.
-      # It exposes /health and keeps the container alive until real AI image is ready.
+      # It exposes /health and /v1/predict until the real AI image is ready.
       command = [
         "python",
         "-c",
-        "from http.server import BaseHTTPRequestHandler, HTTPServer\nimport json\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        if self.path == '/health':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(b'{\"status\":\"ok\"}')\n        else:\n            self.send_response(404); self.end_headers()\n    def do_POST(self):\n        if self.path == '/v1/predict':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(json.dumps({'anomaly': False, 'severity': 0.0, 'recommendation': {'action_verb': 'INVESTIGATE', 'target': 'demo', 'from_to': 'none', 'confidence': 0.5, 'evidence_link': 'placeholder'}, 'reasoning': 'placeholder ai engine', 'audit_id': 'placeholder'}).encode())\n        else:\n            self.send_response(404); self.end_headers()\nHTTPServer(('0.0.0.0', 8080), H).serve_forever()"
+        "from http.server import BaseHTTPRequestHandler, HTTPServer\nimport json\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        print('GET ' + self.path, flush=True)\n        if self.path == '/health':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(b'{\"status\":\"ok\"}')\n        else:\n            self.send_response(404); self.end_headers()\n    def do_POST(self):\n        print('POST ' + self.path, flush=True)\n        if self.path == '/v1/predict':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(json.dumps({'anomaly': False, 'severity': 0.0, 'recommendation': {'action_verb': 'INVESTIGATE', 'target': 'demo', 'from_to': 'none', 'confidence': 0.5, 'evidence_link': 'placeholder'}, 'reasoning': 'placeholder ai engine', 'audit_id': 'placeholder'}).encode())\n        else:\n            self.send_response(404); self.end_headers()\nHTTPServer(('0.0.0.0', 8080), H).serve_forever()"
       ]
 
       portMappings = [
         {
+          name          = "ai-engine"
           containerPort = 8080
           hostPort      = 8080
           protocol      = "tcp"
+          appProtocol   = "http"
         }
       ]
 
@@ -185,6 +188,10 @@ resource "aws_ecs_task_definition" "ai_engine" {
         {
           name  = "BASELINE_S3_PREFIX"
           value = var.baseline_s3_prefix
+        },
+        {
+          name  = "AI_SERVICE_NAME"
+          value = "ai-engine"
         },
         {
           name  = "AI_PREDICT_PATH"
@@ -227,6 +234,31 @@ resource "aws_ecs_service" "ai_engine" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.main.arn
+
+    service {
+      port_name      = "ai-engine"
+      discovery_name = "ai-engine"
+
+      client_alias {
+        dns_name = "ai-engine"
+        port     = 8080
+      }
+    }
+
+    log_configuration {
+      log_driver = "awslogs"
+
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.ai_engine.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "service-connect"
+      }
+    }
   }
 
   network_configuration {

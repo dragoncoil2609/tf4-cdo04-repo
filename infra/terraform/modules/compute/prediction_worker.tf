@@ -1,11 +1,12 @@
 # -----------------------------------------------------------------------------
-# Prediction Worker ECS Task Definition -- CDO-W12-010
+# Prediction Worker ECS Task Definition -- CDO-W12-010 / CDO-W12-012
 #
 # Scope:
 # - ECS Fargate task definition for Prediction Worker.
 # - IAM task role for SQS/AMP/DynamoDB/SNS/Secrets/SSM.
 # - CloudWatch log group /ecs/prediction-worker.
 # - ECS service runs in private subnets with no public IP.
+# - Service Connect client config to call AI by http://ai-engine:8080.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "prediction_worker" {
@@ -162,7 +163,7 @@ resource "aws_ecs_task_definition" "prediction_worker" {
       command = [
         "python",
         "-c",
-        "import time, signal, sys; signal.signal(signal.SIGTERM, lambda s,f: sys.exit(0)); print('prediction-worker placeholder running', flush=True); time.sleep(10**9)"
+        "import time, signal, sys, urllib.request; signal.signal(signal.SIGTERM, lambda s,f: sys.exit(0)); print('prediction-worker placeholder starting', flush=True); url='http://ai-engine:8080/health'; print('testing private service connect url: ' + url, flush=True); r=urllib.request.urlopen(url, timeout=10); print('ai-engine health status=' + str(r.status), flush=True); print('ai-engine health body=' + r.read().decode(), flush=True); time.sleep(10**9)"
       ]
 
       # Graceful shutdown support for SQS message processing.
@@ -193,6 +194,10 @@ resource "aws_ecs_task_definition" "prediction_worker" {
         {
           name  = "AI_SERVICE_NAME"
           value = var.ai_service_name
+        },
+        {
+          name  = "AI_ENGINE_BASE_URL"
+          value = "http://ai-engine:8080"
         },
         {
           name  = "AI_PREDICT_PATH"
@@ -241,6 +246,21 @@ resource "aws_ecs_service" "prediction_worker" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.main.arn
+
+    log_configuration {
+      log_driver = "awslogs"
+
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.prediction_worker.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "service-connect"
+      }
+    }
   }
 
   network_configuration {
