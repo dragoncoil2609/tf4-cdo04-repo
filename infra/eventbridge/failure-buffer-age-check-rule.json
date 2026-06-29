@@ -1,6 +1,0 @@
-{
-  "Name": "CDO-TelemetryApi-FailureBufferAgeCheckRule",
-  "ScheduleExpression": "rate(1 minute)",
-  "State": "ENABLED",
-  "Description": "Triggers the failure_buffer_age_checker Lambda function every minute to verify the age of the oldest failure object."
-}
