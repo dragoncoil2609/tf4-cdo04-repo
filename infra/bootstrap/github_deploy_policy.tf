@@ -269,6 +269,40 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "*"
     ]
   }
+
+  statement {
+    sid    = "AllowManageProjectLambda"
+    effect = "Allow"
+
+    actions = [
+      "lambda:CreateFunction",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration",
+      "lambda:DeleteFunction",
+      "lambda:AddPermission",
+      "lambda:RemovePermission"
+    ]
+
+    resources = [
+      "arn:aws:lambda:*:*:function:tf4-cdo04-cost-breaker-*"
+    ]
+  }
+
+  statement {
+    sid    = "AllowManageProjectBudgets"
+    effect = "Allow"
+
+    actions = [
+      "budgets:ViewBudget",
+      "budgets:ModifyBudget"
+    ]
+
+    resources = [
+      "arn:aws:budgets::*:budget/tf4-cdo04-platform-budget-*"
+    ]
+  }
 }
 
 resource "aws_iam_policy" "github_deploy_policy" {
