@@ -51,7 +51,7 @@ variable "telemetry_api_image_tag" {
 variable "prediction_worker_image_tag" {
   description = "Docker image tag/URI for the Prediction Worker ECS task definition (CPOA-47)"
   type        = string
-  default     = "MOCK_PLACEHOLDER_PREDICTION_WORKER:latest"
+  default     = "public.ecr.aws/docker/library/python:3.11-slim"
 }
 
 variable "ai_engine_image_tag" {

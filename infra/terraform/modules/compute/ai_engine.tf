@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# AI Engine ECS Task Definition and Service -- CPOA-48 & CDO-W12-011 / CDO-W12-012
+# AI Engine ECS Task Definition and Service -- CPOA-48 & CDO-W12-011 / CDO-W12-012 / CDO-W12-025
 #
 # Scope:
 # - ECS Fargate task definition for AI Engine (0.5 vCPU / 1GB RAM).
@@ -7,7 +7,8 @@
 # - CloudWatch log group /ecs/ai-engine.
 # - ECS service with Service Connect server discovery, circuit breaker,
 #   private subnets, no public IP.
-# - Python/FastAPI mock server cmd for sandbox verification.
+# - Python mock server cmd for sandbox verification.
+# - CDO-W12-025: enforce SigV4-style signed Worker -> AI request.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "ai_engine" {
@@ -45,8 +46,11 @@ resource "aws_iam_role" "ai_engine_task_role" {
 }
 
 resource "aws_iam_policy" "ai_engine_task_policy" {
-  name        = "${var.project_name}-${var.environment}-ai-engine-task-policy"
-  description = "Allow AI Engine to read baseline files from S3, read SSM params, Secrets, decrypt and publish CloudWatch metrics"
+  name = "${var.project_name}-${var.environment}-ai-engine-task-policy"
+
+  # Keep this description aligned with the existing deployed policy to avoid
+  # replacing the IAM managed policy during CDO-W12-025.
+  description = "Allow AI Engine to read baseline files from S3 baselines prefix and decrypt config if required"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -155,12 +159,100 @@ resource "aws_ecs_task_definition" "ai_engine" {
       image     = var.ai_engine_image
       essential = true
 
-      # Placeholder FastAPI-like HTTP server for infrastructure validation.
-      # It exposes /health and /v1/predict until the real AI image is ready.
+      # Mock AI server for sandbox verification.
+      # /health remains open for ECS health checks.
+      # /v1/predict enforces SigV4-style signed request from Prediction Worker.
       command = [
         "python",
         "-c",
-        "from http.server import BaseHTTPRequestHandler, HTTPServer\nimport json\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        print('GET ' + self.path, flush=True)\n        if self.path == '/health':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(b'{\"status\":\"ok\"}')\n        else:\n            self.send_response(404); self.end_headers()\n    def do_POST(self):\n        print('POST ' + self.path, flush=True)\n        if self.path == '/v1/predict':\n            self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers(); self.wfile.write(json.dumps({'anomaly': False, 'severity': 0.0, 'recommendation': {'action_verb': 'INVESTIGATE', 'target': 'demo', 'from_to': 'none', 'confidence': 0.5, 'evidence_link': 'placeholder'}, 'reasoning': 'placeholder ai engine', 'audit_id': 'placeholder'}).encode())\n        else:\n            self.send_response(404); self.end_headers()\nHTTPServer(('0.0.0.0', 8080), H).serve_forever()"
+        <<-PY
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
+import os
+
+ALLOWED_PRINCIPAL = os.environ.get("AI_ALLOWED_PRINCIPAL_ARN", "")
+ENFORCE_SIGV4 = os.environ.get("AI_SIGV4_ENFORCE", "true").lower() == "true"
+
+class H(BaseHTTPRequestHandler):
+    def _json(self, status, body):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
+    def _is_authorized(self):
+        auth = self.headers.get("Authorization", "")
+        amz_date = self.headers.get("X-Amz-Date", "")
+        token = self.headers.get("X-Amz-Security-Token", "")
+        worker_principal = self.headers.get("X-Worker-Principal", "")
+
+        print("auth header prefix=" + auth[:32], flush=True)
+        print("x-amz-date present=" + str(bool(amz_date)), flush=True)
+        print("x-amz-security-token present=" + str(bool(token)), flush=True)
+        print("x-worker-principal=" + worker_principal, flush=True)
+
+        if not ENFORCE_SIGV4:
+            return True, "auth disabled"
+
+        if not auth.startswith("AWS4-HMAC-SHA256"):
+            return False, "missing or invalid SigV4 Authorization header"
+
+        if not amz_date:
+            return False, "missing X-Amz-Date"
+
+        if not token:
+            return False, "missing X-Amz-Security-Token"
+
+        if ALLOWED_PRINCIPAL and worker_principal != ALLOWED_PRINCIPAL:
+            return False, "worker principal not allowed"
+
+        return True, "authorized"
+
+    def do_GET(self):
+        print("GET " + self.path, flush=True)
+
+        if self.path == "/health":
+            self._json(200, {"status": "ok"})
+            return
+
+        self._json(404, {"error": "not_found"})
+
+    def do_POST(self):
+        print("POST " + self.path, flush=True)
+
+        if self.path != "/v1/predict":
+            self._json(404, {"error": "not_found"})
+            return
+
+        ok, reason = self._is_authorized()
+
+        if not ok:
+            print("sigv4 authorization failed: " + reason, flush=True)
+            self._json(401, {
+                "error": "unauthorized",
+                "reason": reason
+            })
+            return
+
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)).decode()
+        print("received signed predict request body=" + body, flush=True)
+
+        self._json(200, {
+            "anomaly": False,
+            "severity": 0.0,
+            "recommendation": {
+                "action_verb": "INVESTIGATE",
+                "target": "demo",
+                "from_to": "none",
+                "confidence": 0.5,
+                "evidence_link": "placeholder"
+            },
+            "reasoning": "authorized SigV4 placeholder AI Engine",
+            "audit_id": "sigv4-demo"
+        })
+
+HTTPServer(("0.0.0.0", 8080), H).serve_forever()
+PY
       ]
 
       portMappings = [
@@ -224,6 +316,14 @@ resource "aws_ecs_task_definition" "ai_engine" {
         {
           name  = "AI_HEALTH_PATH"
           value = "/health"
+        },
+        {
+          name  = "AI_SIGV4_ENFORCE"
+          value = "true"
+        },
+        {
+          name  = "AI_ALLOWED_PRINCIPAL_ARN"
+          value = aws_iam_role.prediction_worker_task_role.arn
         }
       ]
 
