@@ -1,0 +1,12 @@
+﻿{
+  "tenant_id": "demo-tenant-001",
+  "service_id": "ai-engine",
+  "baseline_version": "v1",
+  "prediction_mode": "balanced",
+  "lookback_window_minutes": 120,
+  "thresholds": {
+    "cpu_usage_high": 85,
+    "memory_usage_high": 80,
+    "p99_latency_ms_high": 500
+  }
+}
