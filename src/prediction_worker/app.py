@@ -73,7 +73,8 @@ def get_static_threshold_fallback(tenant_id, service_name):
 
 def save_audit_log(prediction_id, tenant_id, service_name, decision, prediction_source, score):
     """
-    Lưu quyết định dự báo vào DynamoDB Audit Logs Table
+    Lưu quyết định dự báo vào DynamoDB Audit Logs Table.
+    Ném lỗi nếu ghi thất bại để tránh xóa tin nhắn SQS trước khi audit thành công.
     """
     item = {
         "prediction_id": prediction_id,
@@ -89,36 +90,37 @@ def save_audit_log(prediction_id, tenant_id, service_name, decision, prediction_
         print(f"Đã lưu audit log cho {prediction_id} thành công.")
     except Exception as e:
         print(f"Lỗi ghi DynamoDB audit log: {str(e)}")
+        raise e  # Ném lỗi để chặn xóa tin nhắn SQS khi lưu log thất bại
 
 def process_job(job_data):
     """
     Xử lý một bản tin dự báo từ SQS
     """
-    # 1. Parse các trường dữ liệu bắt buộc (CPOA-61)
-    prediction_id = job_data.get("prediction_id")
+    # 1. Parse các trường dữ liệu bắt buộc từ SQS Body
+    prediction_id = job_data.get("correlation_id") or job_data.get("prediction_id")
     tenant_id = job_data.get("tenant_id")
-    service_name = job_data.get("service_name")
+    service_name = job_data.get("service_id") or job_data.get("service_name")
     lookback_window_minutes = job_data.get("lookback_window_minutes")
-    correlation_id = job_data.get("correlation_id", prediction_id)
     
-    print(f"Nhận job: correlation_id={correlation_id}, tenant_id={tenant_id}, service={service_name}, lookback={lookback_window_minutes}")
-    
-    # 2. Validate lookback_window_minutes = 120 (CPOA-61)
-    if lookback_window_minutes is None:
-        print("Cảnh báo: lookback_window_minutes trống. Thiết lập về 120.")
-        lookback_window_minutes = 120
-    else:
+    if not prediction_id or not tenant_id or not service_name:
+        raise ValueError("Thiếu trường thông tin bắt buộc: correlation_id/prediction_id, tenant_id, service_id/service_name")
+
+    # 2. Xác thực trường lookback_window_minutes bắt buộc bằng 120
+    if lookback_window_minutes is not None:
         try:
             lookback_val = int(lookback_window_minutes)
-            if lookback_val != 120:
-                print(f"Cảnh báo: lookback_window_minutes là {lookback_val}, điều chỉnh thành 120 theo yêu cầu.")
-                lookback_window_minutes = 120
         except ValueError:
-            print("Lỗi định dạng lookback_window_minutes. Sử dụng 120.")
-            lookback_window_minutes = 120
-            
+            raise ValueError(f"lookback_window_minutes không đúng định dạng số: {lookback_window_minutes}")
+        if lookback_val != 120:
+            raise ValueError(f"Xác thực thất bại: lookback_window_minutes phải bằng 120 (nhận được: {lookback_val})")
+    else:
+        # Nếu không truyền, mặc định gán 120 theo thiết kế
+        lookback_val = 120
+
+    print(f"Đang xử lý job {prediction_id} cho tenant {tenant_id} với lookback {lookback_val} phút...")
+    
     # 3. Query metrics từ AMP
-    metrics = query_amp_metrics(tenant_id, service_name, duration_minutes=lookback_window_minutes)
+    metrics = query_amp_metrics(tenant_id, service_name, duration_minutes=lookback_val)
     
     # 2. Gọi AI Engine để lấy kết quả (Fail-Open Fallback)
     decision = "UNKNOWN"
