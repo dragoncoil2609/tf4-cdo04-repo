@@ -302,9 +302,7 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "budgets:*"
     ]
 
-    resources = [
-      "arn:aws:budgets::*:budget/tf4-cdo04-platform-budget-*"
-    ]
+    resources = ["*"]
   }
 }
 
