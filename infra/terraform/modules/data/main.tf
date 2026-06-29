@@ -108,6 +108,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
   }
 }
 
+# -----------------------------------------------------------------------------
+# TASK: CPOA-103 | CDO-W12-058 - Retention policies
+# OWNER: Tạ Hoàng Huy
+#
+# DESCRIPTION:
+# Cấu hình chính sách vòng đời S3 cho evidence bucket:
+# 1. Rule 1: Tự động xóa dữ liệu lỗi trong prefix failure-buffer/ sau 7 ngày.
+# 2. Rule 2: Xóa toàn bộ dữ liệu evidence và baseline khác sau 90 ngày.
+# -----------------------------------------------------------------------------
 resource "aws_s3_bucket_lifecycle_configuration" "evidence" {
   bucket = aws_s3_bucket.evidence.id
 

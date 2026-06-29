@@ -92,6 +92,9 @@ def get_static_threshold_fallback(tenant_id, service_name):
 
 def save_audit_log(prediction_id, tenant_id, service_name, decision, prediction_source, score):
     """
+    TASK: CPOA-103 | CDO-W12-058 - Retention policies
+    OWNER: Tạ Hoàng Huy
+
     Lưu quyết định dự báo vào DynamoDB Audit Logs Table kèm TTL 90 ngày
     """
     now = int(time.time()) # Tối ưu: Gọi 1 lần duy nhất
