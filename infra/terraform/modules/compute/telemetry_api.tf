@@ -51,6 +51,11 @@ resource "aws_iam_role_policy" "telemetry_api_task" {
         Effect   = "Allow"
         Action   = ["sqs:SendMessage"]
         Resource = var.prediction_queue_arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "arn:aws:s3:::${var.evidence_bucket_name}/failure-buffer/*"
       }
     ]
   })
