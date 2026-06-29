@@ -1,0 +1,20 @@
+# -----------------------------------------------------------------------------
+# CDO-04 Platform -- terraform.tfvars.example
+# Vinh-owned Terraform slice only.
+# -----------------------------------------------------------------------------
+
+project_name = "tf4-cdo04"
+environment  = "sandbox"
+aws_region   = "us-east-1"
+
+vpc_cidr = "10.0.0.0/16"
+az_count = 2
+
+# CPOA-46: Telemetry API task definition image.
+# Replace after Telemetry API image exists.
+telemetry_api_image_tag = "MOCK_PLACEHOLDER_TELEMETRY_API:latest"
+
+# TODO (CPOA-40): ALB ingress CIDRs/security groups belong to Truong An.
+# TODO (CPOA-47/CPOA-48): Worker/AI image vars belong to Truong An.
+# TODO (CPOA-78): deployment/certificate variables belong to Nguyen Huy Hoang.
+# TODO (CPOA-88/CPOA-98): alert/budget variables belong to Ninh/Huy.

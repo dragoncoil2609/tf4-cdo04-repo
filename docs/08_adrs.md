@@ -25,6 +25,26 @@ Khi một ADR cũ không còn áp dụng, không xóa ADR cũ. Chỉ cập nhậ
 
 Sau đó append ADR mới ở dưới.
 
+
+## Ghi chú quyết định hiện tại (2026-06-26)
+
+ADR-011 là quyết định hiện tại đã được chấp nhận cho region, TSDB product, query language và metrics auth model. Mọi nội dung ADR cũ nhắc đến Singapore/`ap-southeast-1`, Amazon Timestream/Timestream for InfluxDB, InfluxDB tokens, Flux, `promql_evidence_reference` hoặc Timestream VPC endpoints chỉ được giữ làm ngữ cảnh lịch sử, trừ khi ADR-011 lặp lại rõ ràng. Khi triển khai hiện tại, phải xem các chi tiết đó là đã bị thay thế bởi AMP tại `us-east-1` với PromQL và IAM/SigV4.
+
+## Snapshot quyết định hiện tại cho Terraform v1 (2026-06-27)
+
+- Khu vực triển khai: `us-east-1`.
+- Metrics backend: AMP với PromQL và SigV4.
+- Metrics ingestion: ADOT/Prometheus Collector tự quản lý trên ECS; app-direct remote_write chỉ dùng nếu đã triển khai protobuf/Snappy/SigV4/retry.
+- Compute: ECS Fargate Linux/x86, private tasks.
+- Cổng vào public: một HTTPS ALB cho `/v1/ingest`, giới hạn bằng `allowed_ingress_cidrs` khai báo rõ; không có giá trị mặc định mở.
+- Luồng AI: Prediction Worker -> ECS Service Connect -> AI Engine. Terraform v1 không tạo internal ALB.
+- Networking: một NAT Gateway cùng S3/DynamoDB Gateway Endpoints; interface endpoints mặc định tắt.
+- Deployment: ECS rolling deployment circuit breaker trong Terraform v1. ECS-native blue/green là post-MVP; CodeDeploy không thuộc v1.
+- Cảnh báo: CloudWatch Alarms + SNS email.
+- Ngoài phạm vi v1: Service Connect TLS/Private CA, WAF, bộ PrivateLink đầy đủ, multi-account, multi-region DR.
+
+Với ADR-001 đến ADR-008, mọi nội dung về Timestream/Singapore chỉ là lịch sử. Không triển khai Timestream resources từ các ADR đó.
+
 ## Target
 
 - Pack #1 / W11: ít nhất 3 ADR.
@@ -138,7 +158,8 @@ Các ADR dự kiến cho CDO-04:
   | Item | Decision |
   |---|---|
   | Prediction cadence | Mỗi 5 phút |
-  | Lookback window | 1-2 giờ gần nhất |
+  | Telemetry frequency | Mỗi 1 phút |
+  | Lookback window | Default 120 phút gần nhất |
   | Lead time target | Tối thiểu >=15 phút, target 30 phút nếu có thể |
   | Service scope | 3 service tier-1 |
   | Metric scope | 3-5 leading metrics/service |
@@ -147,11 +168,14 @@ Các ADR dự kiến cho CDO-04:
 
   Prediction Worker sẽ query telemetry gần nhất từ Timestream, build input window, gọi AI endpoint `POST /v1/predict`, ghi audit record vào DynamoDB và publish alert khi risk level là high.
 
+Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry API ghi metric vào Timestream mỗi 1 phút, còn Prediction Worker chỉ chạy prediction mỗi 5 phút bằng cách query lookback window mặc định 120 phút gần nhất.
+
 - **Consequence**:
 
   - ✅ Balanced mode hỗ trợ hard requirement về cảnh báo sớm với lead time >=15 phút.
   - ✅ Cadence mỗi 5 phút tạo đủ cơ hội để phát hiện gradual drift mà không tạo quá nhiều AI calls.
-  - ✅ Lookback window 1-2 giờ cung cấp đủ context time-series cho baseline/drift analysis.
+  - ✅ Telemetry frequency 1 phút cung cấp signal window đủ chi tiết cho AI mà vẫn giữ prediction cadence ở mức tiết kiệm cost.
+  - ✅ Lookback window 120 phút align với AI API Contract và cung cấp đủ context time-series cho baseline/drift analysis.
   - ✅ Cost dễ kiểm soát hơn high-sensitivity mode vì số lượng prediction jobs, Timestream queries và audit records ở mức vừa phải.
   - ✅ Nguy cơ false positive thấp hơn mode 1 phút vì platform không phản ứng quá nhanh với các spike ngắn hoặc noisy baseline.
   - ✅ Dễ giải thích và test trong capstone với 3 service và 4 scenario: gradual drift, sudden spike, slow leak, noisy baseline.
@@ -220,19 +244,24 @@ Các ADR dự kiến cho CDO-04:
 
   ```text
   prediction_source = static_threshold_fallback
-  fallback_reason = ai_timeout | ai_5xx | ai_429 | ai_unavailable | ai_invalid_response
+  fallback_reason = ai_timeout | ai_5xx | ai_429 | ai_unavailable | ai_không hợp lệ_response
   ```
 
   Alert được tạo từ fallback phải vẫn có đủ thông tin tối thiểu:
 
   * `service_id`
-  * `risk_level`
-  * `root_cause`
-  * `recommendation`
+  * `anomaly`
+  * `severity`
+  * `reasoning`
+  * `recommendation.action_verb`
+  * `recommendation.target`
+  * `recommendation.from_to`
+  * `recommendation.confidence`
+  * `recommendation.evidence_link`
   * `prediction_source`
   * `fallback_reason`
   * `prediction_id`
-  * `timestream_query_reference`
+  * `promql_evidence_reference`
   * `cloudwatch_dashboard_url`
 
   Ví dụ fallback alert:
@@ -244,7 +273,7 @@ Các ADR dự kiến cho CDO-04:
   Fallback reason: ai_timeout
   Root cause: SQS queue depth and oldest message age exceeded fallback threshold.
   Recommendation: Increase kyc-worker concurrency from 20 to 40.
-  Evidence: Timestream query reference + CloudWatch dashboard URL
+  Evidence: metric evidence reference + CloudWatch dashboard URL
   ```
 
 * **Consequence**:
@@ -254,7 +283,7 @@ Các ADR dự kiến cho CDO-04:
   * ✅ SRE vẫn nhận được warning dựa trên các metric quan trọng như RDS CPU, SQS backlog, ALB latency và HTTP 5xx.
   * ✅ Fallback decision vẫn được audit trong DynamoDB, giúp truy vết rõ warning đến từ AI hay static threshold.
   * ✅ Cách này đơn giản hơn so với việc build model dự phòng hoặc multi-AI endpoint trong MVP.
-  * ✅ Dễ test trong W12 bằng scenario “AI endpoint down”, “AI timeout” hoặc “AI invalid response”.
+  * ✅ Dễ test trong W12 bằng scenario “AI endpoint down”, “AI timeout” hoặc “AI không hợp lệ response”.
   * ✅ Phù hợp với nguyên tắc predict + recommend, không auto-remediation.
   * ⚠️ Static threshold fallback kém thông minh hơn AI prediction và có thể phát hiện drift muộn hơn.
   * ⚠️ Static threshold có thể tạo false positive nếu threshold chưa được tune tốt.
@@ -287,13 +316,13 @@ Các ADR dự kiến cho CDO-04:
 ---
 ## ADR-004 - Chọn Amazon Timestream làm telemetry store và metric evidence source
 
-* **Status**: Accepted
+* **Status**: Superseded by ADR-011
 
 * **Date**: 2026-06-23
 
 * **Context**:
 
-  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 1-2 giờ gần nhất trước khi gọi AI endpoint `POST /v1/predict`.
+  TF4 Foresight Lens cần xử lý dữ liệu telemetry dạng time-series cho nhiều service. Prediction Worker cần query dữ liệu theo `tenant_id`, `service_id`, `metric_type` và time window 120 phút gần nhất trước khi gọi AI endpoint `POST /v1/predict`. Telemetry được ingest với frequency chính thức mỗi 1 phút để tạo signal window đủ chi tiết cho 3-Sigma/AI prediction.
 
   Dữ liệu này không chỉ dùng để gọi AI, mà còn dùng làm **metric evidence** khi platform tạo warning. Khi SRE nhận được alert, họ cần biết warning dựa trên metric nào, trong time window nào và service nào đang có drift/capacity risk.
 
@@ -307,6 +336,7 @@ Các ADR dự kiến cho CDO-04:
   * primary metric evidence source
   * source of truth cho prediction input
   * nơi Prediction Worker query dữ liệu time-series trước khi gọi AI
+  * nơi lưu telemetry samples với frequency 1 phút
 
   CloudWatch vẫn được sử dụng nhưng với vai trò khác:
 
@@ -347,10 +377,17 @@ Các ADR dự kiến cho CDO-04:
 
   để tránh query quá rộng và kiểm soát cost.
 
+  Telemetry ingest frequency mặc định:
+
+  ```text
+  every 1 minute per metric
+  ```
+
 * **Consequence**:
 
   * ✅ Timestream phù hợp với dữ liệu time-series và prediction workflow cần query theo time window.
-  * ✅ Prediction Worker có thể lấy input window 1-2 giờ gần nhất cho từng service trước khi gọi AI.
+  * ✅ Prediction Worker có thể lấy input window 120 phút gần nhất cho từng service trước khi gọi AI.
+  * ✅ Telemetry sample mỗi 1 phút giúp AI có đủ data points trong lookback window đúng 120 phút theo AI API Contract.
   * ✅ Metric evidence rõ ràng hơn so với chỉ dùng dashboard screenshot.
   * ✅ Hỗ trợ mô hình evidence 3 lớp: Timestream metric evidence, CloudWatch visualization evidence, DynamoDB decision evidence.
   * ✅ Giúp tách rõ vai trò giữa telemetry store, dashboard và audit store.
@@ -447,7 +484,7 @@ Các ADR dự kiến cho CDO-04:
 
 * **Context**:
 
-  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
+  ADR-002 đã chọn Balanced Prediction Mode với prediction cadence mỗi 5 phút. Telemetry frequency đã chốt là mỗi 1 phút, nhưng prediction không chạy mỗi phút; Prediction Worker sẽ chạy mỗi 5 phút và query dữ liệu telemetry 120 phút gần nhất từ Timestream. CDO platform cần một cách ổn định để trigger prediction job định kỳ cho 3 service demo, đồng thời tránh coupling trực tiếp giữa scheduler và Prediction Worker.
 
   Prediction job có thể lỗi do AI timeout, Timestream query lỗi, DynamoDB audit write lỗi hoặc worker deployment issue. Vì vậy orchestration cần có retry boundary, queue visibility và DLQ để debug job lỗi.
 
@@ -480,6 +517,7 @@ Các ADR dự kiến cho CDO-04:
   service_id
   prediction_window_start
   prediction_window_end
+  lookback_window_minutes
   correlation_id
   prediction_mode
   ```
@@ -542,17 +580,24 @@ Các ADR dự kiến cho CDO-04:
   tenant_id
   service_id
   prediction_source
-  risk_level
-  confidence
-  root_cause
-  recommendation
-  timestream_query_reference
+  anomaly
+  severity
+  reasoning
+  recommendation.action_verb
+  recommendation.target
+  recommendation.from_to
+  recommendation.confidence
+  recommendation.evidence_link
+  audit_id
+  promql_evidence_reference
   cloudwatch_dashboard_url
-  model_version
+  deployment_version
   baseline_version
   fallback_reason
   correlation_id
   ```
+
+  Nếu alert cần `risk_level` hoặc `root_cause`, CDO derive từ `severity` và `reasoning`; không yêu cầu AI trả thêm field ngoài contract.
 
   Suggested key pattern:
 
@@ -618,7 +663,7 @@ Các ADR dự kiến cho CDO-04:
 
   CDO platform chạy ECS Fargate task trong private subnet. Các task cần pull image từ ECR, ghi CloudWatch Logs, đọc secret, query Timestream, đọc/ghi SQS/DynamoDB và publish SNS. Có hai hướng chính: dùng NAT Gateway để private task đi ra AWS public service endpoints, hoặc tạo full VPC Interface Endpoints cho từng AWS service.
 
-  Với capstone MVP, traffic thấp vì chỉ demo 3 service, prediction cadence mỗi 5 phút và synthetic load chỉ bật trong test window. Vì vậy fixed cost của nhiều interface endpoints có thể cao hơn lợi ích tiết kiệm data processing.
+  Với capstone MVP, traffic thấp vì chỉ demo 3 service, prediction cadence mỗi 5 phút và synthetic load chỉ bật trong test window. Vì vậy fixed cost của nhiều interface endpoint có thể cao hơn lợi ích tiết kiệm data processing.
 
 * **Decision**:
 
@@ -645,15 +690,15 @@ Các ADR dự kiến cho CDO-04:
 * **Consequence**:
 
   * ✅ MVP networking đơn giản hơn và nhanh build hơn.
-  * ✅ Cost thấp hơn full interface endpoints trong traffic capstone thấp.
+  * ✅ Cost thấp hơn full interface endpoint trong traffic capstone thấp.
   * ✅ S3 và DynamoDB Gateway Endpoints vẫn giúp giảm NAT data processing cho S3/DynamoDB traffic.
   * ✅ ECS private task vẫn có thể pull image từ ECR qua NAT Gateway.
   * ✅ Phù hợp budget khoảng $200/tháng.
   * ✅ Dễ explain trade-off giữa cost, simplicity và production hardening.
   * ⚠️ NAT Gateway là một dependency cho private task outbound traffic.
   * ⚠️ Không phải private-only access tuyệt đối tới toàn bộ AWS services trong MVP.
-  * ⚠️ Nếu traffic AWS service tăng lớn, interface endpoints có thể kinh tế hơn.
-  * ⚠️ Production environment có thể cần interface endpoints để đáp ứng compliance/private-only requirement.
+  * ⚠️ Nếu traffic AWS service tăng lớn, interface endpoint có thể kinh tế hơn.
+  * ⚠️ Production environment có thể cần interface endpoint để đáp ứng compliance/private-only requirement.
 
 * **Alternatives considered**:
 
@@ -677,6 +722,210 @@ Các ADR dự kiến cho CDO-04:
 
     Rejected vì S3 Gateway Endpoint và DynamoDB Gateway Endpoint là lựa chọn tốt cho MVP, giúp giảm NAT data processing mà không cần full interface endpoint strategy.
 
+
+---
+## ADR-009 - Host AI Engine Service on ECS Fargate in Singapore
+
+* **Status**: Superseded by ADR-011
+
+* **Date**: 2026-06-25
+
+* **Context**:
+
+  Sau khi Team AI freeze `ai-api-contract.md`, `telemetry-contract.md` và `deployment-contract.md`, CDO cần đồng bộ hạ tầng theo contract liên nhóm. AI Deployment Contract xác định rằng **CDO tự host AI Engine trên platform của mình**, compute target là **ECS Fargate task**, service chạy trong private subnet và rollback bằng ECS task definition.
+
+  Đồng thời region chính thức của CDO platform được chốt là `ap-southeast-1` (Singapore). Vì vậy CDO cần quyết định final về việc host AI Engine bằng ECS Fargate hay chuyển sang Lambda/container function để tối ưu chi phí.
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn host **AI Engine Service trên ECS Fargate** trong cùng VPC/ECS platform với Telemetry API và Prediction Worker.
+
+  Final compute model:
+
+  ```text
+  Telemetry Ingestion API  -> ECS Fargate
+  Prediction Worker        -> ECS Fargate
+  AI Engine Service        -> ECS Fargate
+  ```
+
+  Final AI serving path:
+
+  ```text
+  Prediction Worker
+      -> ECS Service Connect service name
+      -> POST /v1/predict
+      -> AI Engine Service
+  ```
+
+  Final region:
+
+  ```text
+  ap-southeast-1 (Singapore)
+  ```
+
+  AI Engine sizing:
+
+  ```text
+  min 2 tasks, max 4 tasks
+  0.5 vCPU / 1GB per task
+  health check path: /health
+  port: 8080
+  ```
+
+* **Consequence**:
+
+  * ✅ Align trực tiếp với AI Deployment Contract: CDO host AI Engine, target ECS Fargate, private subnet, rollback task definition.
+  * ✅ Giữ toàn bộ core runtime trên cùng container platform: Telemetry API, Prediction Worker và AI Engine.
+  * ✅ Worker có endpoint nội bộ ổn định cho `POST /v1/predict`, không gọi task IP động và không đi qua internet/NAT.
+  * ✅ ECS Service Connect cung cấp private service discovery/load balancing, target isolation qua ECS service và security group boundary rõ ràng cho Luồng AI.
+  * ✅ Rollback thống nhất bằng ECS task definition revision và CodeDeploy/ECS service rollback.
+  * ✅ CloudWatch Logs/Metrics/ECS service event cung cấp deployment và operations evidence rõ hơn cho capstone.
+  * ✅ Tránh rủi ro cold start và Lambda packaging adapter cho FastAPI/NumPy trong thời gian W12.
+  * ⚠️ Chi phí idle cao hơn Lambda container image vì AI Engine giữ tối thiểu 2 tasks chạy nền.
+  * ⚠️ Singapore pricing làm budget all-ECS khá sát $200, nên cần cost guard nghiêm ngặt: giới hạn synthetic load, log retention, không giảm prediction cadence dưới 5 phút và không tạo full interface endpoint trong MVP.
+  * ⚠️ Nếu sau MVP cần tối ưu chi phí, Lambda container image cho AI Engine có thể được đánh giá lại như future optimization, nhưng không phải final decision.
+
+* **Alternatives considered**:
+
+  * **AI Engine on Lambda container image**:
+
+    Rejected for final MVP dù có lợi về idle cost. Lý do: lệch với AI Deployment Contract, cần thay đổi cách expose `/v1/predict`, có rủi ro cold start, packaging FastAPI/NumPy cho Lambda, và tạo deployment/rollback model khác với Telemetry API/Worker.
+
+  * **External AI endpoint hosted by AI team**:
+
+    Rejected vì Deployment Contract nói rõ mỗi CDO tự host engine trên platform riêng. External shared endpoint làm yếu ownership, network boundary và rollback control của CDO.
+
+  * **EKS**:
+
+    Rejected vì quá nặng cho capstone MVP, tăng control-plane cost và vận hành phức tạp hơn ECS Fargate.
+
+  * **Single monolithic ECS service cho Worker + AI**:
+
+    Rejected vì Worker và AI Engine có lifecycle, scaling trigger, health check và rollback khác nhau. Tách thành ECS services riêng giúp vận hành rõ hơn.
+
+---
+
+## ADR-010 - Finalize Amazon Timestream for InfluxDB as the TSDB in ap-southeast-1
+
+* **Status**: Superseded by ADR-011
+
+* **Date**: 2026-06-26
+
+* **Context**:
+
+  ADR-004 correctly captured the architectural requirement: CDO needs a managed TSDB/evidence source for tenant/service/time telemetry and 120-minute prediction windows. However, older wording used the broad name **Amazon Timestream**, which can be read as the LiveAnalytics database/table + SQL product flavor. The final regional plan is Singapore (`ap-southeast-1`), and Terraform should target the **Amazon Timestream for InfluxDB** flavor for regional viability and InfluxDB-compatible org/bucket/measurement/tags/fields semantics.
+
+  This ADR does not delete ADR-004. It records the final product flavor and updates the cost consequence of the TSDB choice.
+
+* **Decision**:
+
+  CDO-04 finalizes **Amazon Timestream for InfluxDB in `ap-southeast-1`** as the TSDB for telemetry and metric evidence.
+
+  Final TSDB model:
+
+  ```text
+  Organization: tf4-cdo04
+  Bucket      : telemetry
+  Measurement : service_metrics
+  Tags        : tenant_id, service_id, env, region, service_tier, metric_type
+  Fields      : value, optional unit/sample_count
+  Query style : Flux with tenant/service/enabled-metric filters and 120-minute range
+  Retention   : 90-day bucket retention target
+  ```
+
+  Older references to Amazon Timestream should be interpreted as the TSDB requirement unless they explicitly mention LiveAnalytics. New Terraform and security docs should use the InfluxDB flavor, store InfluxDB credentials/tokens in Secrets Manager, and protect the endpoint with private networking/security group controls. Do not use LiveAnalytics-style IAM data-plane examples for the InfluxDB write/query path.
+
+* **Cost consequence**:
+
+  AWS Pricing MCP recheck for `ap-southeast-1` shows:
+
+  | Instance | Deployment | Hourly price | 730h monthly estimate |
+  |---|---|---:|---:|
+  | `db.influx.medium` | Single-AZ | **$0.142/hour** | **~$103.66/month** |
+
+  Therefore the old generic **$5/month TSDB** assumption is không hợp lệ. `db.influx.medium` Single-AZ is the minimum viable managed InfluxDB option. With this option, the full always-on platform becomes about **$296.04/month** before ops buffer, so it no longer fits a strict **$200/month** budget.
+
+* **Mitigation**:
+
+  * Use `db.influx.medium` Single-AZ for capstone unless load tests prove it is insufficient.
+  * Keep prediction cadence at 5 minutes and require Flux filters by tenant, service, enabled metrics and 120-minute window.
+  * Run within the 2-week capstone/demo window where forecast is about **$148.02** instead of presenting the full-month estimate as budget-fit.
+  * Prefer ARM64/Graviton for ECS images when compatible, but recognize this only reduces compute and does not offset the full TSDB instance cost by itself.
+  * Teardown or stop non-demo environments outside test windows where feasible; do not disable audit/fallback to save cost.
+  * If the environment must run always-on for a full month, request budget exception or funding credits rather than hiding the TSDB cost.
+
+* **Consequences**:
+
+  * Final docs and Terraform direction are region/product-specific: Amazon Timestream for InfluxDB in Singapore.
+  * Data model aligns with InfluxDB org/bucket/measurement/tags/fields and Flux semantics.
+  * Security posture is clearer: no public TSDB exposure; credentials in Secrets Manager; endpoint access controlled by SG/private network and TLS.
+  * Cost defense changes materially. The platform is still valid architecturally, but the full always-on monthly estimate is above $200 without mitigation.
+
+---
+
+## ADR-011 - Adopt AMP in us-east-1 with x86 ECS Fargate for CDO-04
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-26
+
+* **Context**:
+
+  ADR-004 captured the original need for a TSDB-backed metric evidence source, ADR-009 selected ECS Fargate AI serving in Singapore, and ADR-010 finalized Amazon Timestream for InfluxDB `db.influx.medium` in `ap-southeast-1`. After the cost review, that design no longer fits a full-month $200 always-on target because the managed InfluxDB instance alone costs about $103.66/month.
+
+  The team has now accepted the migration path analyzed in `docs/amp_migration_cost_estimate.md`: move the CDO deployment decision to `us-east-1`, replace Timestream for InfluxDB with Amazon Managed Service for Prometheus (AMP), and keep ECS Fargate Linux/x86 as the compute target.
+
+  This is a CDO platform decision, not a frozen AI contract change. The AI contracts remain compatible: `POST /v1/predict`, IAM SigV4, 1-minute telemetry, 120-minute `signal_window`, AI Engine on ECS Fargate min 2/max 4, p99/throughput/availability targets, audit and fallback behavior all remain unchanged. The AI deployment contract already defaults `AWS_REGION` to `us-east-1` and describes the engine as region-agnostic according to the CDO deployment region.
+
+* **Decision**:
+
+  CDO-04 adopts this final decision:
+
+  ```text
+  Region          : us-east-1 / US East (N. Virginia)
+  Compute         : ECS Fargate Linux/x86
+  Metrics backend : Amazon Managed Service for Prometheus (AMP)
+  Luồng AI         : Prediction Worker -> ECS Service Connect service name -> POST /v1/predict -> AI Engine
+  ```
+
+  AMP replaces the InfluxDB model:
+
+  | Previous model | Accepted model |
+  |---|---|
+  | InfluxDB org/bucket/measurement/tags/fields | AMP workspace with Prometheus metric names and labels |
+  | Flux query | PromQL `query` / `query_range` |
+  | InfluxDB read/write/admin tokens in Secrets Manager | IAM/SigV4 with scoped AMP permissions |
+  | Fixed `db.influx.medium` instance-hour cost | AMP usage-based ingest/storage/query pricing |
+
+  Telemetry write path should prefer ADOT Collector, Prometheus Agent, or another customer-managed collector that remote-writes to AMP. Direct application `remote_write` is allowed only if the app explicitly implements protobuf encoding, Snappy compression, SigV4 signing, batching, retry/backoff and request-size control.
+
+* **Cost consequence**:
+
+  With `us-east-1` + AMP + x86 Fargate, the accepted full-month estimate is:
+
+  | Component group | Estimate/month |
+  |---|---:|
+  | ECS Fargate x86 | **$90.10** |
+  | Public ingest ALB + 1 LCU | **$22.27** |
+  | 1 NAT Gateway + ~12GB data | **$33.39** |
+  | AMP workspace at current demo volume | **~$0.00** |
+  | DynamoDB, EventBridge/SQS, S3, CloudWatch/SNS, Secrets/KMS, ECR | **~$12.40** |
+  | **Full always-on estimate** | **~$158.16/month** |
+  | **+20% operations buffer** | **~$189.79/month** |
+
+  This brings the full-month x86 design under the hard $200/month target before and after buffer while preserving the deployable topology: public ingest ALB plus ECS Service Connect for private Worker → AI traffic. The cost guardrails focus on log volume, synthetic-load windows, PromQL scope, label cardinality and Service Connect proxy resource headroom.
+
+* **Consequences and guardrails**:
+
+  * ✅ Restores full-month hard-budget fit before and after buffer while keeping ECS Fargate, audit, fallback and private AI serving.
+  * ✅ AMP default 150-day retention satisfies the ≥90-day telemetry retention requirement.
+  * ✅ AMP is available in `us-east-1` and supports `remote_write`, `query`, and `query_range`.
+  * ✅ IAM/SigV4 replaces long-lived InfluxDB data-plane tokens, and AI request verification remains in AI Engine middleware/sidecar because Service Connect does not natively verify SigV4 for custom HTTP services.
+  * ⚠️ AMP is a metrics backend, not a raw event lake. The 50k events/sec design ceiling is valid only with bounded samples/event and controlled label cardinality.
+  * ⚠️ Do not use high-cardinality labels such as `request_id`, `trace_id`, `prediction_id`, `user_id`, or raw endpoint paths.
+  * ⚠️ Runtime PromQL must always filter by tenant, service, metric name and the exact 120-minute range.
+  * ⚠️ PrivateLink for AMP (`aps-workspaces`) is a production hardening option; the MVP can keep NAT + S3/DynamoDB Gateway Endpoints for cost control.
+  * ✅ Terraform có thể bắt đầu sau khi docs chốt quyết định ADR-011/Terraform v1 này và reviewer chấp nhận bản cập nhật source of truth.
 
 ## Related documents
 

@@ -1,64 +1,19 @@
-# Telemetry Contract - Task force <N>
+# Telemetry Contract - Task force 4
 
-<!-- Owner: Nhóm AI <N>
+<!-- Owner: AIO-03
      Signed by: AI Lead + CDO Leads × 2-3 + Reviewer panel
      Date signed: 2026-06-25 (W11 T5)
      🔒 FREEZE - no change without formal change request -->
 
 ## Mục đích
 
-Định nghĩa **signals nào CDO emit từ infra** → AI engine consume. Là handshake giữa platform layer (CDO) và intelligence layer (AI).
+Định nghĩa **signals nào CDO emit từ infra** → AI engine consume để dự đoán Capacity Exhaustion. Là handshake giữa platform layer (CDO) và intelligence layer (AI).
 
 ## Versioning
 
 - **Current version**: `v1.0`
 - **Evolution**: backward-compatible additions only. Breaking change → new contract version + migration window
-- **Change request process**: raise trong WhatsApp group task force → task force meeting discuss → bump version + notify all parties
-
----
-
-## Signals required
-
-> List signals AI engine cần để analyze. Mỗi signal có schema + frequency + emit point + SLA.
-
-### Signal 1: `<signal_name>` - ví dụ `api_latency_ms`
-
-| Attribute | Value |
-|---|---|
-| **Type** | histogram / gauge / counter / event |
-| **Labels** | service, endpoint, region, tenant_id (mandatory) |
-| **Unit** | milliseconds / bytes / count |
-| **Frequency** | 1 giây / 30 giây / on-event |
-| **Emit point** | mô tả pipeline (vd: ALB access log → Lambda → Kinesis) |
-| **Retention** | 7 ngày hot, 30 ngày cold |
-| **Used for** | AI consumer mục đích gì (vd: anomaly detection sliding window 5min) |
-| **Emit SLA** | p99 latency từ event → AI consumable |
-| **Volume SLA** | events/sec peak |
-| **Cost estimate** | $X / tháng |
-
-**Schema example** (concrete JSON payload AI nhận được):
-
-```json
-{
-  "ts": "2026-06-25T10:30:00Z",
-  "tenant_id": "tnt-abc123",
-  "service": "checkout-api",
-  "endpoint": "/v1/orders",
-  "value": 1250.5,
-  "labels": {"region": "ap-southeast-1"}
-}
-```
-
-### Signal 2: `<signal_name>` - ví dụ `pod_oom_event`
-
-| Attribute | Value |
-|---|---|
-| **Type** | event |
-| **Labels** | namespace, deployment, container, memory_limit_mb, tenant_id |
-| **Frequency** | on-event |
-| **Emit point** | K8s events watcher → EventBridge → SQS |
-| **Used for** | OOMKilled pattern detection |
-| **Emit SLA** | < 30 giây |
+- **Change request process**: raise trong nhóm task force → họp bàn → bump version + notify all
 
 **Schema example**:
 
@@ -66,33 +21,237 @@
 {
   "ts": "2026-06-25T10:30:00Z",
   "tenant_id": "tnt-abc123",
-  "namespace": "prod-app",
-  "pod_name": "checkout-api-7f8d9-xyz",
-  "container": "main",
-  "memory_limit_mb": 512,
-  "exit_code": 137,
-  "last_logs_snippet": "..."
+  "service_id": "fraud-detection",
+  "metric_type": "cache_hit_rate_pct",
+  "value": 45.5,
+  "labels": {"cache_type": "redis", "region": "us-east-1"}
 }
 ```
 
-### Signal N: ... (add as needed)
+---
 
-<!-- Lặp pattern trên cho mỗi signal cần thêm. Tối thiểu 2-3 signals cho capstone scope. -->
+## Signals required
+
+> List signals AI engine cần để analyze. Hệ thống Foresight Lens sử dụng mảng dữ liệu (Rolling Window) để phát hiện bất thường dựa trên thuật toán thống kê (EWMA & STL Decomposition).
+
+> **Ý nghĩa "Volume SLA = 50.000 events/sec peak"** (1 event = 1 datapoint `{ts, tenant_id, service_id, metric_type, value}`):
+> - Đây là **trần throughput ingest đỉnh mà đường ống telemetry (phía CDO) được thiết kế để chịu**, KHÔNG phải tần suất gọi `/v1/predict` của AI engine (engine chỉ nhận window đã gom, ~vài request/phút).
+> - **Cardinality model cho 50k/s peak** (Black Friday): 50k/s đạt được khi cardinality cao — mỗi metric tách theo chiều phụ `instance_id × endpoint × AZ`. Ví dụ ~3M time-series ở 1 phút/lần, hoặc sub-second sampling trên tier-1 hot path. Đây là **design ceiling** để CDO chọn hạ tầng ingest (TSDB/streaming Kinesis-MSK) không vỡ khi traffic 9k RPS Black Friday.
+> - **Demo scope thực tế** (capstone, 3 tier-1 service × signal chính, 1 phút/lần): chỉ ~**tens of events/sec**. 50k/s là trần năng lực, không phải tải demo. Engine + eval chạy trên window đã gom nên không phụ thuộc con số này.
+> - **Lưu ý chi phí:** con số `~$3.5/tháng/signal` ở các bảng dưới là chi phí cho **demo scope** này (vài chục events/s). Ở ceiling thiết kế 50k/s, chi phí ingest/lưu trữ telemetry scale theo GB ingested (Timestream/Prometheus, ~hàng chục–trăm $/tháng tuỳ volume) — đây là **FinOps phía CDO**, tách hoàn toàn khỏi budget $200 của AI Engine.
+
+### Signal 1: `cpu_usage_percent`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, region, tenant_id (mandatory) |
+| **Unit** | percentage (0-100) |
+| **Frequency** | 1 phút |
+| **Emit point** | CloudWatch Metrics → CDO Ingestion → AI API |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Phát hiện xu hướng tăng đột biến CPU |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example** (concrete JSON payload AI nhận được):
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "payment-gateway",
+  "metric_type": "cpu_usage_percent",
+  "value": 85.5,
+  "labels": {"region": "us-east-1"}
+}
+```
+
+### Signal 2: `memory_usage_percent`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, region, tenant_id (mandatory) |
+| **Unit** | percentage (0-100) |
+| **Frequency** | 1 phút |
+| **Emit point** | CloudWatch Metrics → CDO Ingestion → AI API |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Dự đoán Memory Leak dẫn tới OOM (Out Of Memory) |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example**:
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "payment-gateway",
+  "metric_type": "memory_usage_percent",
+  "value": 72.1,
+  "labels": {"region": "us-east-1"}
+}
+```
+
+### Signal 3: `active_connections`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, region, tenant_id (mandatory) |
+| **Unit** | count |
+| **Frequency** | 1 phút |
+| **Emit point** | ALB (Application Load Balancer) metrics |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Correlate giữa traffic spike và resource exhaustion |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example**:
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "payment-gateway",
+  "metric_type": "active_connections",
+  "value": 4500.0,
+  "labels": {"region": "us-east-1"}
+}
+```
+
+### Signal 4: `db_connection_pool_pct`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, db_type (e.g. postgres, mysql), region, tenant_id |
+| **Unit** | percentage (0-100) |
+| **Frequency** | 1 phút |
+| **Emit point** | RDS CloudWatch Metrics → CDO Ingestion → AI API |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Phát hiện cạn kiệt Connection Pool của Database do slow queries hoặc Cache Stampede |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example**:
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "payment-gateway",
+  "metric_type": "db_connection_pool_pct",
+  "value": 95.0,
+  "labels": {"db_type": "postgres", "region": "us-east-1"}
+}
+```
+
+### Signal 5: `queue_depth`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, queue_name, region, tenant_id |
+| **Unit** | count |
+| **Frequency** | 1 phút |
+| **Emit point** | SQS CloudWatch Metrics → CDO Ingestion → AI API |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Đo lường mức độ nghẽn cổ chai (backlog) của worker consuming message (ví dụ Ledger worker) |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example**:
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "ledger-service",
+  "metric_type": "queue_depth",
+  "value": 15000.0,
+  "labels": {"queue_name": "ledger-events-sqs", "region": "us-east-1"}
+}
+```
+
+### Signal 6: `cache_hit_rate_pct`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, cache_type (e.g. redis), region, tenant_id |
+| **Unit** | percentage (0-100) |
+| **Frequency** | 1 phút |
+| **Emit point** | ElastiCache CloudWatch Metrics → CDO Ingestion → AI API |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Phát hiện Cache Miss Spike dẫn đến quá tải trực tiếp xuống RDS |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example**:
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "fraud-detection",
+  "metric_type": "cache_hit_rate_pct",
+  "value": 45.5,
+  "labels": {"cache_type": "redis", "region": "us-east-1"}
+}
+```
+
 
 ---
+
+### Signal 7: `api_latency_ms`
+
+| Attribute | Value |
+|---|---|
+| **Type** | gauge |
+| **Labels** | service_id, region, tenant_id (mandatory) |
+| **Unit** | milliseconds |
+| **Frequency** | 1 phút |
+| **Emit point** | ALB (Application Load Balancer) metrics |
+| **Retention** | 7 ngày hot + 83 ngày cold (tổng 90 ngày minimum) |
+| **Used for** | Leading indicator cho connection pool exhaustion hoặc memory leak (latency thường tăng dần 15-30 phút trước khi SLO breach) |
+| **Emit SLA** | p99 latency < 60s từ lúc phát sinh metric |
+| **Volume SLA** | 50,000 events/sec peak (đáp ứng requirement TF4 Learner) |
+| **Cost estimate** | ~$3.5/tháng (Lưu trữ nén trên Amazon Timestream hoặc Managed Prometheus) |
+
+**Schema example**:
+
+```json
+{
+  "ts": "2026-06-25T10:30:00Z",
+  "tenant_id": "tnt-abc123",
+  "service_id": "payment-gateway",
+  "metric_type": "api_latency_ms",
+  "value": 450.5,
+  "labels": {"region": "us-east-1"}
+}
+```
 
 ## Cross-cutting requirements
 
 Mọi signal phải comply:
+- **Tenant scoping**: mọi signal payload **bắt buộc** có `tenant_id` field - AI engine không accept signal thiếu tenant_id.
+- **Time precision**: timestamp RFC3339 UTC, millisecond precision.
+- **Schema validation**: AI ingestion layer (Pydantic) validate schema; reject malformed.
+- **Data Alignment & Imputation**: Time buckets gửi vào API phải liền mạch. Nếu hạ tầng bị đứt gãy (Network jitter hoặc Drop metric), CDO **bắt buộc** phải tiền xử lý (Forward-fill hoặc Zero-fill). AI Engine sẽ văng lỗi `400` nếu phát hiện time-series bị thủng.
+- **PII**: KHÔNG được chứa PII trong signal value hoặc labels. Denylist (mở rộng cho domain payment/fraud/ledger, bắt buộc theo PCI-DSS/SOC2):
+  - PII chung: `email`, `phone`, `name`.
+  - Định danh tài chính / khách hàng: `transaction_id`, `account_id`, `card_pan` (số thẻ), `user_id`.
+  - Điểm thực thi: **CDO ingestion layer** strip/redact trước khi push sang AI API (AI Engine chỉ nhận metric số đã ẩn danh). Metric value thuần số nên rủi ro thấp, nhưng denylist là yêu cầu compliance bắt buộc.
 
-- **Tenant scoping**: mọi signal payload **bắt buộc** có `tenant_id` field - AI engine không accept signal thiếu tenant_id
-- **Time precision**: timestamp RFC3339 UTC, millisecond precision
-- **Schema validation**: AI ingestion layer validate schema; reject malformed → log to dead-letter queue
-- **PII**: KHÔNG được chứa PII (email / phone / name) trong signal value hoặc labels - anonymize ở ingestion layer của CDO
-
----
-
-## Open questions
-
-- [ ] Q1: Signal nào cần đảm bảo exactly-once delivery vs at-least-once OK?
-- [ ] Q2: Có signal nào cần encryption-in-transit ngoài TLS chuẩn?
+> **Baseline coverage (Pack #1)**: AI engine train per-service STL baseline cho 4 signal chính
+> (`cpu_usage_percent`, `memory_usage_percent`, `api_latency_ms`, `queue_depth`). Các signal còn
+> lại (`active_connections`, `db_connection_pool_pct`, `cache_hit_rate_pct`) dùng fallback z-score
+> in-window khi chưa có baseline; bổ sung baseline trong W12 nếu cần.

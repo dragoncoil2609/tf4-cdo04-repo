@@ -1,170 +1,164 @@
 # Cost Analysis - Task Force 4 · CDO 04
 
-<!-- Doc owner: Tạ Hoàng Huy (Huy)
-     Status: Refined (W11 T6 Pack #1) - v1.3
-     Word target: 1000-1500 từ -->
+<!-- Doc owner: Tạ Hoàng Huy (Huy) / CDO-04
+     Status: Synced with AMP/us-east-1 accepted decision
+     Region: us-east-1 (US East / N. Virginia)
+     Date updated: 2026-06-26 -->
 
-> **Scope note**: Platform của nhóm không dùng LLM/Bedrock. AI Engine (Nhóm AI) chạy statistical ML.
-> Cost "AI inference" trong doc này = data transfer CDO→AI endpoint + Fargate compute của Prediction Worker,
-> không phải per-token LLM cost. Điều này là điểm khác biệt cốt lõi so với template mặc định.
-
----
-
-## 1. Cost model per monitored service unit (forecast)
-
-> **Định nghĩa "monitored service unit" trong TF4**: một service được monitor (ví dụ `payment-gateway`) với per-service
-> baseline riêng biệt. Capstone demo với 3 monitored service units. Production scale = số service tier-1 được onboard.
-
-### 1.1 Shared fixed cost (platform-level, amortized)
-
-Chi phí này tồn tại độc lập với số lượng monitored service unit và được chia đều cho toàn bộ hệ thống:
-
-| Component | AWS Service | Config | $/month (fixed) |
-|---|---|---|---|
-| Telemetry API | ECS Fargate | 0.25 vCPU · 0.5GB RAM · always-on | ~$9.01 |
-| Prediction Worker | ECS Fargate | 0.25 vCPU · 0.5GB RAM · runs as small ECS Fargate service polling SQS queue | ~$5.00 |
-| NAT Gateway | VPC | 1 NAT · ap-southeast-1 (Singapore) | ~$43.07 |
-| CloudWatch Dashboard | CloudWatch | 1 dashboard dùng chung | ~$3.00 |
-| EventBridge Scheduler | Scheduler | ~8,640 scheduler runs/month, each run enqueues jobs for 3 monitored service units | ~$0.01 |
-| **Total fixed** | | | **~$60.09/month** |
-
-> **Lưu ý NAT Gateway**: $43.07/tháng (tính theo đơn giá $0.059/giờ tại Singapore) là chi phí cố định lớn nhất, chiếm hơn 70% tổng chi phí cố định. MVP sử dụng 1 NAT Gateway kết hợp với S3/DynamoDB Gateway Endpoints để giảm một phần chi phí NAT data processing, chứ không bypass hoàn toàn NAT Gateway.
-> **Lưu ý về Prediction Worker**: Prediction Worker chạy như ECS Fargate service nhỏ, poll SQS queue và xử lý prediction jobs. Trong MVP, service có thể scale down ngoài test window để tiết kiệm chi phí. Nếu chạy always-on 24/7 trong Production thực tế, chi phí sẽ tăng lên tương đương Telemetry API (~$9.01/tháng).
-
-### 1.2 Variable cost per monitored service unit (per service monitored)
-
-| Component | AWS Service | Unit cost | Avg usage/month | $/monitored-service-unit/month |
-|---|---|---|---|---|
-| Metric ingest | Amazon Timestream (write) | $0.62/million writes | ~51,840 writes (1 write/5 phút × 6 metric × 30 ngày) | ~$0.03 |
-| Metric storage | Amazon Timestream (magnetic) | $0.0036/GB-month | ~0.5 GB | ~$0.002 |
-| Prediction query | Amazon Timestream (query) | $0.01/GB scanned | ~8 GB scanned (8,640 queries × ~1MB/query) | ~$0.08 |
-| Audit log write | DynamoDB (on-demand) | $1.25/million WCU | ~8,640 writes | ~$0.01 |
-| Audit log storage | DynamoDB | $0.25/GB-month | ~0.3 GB | ~$0.08 |
-| CloudWatch logs | CloudWatch | $0.50/GB ingested | ~0.5 GB app log/service | ~$0.25 |
-| CloudWatch metrics | CloudWatch | $0.30/metric/month | ~6 custom metric/service (giới hạn tối ưu) | ~$1.80 |
-| SNS alert | SNS | Mức cơ bản | <1,000 notifications | ~$0.00 |
-| SQS (prediction queue) | SQS | $0.40/million requests | ~17,280 messages | ~$0.01 |
-| AI endpoint call | Data transfer internal | ~$0 (VPC-internal) | 8,640 calls | ~$0.00 |
-| **Total variable / monitored-service-unit / month** | | | | **~$2.26** |
-
-### 1.3 Total per-monitored-service-unit cost (platform amortized)
-
-| Monitored service unit count | Fixed cost/month | Variable/month | **Total/month** | **Per-service-unit** |
-|---|---|---|---|---|
-| 3 (capstone demo) | $60.09 | $6.78 | **$66.87** | **$22.29** |
-| 10 | $60.09 | $22.60 | **$82.69** | **$8.27** |
-| 50 | $60.09 | $113.00 | **$173.09** | **$3.46** |
+> **Scope note**: Platform không dùng LLM/Bedrock. AI Engine chạy statistical ML/FastAPI do CDO host trên ECS Fargate theo AI Deployment Contract. Cost "AI inference" trong tài liệu này là ECS Fargate runtime + private Service Connect service traffic, không phải token cost.
 
 ---
 
-## 2. Cost at scale
+## 1. Final cost
 
-### 2.1 Assumptions for scale estimate (Các giả định tính toán quy mô)
-Để đưa ra các dự báo chi phí dưới đây, nhóm CDO tuân thủ các giả định thực tế sau:
-- **Số lượng metrics**: Giới hạn ở mức 6 metrics/service.
-- **Cadence**: Tần suất lấy mẫu và gọi dự đoán là 5 phút/lần.
-- **Dung lượng log**: Thấp (low log volume, dưới 0.5 GB/service/tháng).
-- **Phạm vi giao diện**: Không triển khai toàn bộ các endpoint giao diện phức tạp (no full interface endpoints), chỉ tập trung vào telemetry ingestion API và prediction worker.
-- **Mô hình AI**: Không sử dụng mô hình LLM/Bedrock (chỉ chạy ML thống kê).
+### 1.1 Official region and compute decision
 
-### 2.2 Dự báo chi phí theo quy mô
+| Item | Final decision |
+|---|---|
+| Region chính thức | `us-east-1` (US East / N. Virginia), aligned với default `AWS_REGION` của AI Deployment Contract |
+| Compute model | All core runtime on ECS Fargate Linux/x86 |
+| ECS services | Telemetry API, Prediction Worker, AI Engine Service |
+| Metric backend | Amazon Managed Service for Prometheus (AMP) |
+| AI serving | ECS Fargate service, private subnet, ECS Service Connect route `POST /v1/predict` |
+| Prediction cadence | Every 5 minutes |
+| Telemetry frequency | Every 1 minute |
+| AI lookback window | Đúng/đủ 120 phút gần nhất |
+| Budget target | ≤ $200/month |
 
-| Monitored service unit count | Monthly total | Avg per-service-unit | Ghi chú |
-|---|---|---|---|
-| 3 | ~$67 | ~$22.29 | Môi trường Capstone Demo — fixed cost chưa được phân bổ tối ưu |
-| 10 | ~$83 | ~$8.27 | Quy mô sản xuất nhỏ (Small Production) |
-| 50 | ~$173 | ~$3.46 | Quy mô mục tiêu (Production Target) — vẫn nằm dưới budget $200 |
-| 100 | ~$286 | ~$2.86 | Vượt budget $200 — cần cost optimization như giảm custom metrics/log volume, Savings Plans, hoặc xem xét NAT Instance cho sandbox/non-production. |
+All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service trong private subnet, expose bằng ECS Service Connect service name, có health check, scaling, canary rollback và IAM task role rõ ràng. Route 53/private DNS không nằm trong MVP; Service Connect cung cấp private service discovery/load balancing cho Worker → AI. Lambda AI được giữ như future cost optimization only, không phải final decision.
 
-*Per-service-unit cost giảm dần khi quy mô tăng vì fixed cost ($60.09) được phân bổ đều cho nhiều service unit hơn. Từ 50 service units trở lên, variable cost bắt đầu chiếm ưu thế.*
+### 1.2 us-east-1 + AMP aligned with `02_infra_design.md`
 
----
+| Component | AWS Service | Config | Estimate/month |
+|---|---|---|---:|
+| Core compute | ECS Fargate x86 | 5 tasks total: Telemetry API 2 + Prediction Worker 1 + AI Engine 2, each 0.5 vCPU / 1GB | **$90.10** |
+| Application Load Balancer | 1 ALB + 1 LCU | Public ingest ALB `/v1/ingest`; Worker → AI uses ECS Service Connect for private service routing | **$22.27** |
+| NAT Gateway | VPC | 1 NAT Gateway theo một AZ + ~12GB data processing | **$33.39** |
+| Amazon Managed Service for Prometheus | AMP workspace | Prometheus remote_write/query_range, 120-minute PromQL filtered window, 150-day default retention | **~$0.00** |
+| DynamoDB audit/policy | DynamoDB on-demand | ~26k prediction audit writes/month + service policy reads | **$0.10** |
+| EventBridge + SQS/DLQ | Managed orchestration | ~26k prediction jobs/month, ~3 SQS requests/job | **$0.05** |
+| S3 baseline/evidence/failure buffer | S3 + KMS lifecycle | Baseline JSON prefix `baselines/`, evidence export, 7-day raw failure buffer | **$0.35** |
+| CloudWatch + SNS | Logs, metrics, dashboard, alarms, notifications | 14-day app logs; AI internal audit logs are KMS encrypted with 365-day retention | **$8.00** |
+| Secrets Manager + KMS | Config/encryption | Endpoint config, webhook/tenant secret, KMS keys | **$3.40** |
+| ECR | Private registry | Small images + lifecycle policy | **$0.50** |
+| **Full always-on total** |  | Network path uses 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB uses AMP; Worker → AI uses ECS Service Connect | **~$158.16** |
+| **+20% ops buffer** |  | Buffer for operational variance, logs, small request deltas and Service Connect proxy headroom | **~$189.79** |
 
-## 3. Cost optimization applied
+> Pricing note: AWS Pricing MCP facts used here for `us-east-1`: Fargate x86 $0.04048/vCPU-hour + $0.004445/GB-hour; ALB $0.0225/hour + $0.008/LCU-hour; NAT $0.045/hour + $0.045/GB. AMP pricing is usage-based: first 40M ingested samples/month and first 10GB storage are effectively enough for demo volume; query samples are billed from usage but ~21.8M/month is about $0.0022 and rounds to $0.00. These are capstone estimates to defend budget, not a replacement for AWS Cost Explorer.
 
-### 3.1 Đã áp dụng trong thiết kế hạ tầng
+### 1.3 Budget fit
 
-- [x] **Gateway Endpoints cho S3 & DynamoDB**: MVP sử dụng 1 NAT Gateway kết hợp với S3/DynamoDB Gateway Endpoints để chuyển hướng một phần lưu lượng nội bộ trực tiếp trên hạ tầng AWS. Điều này giúp giảm thiểu một phần chi phí NAT data processing (mức tiết kiệm cụ thể sẽ được xác nhận sau khi có hóa đơn thực tế - actual bill ở Pack #2).
-- [x] **Prediction Worker**: Prediction Worker chạy như ECS Fargate service nhỏ, poll SQS queue và xử lý prediction jobs. Trong MVP, service có thể scale down ngoài test window để tiết kiệm chi phí.
-- [x] **DynamoDB On-Demand Billing**: Không đặt trước dung lượng (provisioned capacity), chỉ trả phí dựa trên số lần ghi thực tế của Audit Log (cực kỳ rẻ cho tần suất 5 phút/lần).
-- [x] **Timestream Magnetic Tiering**: Cấu hình Memory store ngắn hạn (7 ngày) và tự động đẩy dữ liệu cũ sang Magnetic store giúp tối ưu chi phí lưu trữ chuỗi thời gian.
-- [x] **CloudWatch Log Retention (14 ngày)**: Giới hạn thời gian lưu trữ log thay vì lưu vô hạn để tránh phình chi phí lưu trữ CloudWatch Logs.
-- [x] **Tối ưu hóa số lượng Custom Metrics**: Hạn chế số lượng custom metric gửi lên CloudWatch ở mức tối thiểu cần thiết (~6 metrics/service) để tránh "bẫy chi phí" của CloudWatch ($0.30/metric/tháng).
+| Scope | Estimate/month | Budget fit |
+|---|---:|---|
+| 3 demo services full always-on x86 design with AMP and Service Connect | **~$158.16** | Under hard $200 budget by about **$41.84** |
+| Same estimate + 20% ops buffer | **~$189.79** | Still under hard $200 budget by about **$10.21** |
+| Service Connect proxy upsize sensitivity | Variable | If proxy sidecar forces task-size increases, re-estimate Fargate compute before claiming the buffered budget |
 
-### 3.2 Không áp dụng (và lý do)
-
-- [ ] **Fargate Spot Instances**: Không áp dụng cho Telemetry API để đảm bảo độ sẵn sàng dịch vụ (SLO Availability $\ge$ 99.5%).
-- [ ] **Reserved Capacity / Savings Plans**: Không áp dụng do thời gian thử nghiệm Capstone ngắn (2 tuần), không đủ điều kiện cam kết tối thiểu 1 năm của AWS.
-- [ ] **Bedrock Prompt Caching**: Hệ thống chạy statistical ML cục bộ trên ECS Fargate của nhóm AI, không gọi API Generative AI (Bedrock) nên tính năng này không khả dụng.
-
----
-
-## 4. Cost vs alternatives (cùng task force TF4)
-
-| Angle | $/monitored-service-unit/month (50 units) | Trade-off chính |
-|---|---|---|
-| **CDO 04 — TSDB-backed Control Plane** (nhóm này) | **~$3.46** | Dữ liệu Timestream tính phí minh bạch, rẻ ở quy mô nhỏ. Rủi ro chi phí nằm ở NAT Gateway cố định. |
-| **CDO khác — Lakehouse angle** (S3 + Athena) | ~$5.00 – $8.00 | S3 rẻ nhưng Athena tính phí theo dung lượng quét dữ liệu (data scan) của mỗi câu truy vấn. Khó kiểm soát chi phí nếu truy vấn nhiều và latency cao. |
-| **CDO khác — Managed Observability** (Prometheus/Grafana) | ~$6.00 – $10.00 | Tốn chi phí vận hành, cài đặt cấu hình VM (EC2) chạy Prometheus liên tục 24/7 và bản quyền Grafana Cloud. |
+Final strategy: keep ECS Fargate x86 as accepted decision, keep prediction cadence at 5 minutes, enforce PromQL query scoping, control metric cardinality, keep logs retention fixed and keep audit/fallback active. ARM64/Graviton remains a future optimization, not the accepted decision; the full x86 design fits the hard $200 target before and after the 20% buffer if no Service Connect proxy upsize is required.
 
 ---
 
-## 5. 2-week capstone budget estimate
+## 2. Telemetry and prediction volume model
 
-Dưới đây là dự báo chi phí thực tế cho **2 tuần chạy thử nghiệm Capstone** (môi trường Staging/Demo):
+### 2.1 Required AI signals
 
-| Service | Forecast 2 tuần | Ghi chú |
-|---|---|---|
-| ECS Fargate (API + Worker) | ~$10.00 | Always-on Telemetry API (0.25 vCPU) + Prediction Worker (có thể scale down ngoài test window) |
-| NAT Gateway | ~$21.50 | Chi phí cố định theo giờ chạy thực tế của NAT |
-| Amazon Timestream | ~$1.50 | Gồm ghi dữ liệu, lưu trữ và truy vấn |
-| DynamoDB | ~$0.15 | On-demand cho Audit Log |
-| CloudWatch | ~$4.50 | Gồm logs ingestion và Dashboard |
-| S3 & Khác | ~$0.50 | Terraform state và CI/CD artifacts |
-| **Total forecast 2 tuần** | **~$38.15** | Còn dư **~$161.85** trong ngân sách $200 để chạy load test |
+Final AI telemetry contract is **1 sample/minute** with 7 required signals/service:
 
-### 5.1 Measured actual (Pack #2 — fill in W12)
+```text
+cpu_usage_percent
+memory_usage_percent
+active_connections
+db_connection_pool_pct
+queue_depth
+cache_hit_rate_pct
+api_latency_ms
+```
 
-| Service | Forecast | Actual | Delta |
-|---|---|---|---|
-| ECS Fargate | $10.00 | - | - |
-| NAT Gateway | $21.50 | - | - |
-| Timestream | $1.50 | - | - |
-| DynamoDB | $0.15 | - | - |
-| CloudWatch | $4.50 | - | - |
-| Khác | $0.50 | - | - |
-| **Total** | **$38.15** | **-** | **-** |
+```text
+7 metrics × 60 minutes × 24 hours × 30 days = 302,400 metric points/service/month
+3 services = 907,200 metric points/month
+```
 
-### 5.2 Per-monitored-service-unit actual (Pack #2 — fill in W12)
+`error_rate` và `oldest_message_age_seconds` có thể được giữ cho dashboard/fallback nội bộ, nhưng không tính là required AI signals nếu chưa nằm trong AI Telemetry Contract.
 
-| Monitored service unit test | Service | $/day forecast | Extrapolate $/month |
-|---|---|---|---|
-| Unit-1 | `payment-gateway` | ~$0.70 | ~$21 |
-| Unit-2 | `ledger-service` | ~$0.70 | ~$21 |
-| Unit-3 | `kyc-worker` | ~$0.70 | ~$21 |
+### 2.2 Prediction cycles and AMP query samples
 
-### 5.3 Cost-per-correct-decision (Pack #2 — joint with AI eval)
+```text
+3 services × 12 cycles/hour × 24 hours × 30 days = 25,920 prediction cycles/month
+Each prediction query ~= 7 metrics × 120 one-minute samples = 840 query samples
+25,920 cycles × 840 = 21,772,800 query samples/month
+```
 
-| Metric | Forecast | Actual |
-|---|---|---|
-| Total prediction calls trong capstone | ~3,456 (8,640 × 2 tuần / 5) | - |
-| Correct decisions (catch ≥80%) | ~2,765 | - |
-| Total platform cost | ~$38.15 | - |
-| **Cost per correct decision** | **~$0.013** | **-** |
+| Metric | Value |
+|---|---:|
+| Prediction cadence | 5 minutes |
+| Lookback window per AI call | 120 minutes |
+| Monthly prediction cycles | ~25,920 |
+| AMP ingested samples/month | ~907,200 |
+| AMP worker query samples/month | ~21.8M |
+| Cost per prediction cycle | ~$158.16 / 25,920 = **~$0.0061/cycle** |
+| Cost per demo service | ~$158.16 / 3 = **~$52.72/service/month** |
+
+Runtime AMP PromQL queries must always filter by `tenant_id`, `service_id`, metric name and exact time window to avoid query latency and cost spikes. During testing, use query stats/metadata where possible to watch query samples processed.
+
+### 2.3 50k events/sec caveat
+
+The AI Telemetry Contract mentions a **50,000 events/sec peak** design ceiling. For AMP, this must be translated into Prometheus samples/sec:
+
+```text
+samples/sec = events/sec × số sample phát sinh trên mỗi event
+```
+
+Therefore the ceiling is viable only if:
+
+- samples/event is bounded;
+- labels are bounded and low-cardinality;
+- labels do not include `request_id`, `trace_id`, `prediction_id`, `user_id`, raw endpoint path or other unbounded values;
+- remote_write batching stays within request-size limits;
+- load tests ramp gradually instead of suddenly doubling active series.
+
+Phạm vi demo nhỏ hơn nhiều so với ceiling này và vẫn fit ngân sách. Nếu load test nhắm tới 50k events/sec, docs/tests phải tính samples/sec trước. Ví dụ: 50k events/sec × 7 samples/event = 350k samples/sec, cao hơn mặc định AMP 70k samples/sec, nên cần tăng quota hoặc giảm mục tiêu load.
 
 ---
 
-## 6. Cost guardrails
+## 3. Guardrail chi phí
 
-### 6.1 Ngưỡng cảnh báo chi phí (70/90/100 Policy)
+### 3.1 Guardrail chi phí cho Terraform v1
 
-*Quy tắc cốt lõi*: **Không bao giờ tắt Audit Log (DynamoDB) và cơ chế Fail-open Fallback** ở bất kỳ ngưỡng chi phí nào để đảm bảo hệ thống không mất hoàn toàn giám sát.
+Các giá trị mặc định của Terraform phải giữ mức cap $200/month thực tế:
 
-*   **Ngưỡng 70% ($140/tháng)**: Bắn cảnh báo qua SNS tới Email/Slack của Infra Owner. Rà soát tần suất gọi AI của Worker, đảm bảo không cho phép tăng prediction cadence dày hơn 5 phút/lần nếu chưa có approval.
-*   **Ngưỡng 90% ($180/tháng)**: Review khẩn cấp. Tự động giảm log verbosity (chuyển từ `DEBUG` sang `WARN`) để giảm chi phí ghi log của CloudWatch. Rà soát lại Timestream query pattern, đảm bảo câu truy vấn bắt buộc phải filter đầy đủ theo `tenant_id`, `service_id`, `metric_type` và time window (align với ADR-004). Giảm tần suất chạy kịch bản load test giả lập.
-*   **Ngưỡng 100% ($200/tháng)**: Kích hoạt **Circuit Breaker** – lập tức tạm dừng (pause) toàn bộ luồng chạy Synthetic Load Test (k6/Locust) và các prediction job không quan trọng. Các prediction/fallback decision quan trọng vẫn tiếp tục được ghi audit. Cơ chế fail-open static threshold fallback không bị tắt.
+- chỉ dùng một NAT Gateway theo một AZ;
+- bật S3/DynamoDB Gateway Endpoints;
+- interface endpoints mặc định tắt;
+- Service Connect TLS / AWS Private CA tắt;
+- AWS WAF tắt;
+- AMP managed collector tắt; dùng ADOT ECS collector tự quản lý;
+- ECS Container Insights mặc định tắt;
+- AI desired count 2, max 4 chỉ qua autoscaling;
+- thời gian giữ application log 14 ngày cho non-prod và 30 ngày cho prod/demo;
+- đích nhận alert là SNS email; xác nhận subscription làm thủ công.
 
-### 6.2 Cấu hình Terraform Budgets
+Các yếu tố phá ngân sách cần tránh nếu chưa được phê duyệt rõ:
+
+| Thay đổi | Tác động chi phí/tháng ước tính |
+|---|---:|
+| AI chạy 4 tasks toàn thời gian thay vì 2 | +~$36/tháng |
+| 5 interface endpoints trên 2 AZ | +~$73/tháng |
+| 8 interface endpoints trên 2 AZ | +~$116.80/tháng |
+| AMP managed collector | +$29.20/tháng cho mỗi collector |
+| Service Connect TLS / AWS Private CA | Thêm chi phí/độ phức tạp cho Private CA, cert, Secrets Manager và KMS |
+
+### 3.2 50/80/100 policy
+
+Quy tắc lõi: **Không bao giờ tắt DynamoDB audit logging hoặc static threshold fallback.**
+
+| Threshold | Budget level | Action |
+|---|---:|---|
+| 50% | $100/month | SNS/email warning; confirm synthetic load schedule, CloudWatch log volume and AMP active series. |
+| 80% | $160/month | Freeze prediction cadence at 5 minutes; review PromQL scoping, high-cardinality labels and DEBUG logs. |
+| 100% | $200/month | Pause non-critical synthetic load and non-critical prediction experiments. Keep critical prediction/fallback/audit path active. If AI Engine must be emergency scaled down, Worker must automatically use static threshold fallback and still write audit. |
+
+### 3.3 Budget Terraform sketch
 
 ```hcl
 resource "aws_budgets_budget" "platform_budget" {
@@ -176,7 +170,7 @@ resource "aws_budgets_budget" "platform_budget" {
 
   notification {
     comparison_operator = "GREATER_THAN"
-    threshold           = 70
+    threshold           = 50
     threshold_type      = "PERCENTAGE"
     notification_type   = "ACTUAL"
     subscriber_sns_topic_arns = [aws_sns_topic.budget_alert.arn]
@@ -184,7 +178,7 @@ resource "aws_budgets_budget" "platform_budget" {
 
   notification {
     comparison_operator = "GREATER_THAN"
-    threshold           = 90
+    threshold           = 80
     threshold_type      = "PERCENTAGE"
     notification_type   = "ACTUAL"
     subscriber_sns_topic_arns = [aws_sns_topic.budget_alert.arn]
@@ -200,25 +194,97 @@ resource "aws_budgets_budget" "platform_budget" {
 }
 ```
 
-### 6.3 Per-monitored-service-unit quota enforcement
+---
 
-- API entry layer rate limit: 1,000 req/min per monitored service unit (đây là design assumption được enforced tại Telemetry API trong MVP, không phải API Gateway, do kiến trúc sử dụng ALB + ECS Fargate)
-- Prediction cadence lock: không cho phép caller request prediction dày hơn 5 phút/lần per service
-- Timestream write quota: reject ingest nếu write rate > 2× baseline expected per monitored service unit (để đảm bảo tối ưu hóa chi phí và align với ADR-004)
+## 4. NAT Gateway vs VPC Endpoint decision
+
+### 4.1 Scope
+
+This section follows `02_infra_design.md`: AI Engine is internal in the same VPC/ECS platform, so Worker → AI does **not** use NAT or public internet.
+
+```text
+Region: us-east-1
+Topology: 2 AZ, private ECS tasks, public ALB for ingest
+Runtime: Telemetry API + Prediction Worker + AI Engine
+Luồng AI: Worker -> ECS Service Connect service name -> AI Engine
+AWS API traffic model: ~12GB/month
+```
+
+### 4.2 Final network cost model
+
+| Model | Monthly cost at ~12GB/month | Decision |
+|---|---:|---|
+| 1 zonal NAT + S3/DynamoDB Gateway Endpoints | **~$33.39** | ✅ Final decision |
+| 2 NAT Gateways + S3/DynamoDB Gateway Endpoints | Higher fixed cost | Production HA hardening option |
+| Full Interface VPCE no-NAT | Higher fixed endpoint cost at demo traffic | Security-first hardening option, not MVP |
+
+Final decision: **1 NAT Gateway theo một AZ + S3/DynamoDB Gateway Endpoints**. This is not the strongest private-only posture, but it is the best cost-security fit for capstone traffic. S3 and DynamoDB paths stay on Gateway Endpoints; remaining AWS API traffic, including AMP MVP access, can go through NAT with IAM least privilege and HTTPS-only egress where possible.
+
+### 4.3 PrivateLink hardening path
+
+Production hardening path:
+
+1. Keep S3 + DynamoDB Gateway Endpoints.
+2. Add `aps-workspaces` interface endpoint for AMP remote_write/query if private-only AMP data-plane access is required.
+3. If removing NAT, add STS regional endpoint plus ECR API/Docker, CloudWatch Logs, Secrets Manager, KMS, SQS, SNS and other runtime endpoints by priority.
+4. Remove NAT only after every runtime AWS API path has an endpoint.
 
 ---
 
-## 7. Cost recommendations for production
+## 5. Cost optimization applied
 
-*   **Sử dụng NAT Instance (Tùy chọn - Optional)**: Sử dụng 1 EC2 instance siêu nhỏ (ví dụ `t3.nano` hoặc `t4g.nano`) tự cấu hình NAT thay vì AWS NAT Gateway dịch vụ. Đây là tùy chọn (optional) dành riêng cho môi trường non-production hoặc cost-sensitive sandbox để tiết kiệm chi phí, không khuyến nghị làm mặc định cho môi trường Production thực tế nhằm đảm bảo tính sẵn sàng cao (High Availability) và thông lượng mạng lớn.
-*   **AWS Savings Plans**: Đăng ký gói cam kết sử dụng Compute 1 năm cho Fargate để giảm 20-30% chi phí.
-*   **Chuyển đổi sang DynamoDB Provisioned Capacity**: Khi lượng truy cập đã ổn định và dự đoán được, chuyển DynamoDB sang Provisioned Capacity và cấu hình Auto-scaling để tiết kiệm chi phí hơn On-demand.
+- [x] **All-ECS but right-sized**: 0.5 vCPU / 1GB per task for Telemetry API, Worker and AI Engine; AI min 2, max 4 theo AI Deployment Contract.
+- [x] **x86 Fargate**: explicitly selected for compatibility and contract stability; ARM64 remains future optimization.
+- [x] **1 NAT Gateway theo một AZ**: cheaper than NAT per AZ for capstone. Accepted trade-off: NAT egress is not fully HA, but Worker → AI does not depend on NAT.
+- [x] **S3/DynamoDB Gateway Endpoints**: no hourly endpoint charge; reduces NAT data processing for S3/DynamoDB paths.
+- [x] **AMP usage-based metrics backend**: removes fixed managed InfluxDB instance-hour cost.
+- [x] **PromQL query discipline**: every runtime query must filter by tenant, service, metric name and 120-minute window.
+- [x] **Label cardinality guardrail**: no high-cardinality labels; bounded samples/event.
+- [x] **CloudWatch retention**: application logs 14 days; AI internal audit logs 365 days, KMS encrypted.
+- [x] **S3 lifecycle policy**: raw failure buffer 7 days; baseline/evidence/telemetry archive minimum 90 days.
+- [x] **ECR lifecycle policy**: keep recent images, preserve final release tags.
+
+Not applied:
+
+- [ ] **Fargate Spot for core services**: not chosen for Telemetry API or AI Engine because availability and predictable demo behavior matter more.
+- [ ] **Savings Plans**: not useful for short capstone usage, but valid production optimization.
+- [ ] **Bedrock prompt caching**: not applicable; no Bedrock/LLM/token cost.
 
 ---
+
+## 6. Cost vs alternatives
+
+| Option | Cost impact | Why not final |
+|---|---:|---|
+| Previous Singapore + Timestream for InfluxDB | About $296.04/month full-month always-on | Superseded by ADR-011 because fixed `db.influx.medium` cost breaks full-month $200 budget target. |
+| AMP + us-east-1 + x86 Fargate with public ALB + Service Connect | About $158.16/month; $189.79 with 20% buffer | ✅ Accepted physical design; fits hard $200 before and after buffer if proxy sidecar does not force task upsize. |
+| AMP + us-east-1 + ARM64 Fargate | Lower compute cost | Future optimization only; x86 is accepted decision for compatibility. |
+| Hybrid ECS + Lambda AI | Lower AI idle cost | Rejected for final because AI Deployment Contract says CDO hosts AI Engine as ECS Fargate service with task definition rollback. |
+| Serverless-all-in | Lowest cost | Weakens CDO control-plane story, internal service routing, ECS deployment evidence and alignment with client ECS context. |
+| Full Interface VPCE no-NAT | Stronger private-only posture | Too much fixed endpoint cost for capstone traffic. |
+| 2 NAT Gateways | Better AZ-level egress HA | Higher cost; not required for MVP. Production hardening option. |
+| EKS | Platform-flexible | Overkill and adds control-plane cost/ops complexity. |
+
+---
+
+## 7. Production recommendations
+
+- **Keep AMP label discipline strict**: tenant/service/env/region labels are fine; request/user/trace/prediction IDs are not labels.
+- **Use collector-managed remote_write** where possible. Direct app remote_write must implement protobuf, Snappy, SigV4, batching, retry/backoff and request-size control.
+- **Add AMP PrivateLink later** only if security/compliance requires private-only data-plane access.
+- **Move to ARM64/Graviton** only after all images and dependencies support it; not the accepted decision today.
+- **Tune CloudWatch logs/custom metrics** aggressively; logs and custom metrics are easy to overproduce during load testing.
+
+---
+
+## 8. Final defense statement
+
+All-ECS Fargate is not the cheapest possible option, but it is the most consistent option for this CDO platform. The platform must run Telemetry API, Prediction Worker and AI Engine Service as deployable workloads with health checks, CloudWatch logs, task roles, autoscaling and rollback. AI serving stays private through ECS Service Connect. The final TSDB choice is **Amazon Managed Service for Prometheus (AMP) in `us-east-1`**, replacing fixed-cost Timestream for InfluxDB. The accepted full-month x86 design with public ingest ALB plus ECS Service Connect is **~$158.16/month**; with 20% buffer it is **~$189.79/month**, still under the $200/month target if proxy sidecar headroom does not force task upsize. The key operating guardrails are PromQL scoping, bounded label cardinality, bounded samples/event, fixed log retention, Service Connect proxy resource monitoring and keeping audit/fallback active even when reducing non-critical load.
 
 ## Related documents
 
-*   [`02_infra_design.md`](02_infra_design.md) — Sơ đồ kiến trúc hạ tầng chi tiết.
-*   [`04_deployment_design.md`](04_deployment_design.md) — Kế hoạch CI/CD và triển khai.
-*   [`07_test_eval_report.md`](07_test_eval_report.md) — Báo cáo test tải kiểm chứng giả định chi phí.
-*   [`08_adrs.md`](08_adrs.md) — Hồ sơ quyết định kiến trúc: ADR-004 (Timestream), ADR-007 (DynamoDB audit store), và ADR-008 (NAT + Gateway Endpoints).
+- [`01_requirements_analysis.md`](01_requirements_analysis.md) — region, cadence, lookback and contract requirements.
+- [`02_infra_design.md`](02_infra_design.md) — all-ECS Fargate architecture and network path.
+- [`04_deployment_design.md`](04_deployment_design.md) — CI/CD, rollout and rollback.
+- [`07_test_eval_report.md`](07_test_eval_report.md) — validation scenarios and cost-related tests.
+- [`08_adrs.md`](08_adrs.md) — ADR-011 final AMP/us-east-1 decision.

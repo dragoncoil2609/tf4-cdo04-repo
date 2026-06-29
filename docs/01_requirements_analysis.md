@@ -31,19 +31,20 @@ Platform của CDO không build thêm một dashboard mới. Platform biến tel
 | Service scope          | 3 tier-1 services                                                      | TF4 yêu cầu multi-service ít nhất 3 service                              |
 | Demo services          | `payment-gateway`, `ledger-service`, `kyc-worker`                      | Đại diện cho ALB-heavy, RDS-heavy và Queue-heavy capacity patterns       |
 | Prediction cadence     | Every 5 minutes                                                        | Balanced mode, cân bằng giữa lead time và cost                           |
-| Lookback window        | 1–2 hours                                                              | Đủ để phát hiện gradual drift, sudden spike, slow leak và noisy baseline |
+| Telemetry frequency    | Every 1 minute                                                         | Granularity chính thức để ghi metric vào AMP và tạo signal window đủ chi tiết cho AI |
+| Lookback window        | Default 120 minutes                                                     | Align với AI API Contract: `signal_window` phải chứa dữ liệu ≥120 phút gần nhất |
 | Lead time              | Minimum ≥15 minutes, target 30 minutes if possible                     | Hard requirement của TF4                                                 |
 | False positive rate    | ≤12%                                                                   | Hard requirement, tránh alert fatigue                                    |
 | Drift catch rate       | ≥80%                                                                   | Hard requirement, chứng minh prediction workflow có giá trị              |
 | Telemetry retention    | ≥90 days for design, MVP retention may be reduced for cost if approved | Cần time-series history để baseline/drift analysis                       |
 | Audit log              | Every prediction call and fallback decision                            | Hard requirement về traceability/governance                              |
-| Metric evidence        | Timestream query reference / saved query reference                     | Timestream là primary metric evidence source                             |
+| Metric evidence        | AMP PromQL/query_range reference / saved query reference                     | AMP là primary metric evidence source                             |
 | Visualization evidence | CloudWatch Dashboard first, Grafana optional                           | CloudWatch dùng cho operational view và demo evidence                    |
 | Decision evidence      | DynamoDB audit record / `prediction_id`                                | DynamoDB lưu prediction/fallback decision                                |
-| Security               | Encryption at rest/in transit, least privilege IAM                     | Baseline security cho fintech/SRE context                                |
+| Security               | Encryption at rest/in transit, least privilege IAM                     | Minimum security controls cho fintech/SRE context                                |
 | Fallback               | Static threshold fallback when AI endpoint unavailable                 | Fail-open để không mất monitoring khi AI lỗi                             |
 | Cost                   | ≤ $200/month                                                           | Capstone budget constraint                                               |
-| Deployment             | ECS Fargate for Telemetry API and Prediction Worker                    | Align với client production environment và DevOps evidence               |
+| Deployment             | ECS Fargate for Telemetry API, Prediction Worker and AI Engine Service | Align với client production environment, AI Deployment Contract và DevOps evidence |
 | Rollback               | ECS task definition rollback + config rollback + Terraform rollback    | Giảm rủi ro khi deploy lỗi                                               |
 | Dashboard scope        | Annotation/evidence only, no new full dashboard product                | Client đã có dashboard, nhóm không build another dashboard               |
 
@@ -84,11 +85,11 @@ Platform sẽ tập trung vào:
 | Khác biệt                    | Giải thích                                                                                            |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Không phải another dashboard | Dashboard chỉ dùng để xem evidence, không phải sản phẩm chính                                         |
-| Không chỉ là TSDB            | Timestream là metric evidence source, nhưng platform còn có scheduler, worker, audit, alert, fallback |
+| Không chỉ là TSDB            | AMP là metric evidence source, nhưng platform còn có scheduler, worker, audit, alert, fallback |
 | Không auto-remediation       | Platform chỉ predict + recommend, SRE manual approval                                                 |
 | Có fail-open fallback        | Nếu AI timeout/unavailable, worker chuyển sang static threshold fallback                              |
 | Có audit decision            | Mỗi prediction/fallback decision được ghi vào DynamoDB audit log                                      |
-| Có evidence 3 lớp            | Timestream metric evidence, CloudWatch visualization evidence, DynamoDB decision evidence             |
+| Có evidence 3 lớp            | AMP metric evidence, CloudWatch visualization evidence, DynamoDB decision evidence             |
 | Có cost guard                | Platform phải vận hành dưới budget $200/tháng                                                         |
 
 ### 3.4 Trade-off chấp nhận
@@ -98,7 +99,7 @@ Platform phức tạp hơn một dashboard hoặc một serverless function đơ
 * EventBridge Scheduler
 * SQS + DLQ
 * Prediction Worker
-* Timestream
+* AMP workspace
 * DynamoDB audit log
 * SNS/CloudWatch alerting
 * fallback logic
@@ -117,10 +118,27 @@ Platform phức tạp hơn một dashboard hoặc một serverless function đơ
 
 * Locked by CDO PM review.
 * Default mode: **Balanced mode**.
-* Compute: **ECS Fargate**.
-* Telemetry store: **Amazon Timestream**.
+* Compute: **ECS Fargate Linux/x86**.
+* Telemetry store: **Amazon Managed Service for Prometheus (AMP)**.
 * Audit store: **DynamoDB**.
-* Evidence model: **Timestream + CloudWatch + DynamoDB**.
+* Evidence model: **AMP + CloudWatch + DynamoDB**.
+* AMP query model: **Prometheus metric names + bounded labels + PromQL**.
+* Label guardrail: không dùng high-cardinality labels như `request_id`, `trace_id`, `prediction_id`, `user_id` hoặc raw endpoint path; claim 50k events/sec chỉ hợp lệ khi samples/event và active series được kiểm soát.
+
+### 3.6 AI integration contract alignment
+
+Các điểm đã được chốt với Team AI cho W12 integration:
+
+| Item | Decision |
+|---|---|
+| AI endpoint | `POST /v1/predict` |
+| Telemetry frequency | Every 1 minute |
+| Prediction cadence | Every 5 minutes |
+| Lookback window | Default 120 minutes |
+
+CDO sẽ thu thập telemetry mỗi 1 phút và ghi vào Amazon Managed Service for Prometheus (AMP) qua collector/app `remote_write`. Prediction Worker chạy mỗi 5 phút, query dữ liệu telemetry **120 phút gần nhất** bằng PromQL `query_range`, sau đó gọi AI endpoint `POST /v1/predict`. Mốc 120 phút này align với AI API Contract vì `signal_window` thiếu dữ liệu 120 phút có thể bị AI trả `400 Bad Request`.
+
+Lưu ý: **telemetry frequency** khác với **prediction cadence**. Telemetry frequency là tần suất ghi metric vào AMP, còn prediction cadence là tần suất worker gọi AI để tạo prediction decision.
 
 ---
 
@@ -175,7 +193,7 @@ MVP chọn:
 Lý do:
 
 * Capstone traffic thấp vì chỉ demo 3 service, prediction mỗi 5 phút và synthetic load chỉ bật trong test window.
-* Full interface endpoints cho ECR, CloudWatch Logs, Secrets Manager, KMS, SQS, SNS, Timestream có fixed cost cao hơn NAT trong traffic thấp.
+* Full interface endpoints cho ECR, CloudWatch Logs, Secrets Manager, KMS, SQS, SNS, AMP có fixed cost cao hơn NAT trong traffic thấp.
 * S3/DynamoDB Gateway Endpoints vẫn nên dùng vì không có hourly endpoint charge.
 
 Production hardening có thể bổ sung interface endpoints nếu cần private-only access hoặc traffic AWS service đủ lớn.
@@ -187,8 +205,8 @@ Production hardening có thể bổ sung interface endpoints nếu cần private
 ### 5.1 Technical constraints
 
 * AWS only.
-* Region: `ap-southeast-1` hoặc mentor/client-approved region.
-* Compute platform: ECS Fargate for CDO workloads.
+* Region chính thức: `us-east-1` (US East / N. Virginia).
+* Compute platform: ECS Fargate Linux/x86 for CDO workloads.
 * Service scope: 3 tier-1 services.
 * Telemetry: infra metrics only, no PII, no custom business metrics.
 * Storage: efficient time-series query required; raw S3 is not used as primary metric store.
@@ -210,7 +228,7 @@ Production hardening có thể bổ sung interface endpoints nếu cần private
 ### 5.3 Security constraints
 
 * No secrets committed to Git.
-* AI endpoint token/API key stored in Secrets Manager or SSM.
+* AI endpoint config stored in Secrets Manager or SSM; Worker → AI auth uses IAM SigV4, not API keys.
 * IAM follows least privilege.
 * DynamoDB audit log encrypted at rest.
 * HTTPS/TLS for AI endpoint calls.
@@ -227,58 +245,28 @@ Production hardening có thể bổ sung interface endpoints nếu cần private
 
 ## 6. Open questions
 
-Các câu hỏi dưới đây cần resolve với Team AI trước khi ký/freeze 3 contracts: Telemetry Contract, AI API Contract và Deployment Contract.
+Các contract chính với Team AI đã được freeze trong W11/W12. Phần này chỉ giữ lại câu hỏi CDO implementation còn cần clarify; các điểm contract đã resolved không yêu cầu sửa frozen AI contracts.
 
-### 6.1 Telemetry Contract
+### 6.1 Resolved/frozen contract points
 
-* [ ] AI cần input dạng **raw time-series window** hay **aggregated features**?
-* [ ] Telemetry schema chính xác gồm những field nào?
-* [ ] Có bắt buộc `tenant_id`, `service_id`, `metric_type`, `timestamp`, `value`, `unit` không?
-* [ ] AI cần lookback window mặc định bao lâu: 60 phút hay 120 phút?
-* [ ] AI cần metric granularity bao nhiêu: 1 phút, 5 phút hay 15 phút?
-* [ ] AI có yêu cầu batch size hoặc max payload size cho mỗi prediction request không?
-* [ ] AI có yêu cầu CDO chuẩn hóa unit không? Ví dụ `latency_ms`, `cpu_percent`, `queue_depth`.
-* [ ] AI cần CDO gửi metric set khác nhau theo từng service hay dùng chung một schema metric?
+* [x] Endpoint chính thức: `POST /v1/predict`.
+* [x] Auth Worker → AI: IAM SigV4; W11 mock có thể optional `Authorization`, W12 final enforce.
+* [x] Telemetry frequency: 1 phút.
+* [x] Prediction cadence: 5 phút.
+* [x] Lookback window: `signal_window` phải chứa ≥120 phút gần nhất.
+* [x] AI response fields CDO lưu đúng contract: `anomaly`, `severity`, `reasoning`, `recommendation.action_verb`, `recommendation.target`, `recommendation.from_to`, `recommendation.confidence`, `recommendation.evidence_link`, `audit_id`.
+* [x] CDO derive `risk_level`/`root_cause` từ `severity` và `reasoning`; không yêu cầu AI trả thêm field ngoài contract.
+* [x] AI deployment: CDO host AI Engine như ECS Fargate service private subnet, health check `/health` port 8080, min 2/max 4 tasks.
+* [x] Fallback: AI timeout/unavailable/invalid schema → static threshold fallback và vẫn ghi audit.
 
-### 6.2 AI API Contract
+### 6.2 CDO implementation questions still open
 
-* [ ] Endpoint chính thức có phải `POST /v1/predict` không?
-* [ ] Request schema chính xác là gì?
-* [ ] Response có bắt buộc trả về 3 thông tin chính không: `service_id`, `root_cause`, `recommendation`?
-* [ ] Response có thêm `confidence`, `risk_level`, `predicted_breach_in_minutes`, `model_version`, `baseline_version` không?
-* [ ] Timeout/SLA của AI endpoint là bao nhiêu giây để CDO kích hoạt fallback?
-* [ ] AI sẽ trả error code nào khi quá tải hoặc unavailable? Ví dụ `429`, `503`, `504`.
-* [ ] AI endpoint auth bằng gì: API key, IAM auth, JWT hay private network only?
-* [ ] AI skeleton endpoint có sẵn từ T5/T6 không để CDO test integration sớm?
-* [ ] Response có trả `reasoning_features` để CDO map sang Timestream metric evidence không?
-
-### 6.3 Deployment Contract
-
-* [ ] AI endpoint sẽ chạy ở đâu: Lambda, ECS Fargate, EKS hay service khác?
-* [ ] CDO gọi AI endpoint qua public URL, private ALB, API Gateway hay VPC internal endpoint?
-* [ ] Health check path là gì? Ví dụ `/health` hoặc `/ready`.
-* [ ] AI endpoint có versioning không? Ví dụ `/v1/predict`.
-* [ ] AI có yêu cầu secret/config nào CDO phải inject không?
-* [ ] Khi AI deploy model mới, CDO có cần thay đổi gì ở infra không, hay endpoint/schema giữ nguyên?
-* [ ] Rollback của AI có ảnh hưởng tới CDO worker không?
-* [ ] AI endpoint có backward compatibility policy không?
-
-### 6.4 Integration & Fallback
-
-* [ ] Khi AI timeout/unavailable, CDO fallback sang static threshold. AI team có cần nhận biết trạng thái fallback này không?
-* [ ] Audit log do CDO ghi hay AI cũng ghi một bản riêng?
-* [ ] `prediction_source` nên dùng enum nào? Ví dụ `ai_model`, `static_threshold_fallback`.
-* [ ] Evidence link do CDO tạo hay AI trả về `evidence_id` để CDO map sang Timestream/CloudWatch evidence?
+* [ ] AI Engine SigV4 verifier sẽ implement bằng FastAPI middleware hay sidecar? ECS Service Connect không verify SigV4 natively, nên W12 final cần enforcement point rõ.
+* [ ] Timeout hard limit cuối cùng của Worker là 2 giây hay giá trị khác sau khi đo p99 AI thực tế? Nếu đổi, cập nhật test report và fallback runbook.
+* [ ] PromQL query_range output format chính xác mà Worker dùng để build `signal_window` sẽ được chuẩn hóa ở DTO nào?
+* [ ] Evidence link do CDO tạo dạng CloudWatch dashboard URL, AMP query reference, hay S3 evidence snapshot link?
 * [ ] Correlation ID/request ID sẽ do CDO generate hay AI generate?
-* [ ] Nếu AI response invalid schema, CDO nên retry hay fallback ngay?
-
-### 6.5 Evaluation
-
-* [ ] AI team sẽ cung cấp expected output format cho 4 scenarios: gradual drift, sudden spike, slow leak, noisy baseline không?
-* [ ] Precision/recall/F1 tính ở AI side, CDO side hay joint report?
-* [ ] Lead time ≥15 phút sẽ đo theo timestamp nào: telemetry timestamp, prediction timestamp hay alert timestamp?
-* [ ] Confidence calibration evidence do AI team cung cấp, hay CDO cần lưu/log để support?
-* [ ] False positive rate ≤12% tính theo từng service hay toàn bộ 3 service demo?
+* [ ] 50k events/sec load test sẽ dùng samples/event và label cardinality ceiling cụ thể nào?
 
 ---
 
