@@ -43,8 +43,6 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "scheduler:Get*",
       "scheduler:List*",
       "application-autoscaling:Describe*",
-      "codedeploy:Get*",
-      "codedeploy:List*",
       "ecr:Describe*",
       "ecr:Get*"
     ]
@@ -122,10 +120,7 @@ data "aws_iam_policy_document" "github_deploy_policy" {
 
       "ecr:CreateRepository",
       "ecr:TagResource",
-      "ecr:PutLifecyclePolicy",
-
-      "codedeploy:CreateApplication",
-      "codedeploy:CreateDeploymentGroup"
+      "ecr:PutLifecyclePolicy"
     ]
 
     resources = ["*"]
@@ -156,8 +151,7 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "aps:*",
       "scheduler:*",
       "application-autoscaling:*",
-      "ecr:*",
-      "codedeploy:*"
+      "ecr:*"
     ]
 
     resources = ["*"]
@@ -214,7 +208,6 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       values = [
         "ecs-tasks.amazonaws.com",
         "ecs.amazonaws.com",
-        "codedeploy.amazonaws.com",
         "scheduler.amazonaws.com",
         "lambda.amazonaws.com"
       ]

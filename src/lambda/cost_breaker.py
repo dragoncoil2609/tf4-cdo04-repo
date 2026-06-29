@@ -29,9 +29,10 @@ def handler(event, context):
     ai_service = os.environ.get("SERVICE_NAME")
     worker_service = os.environ.get("WORKER_SERVICE_NAME")
     sns_topic_arn = os.environ.get("SNS_TOPIC_ARN")
-    
-    logger.info("Configured variables - Cluster: %s, AI Service: %s, Worker Service: %s, SNS Topic: %s", 
-                cluster_name, ai_service, worker_service, sns_topic_arn)
+    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+    logger.info("Configured variables - Cluster: %s, AI Service: %s, Worker Service: %s, SNS Topic: %s, Dry Run: %s",
+                cluster_name, ai_service, worker_service, sns_topic_arn, dry_run)
                 
     # Parse SNS message to verify if this is indeed the 100% threshold breach
     should_activate = False
@@ -57,10 +58,10 @@ def handler(event, context):
                     should_activate = True
         except Exception as e:
             logger.warning("Could not parse SNS message as JSON: %s. Performing string search fallback.", str(e))
-            # Fallback string matching to be safe
-            if "100%" in message_str or "100.0" in message_str or "thresholdInfo" in message_str:
+            # Fallback string matching to be safe; thresholdInfo alone appears at 50/80 too.
+            if "100%" in message_str or "100.0" in message_str:
                 should_activate = True
-                
+
     if not should_activate:
         logger.info("Notification is not for 100% threshold breach. Skipping scale-down action.")
         return {
@@ -68,9 +69,16 @@ def handler(event, context):
             "body": json.dumps("Skipped scale-down (not 100% threshold)")
         }
     
+    if not cluster_name:
+        logger.error("CLUSTER_NAME is not configured. Skipping scale-down action.")
+        return {
+            "statusCode": 500,
+            "body": json.dumps("Missing CLUSTER_NAME; skipped scale-down")
+        }
+
     ecs = boto3.client("ecs")
     sns = boto3.client("sns")
-    
+
     # Scale down services to 0 (both ai-engine and prediction-worker)
     services_to_stop = [
         ("AI Engine", ai_service),
@@ -86,6 +94,11 @@ def handler(event, context):
             
         try:
             logger.info("Attempting to scale down %s (%s) to 0...", label, service_name)
+            if dry_run:
+                logger.info("DRY_RUN: Would scale down %s (%s) to 0", label, service_name)
+                scale_down_results.append(f"- {label} ({service_name}): DRY_RUN skip; would scale to 0.")
+                continue
+
             response = ecs.update_service(
                 cluster=cluster_name,
                 service=service_name,
@@ -107,13 +120,18 @@ def handler(event, context):
         sns_message += result + "\n"
         
     try:
-        logger.info("Sending alert email via SNS...")
-        sns.publish(
-            TopicArn=sns_topic_arn,
-            Subject=subject,
-            Message=sns_message
-        )
-        logger.info("Notification email sent successfully.")
+        if dry_run:
+            logger.info("DRY_RUN: Would send SNS alert: %s", subject)
+        elif sns_topic_arn:
+            logger.info("Sending alert email via SNS...")
+            sns.publish(
+                TopicArn=sns_topic_arn,
+                Subject=subject,
+                Message=sns_message
+            )
+            logger.info("Notification email sent successfully.")
+        else:
+            logger.warning("SNS_TOPIC_ARN is not configured. Skipping notification.")
     except Exception as e:
         logger.error("Failed to send SNS notification: %s", str(e))
         

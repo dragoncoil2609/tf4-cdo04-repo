@@ -79,7 +79,7 @@ gantt
     ECR & Docker Push : 2026-07-04, 1d
     section Phase 4: CI/CD Pipeline
     GitHub Actions Integration : 2026-07-05, 2d
-    Canary Deployment Setup : 2026-07-06, 1d
+    ECS Circuit Breaker Rollout Setup : 2026-07-06, 1d
     section Phase 5: Verification & Chaos
     End-to-End Test & Chaos Test : 2026-07-07, 2d
 ```
@@ -127,8 +127,8 @@ Thiết lập quy trình tự động hóa tích hợp và triển khai.
 *   **Task 3.1: Viết Workflow GitHub Actions**:
     *   Tạo workflow CI tự động chạy kiểm tra cú pháp IaC (`terraform validate`), quét lỗi bảo mật (`Trivy` & `Gitleaks`), build Docker image và chạy unit test.
     *   Tích hợp OIDC Authentication để tự động assume role `GitHubActionsWorkflowRole` của AWS.
-*   **Task 3.2: Tích hợp AWS CodeDeploy**:
-    *   Cấu hình deploy Canary (chuyển traffic dần 10% -> 50% -> 100%) cho `telemetry-api` thông qua CodeDeploy và ALB.
+*   **Task 3.2: Tích hợp ECS deployment circuit breaker**:
+    *   Cấu hình ECS rolling deployment và deployment circuit breaker cho `telemetry-api`; CodeDeploy/canary là post-MVP.
 
 ---
 
@@ -214,10 +214,10 @@ Dưới đây là mô tả chi tiết công việc kỹ thuật cho từng thàn
     *   Viết file cấu hình `.github/workflows/deploy.yml`.
     *   Cấu hình tích hợp OIDC: sử dụng `aws-actions/configure-aws-credentials` để assume role `GitHubActionsWorkflowRole` thông qua JWT token ngắn hạn.
     *   Thiết lập các Quality Gates: chạy kiểm tra Terraform cú pháp (`fmt -check`, `validate`), quét lỗ hổng ảnh Docker (`Trivy`), quét lộ lọt mật khẩu (`Gitleaks`), chạy Unit test python.
-*   **Task H2: Cấu hình CD Pipeline & Canary Deployment**
-    *   Tạo cấu hình AWS CodeDeploy cho ECS Fargate.
-    *   Thiết lập cơ chế Canary Deployment: chuyển traffic dần dần (10% trong 5 phút -> 50% trong 5 phút -> 100% hoàn tất).
-    *   Cấu hình rollback tự động: Nếu CloudWatch Alarm báo lỗi 5xx tăng >1% hoặc latency >800ms trong quá trình deploy, CodeDeploy lập tức hủy bỏ và rollback về Task Definition cũ.
+*   **Task H2: Cấu hình CD Pipeline & ECS rolling deployment**
+    *   Dùng ECS native rolling deployment cho ECS Fargate.
+    *   Bật deployment circuit breaker để tự động rollback khi task mới không đạt health check.
+    *   CodeDeploy/canary được ghi nhận là post-MVP trong contract addendum.
 
 ### 4.5 Ninh (Observability & Testing) - Nhóm Giám sát & Đánh giá
 *   **Task N1: Cấu hình CloudWatch Metrics, Alarms & Dashboard**
@@ -228,17 +228,13 @@ Dưới đây là mô tả chi tiết công việc kỹ thuật cho từng thàn
         *   Tỷ lệ kích hoạt fallback của Worker > 5%.
     *   Xây dựng CloudWatch Dashboard trực quan hóa các chỉ số trên và hiển thị link evidence.
 *   **Task N2: Viết kịch bản Load Test & Chaos Testing (k6)**
-    *   Viết file load test `tests/load_test.js` giả lập lượng tải 2800 RPS thông thường và 9000 RPS đỉnh điểm.
-    *   Giả lập 4 kịch bản lỗi:
-        1.  *Gradual Drift*: Tăng dần metric CPU ảo để kiểm tra khả năng phát hiện drift của AI.
-        2.  *Sudden Spike*: Gửi đột biến latency lớn để xem hệ thống cảnh báo sớm trong vòng 15 phút.
-        3.  *Slow Leak*: Rò rỉ memory liên tục trong 2 tiếng để kiểm chứng thuật toán.
-        4.  *AI Down*: Ngắt kết nối AI để test tính năng static fallback của Worker.
+    *   Dùng `tests/k6/sc01_gradual_drift.js` đến `sc04_noisy_baseline.js` làm harness cho gradual drift, sudden spike, slow leak và noisy baseline.
+    *   Giữ kết quả catch rate/false-positive/lead-time là TBD cho final E2E; không claim số đo khi chưa chạy staging.
 
 ### 4.6 Huy (Cost & Operations) - Nhóm Vận hành & Chi phí
 *   **Task Hu1: Thiết lập AWS Budgets & SNS Alerts**
     *   Tạo tài nguyên AWS Budget giới hạn ở mức $200/tháng.
-    *   Cấu hình SNS topic gửi cảnh báo email khẩn cấp đến đội ngũ SRE tại các ngưỡng thực tế 70% ($140), 90% ($180), và 100% ($200).
+    *   Cấu hình SNS topic gửi cảnh báo email khẩn cấp đến đội ngũ SRE tại các ngưỡng thực tế 50% ($100), 80% ($160), và 100% ($200).
 *   **Task Hu2: Kiểm toán chi phí & Cấu hình Retention Policy**
     *   Cấu hình chính sách lưu trữ log (Log Retention) của CloudWatch Logs cố định tối đa 14 ngày (không để vô hạn gây phình chi phí).
     *   Thiết lập S3 Lifecycle rules: raw failure buffer tự động xóa sau 7 ngày, evidence data chuyển sang Glacier lưu trữ sau 90 ngày.
