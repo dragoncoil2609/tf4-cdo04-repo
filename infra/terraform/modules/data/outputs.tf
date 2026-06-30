@@ -32,6 +32,16 @@ output "audit_table_arn" {
   value       = aws_dynamodb_table.audit.arn
 }
 
+output "policy_table_name" {
+  description = "DynamoDB service-policy table name"
+  value       = aws_dynamodb_table.policy.name
+}
+
+output "policy_table_arn" {
+  description = "DynamoDB service-policy table ARN"
+  value       = aws_dynamodb_table.policy.arn
+}
+
 output "prediction_queue_url" {
   description = "SQS prediction queue URL"
   value       = aws_sqs_queue.prediction.url
