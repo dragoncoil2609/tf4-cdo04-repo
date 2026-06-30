@@ -95,7 +95,7 @@ resource "aws_dynamodb_table_item" "policy_ledger" {
   range_key  = aws_dynamodb_table.policy.range_key
 
   item = jsonencode({
-    tenant_id        = { S = "tnt-benchmark" }
+    tenant_id        = { S = var.prediction_tenant_id }
     service_name     = { S = "ledger" }
     static_threshold = { N = "85.0" }
   })
@@ -107,7 +107,7 @@ resource "aws_dynamodb_table_item" "policy_payment_gw" {
   range_key  = aws_dynamodb_table.policy.range_key
 
   item = jsonencode({
-    tenant_id        = { S = "tnt-benchmark" }
+    tenant_id        = { S = var.prediction_tenant_id }
     service_name     = { S = "payment-gw" }
     static_threshold = { N = "85.0" }
   })
@@ -119,7 +119,7 @@ resource "aws_dynamodb_table_item" "policy_fraud_detector" {
   range_key  = aws_dynamodb_table.policy.range_key
 
   item = jsonencode({
-    tenant_id        = { S = "tnt-benchmark" }
+    tenant_id        = { S = var.prediction_tenant_id }
     service_name     = { S = "fraud-detector" }
     static_threshold = { N = "85.0" }
   })
