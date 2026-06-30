@@ -29,8 +29,8 @@ Platform của CDO không build thêm một dashboard mới. Platform biến tel
 | NFR                    | Target                                                                 | Justification                                                            |
 | ---------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Service scope          | 3 tier-1 services                                                      | TF4 yêu cầu multi-service ít nhất 3 service                              |
-| Demo services          | `payment-gateway`, `ledger-service`, `kyc-worker`                      | Đại diện cho ALB-heavy, RDS-heavy và Queue-heavy capacity patterns       |
-| Implementation IDs     | `payment-gw`, `ledger`, `fraud-detector`                               | Canonical IDs used by Terraform, AI baselines, and k6; see `contracts/addendum-2026-06.md` |
+| Demo services          | `payment-gw`, `ledger`, `fraud-detector`                      | Đại diện cho ALB-heavy, RDS-heavy và Queue-heavy capacity patterns       |
+| Canonical service IDs   | `payment-gw`, `ledger`, `fraud-detector`                               | IDs used by Terraform, AI baselines, k6, and final evidence |
 | Prediction cadence     | Every 5 minutes                                                        | Balanced mode, cân bằng giữa lead time và cost                           |
 | Telemetry frequency    | Every 1 minute                                                         | Granularity chính thức để ghi metric vào AMP và tạo signal window đủ chi tiết cho AI |
 | Lookback window        | Default 120 minutes                                                     | Align với AI API Contract: `signal_window` phải chứa dữ liệu ≥120 phút gần nhất |

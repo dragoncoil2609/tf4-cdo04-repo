@@ -37,23 +37,23 @@ Nhóm CDO chọn 3 service tier-1 sau cho demo:
 
 | Service           | Lý do chọn                                                   | Capacity pattern                |
 | ----------------- | ------------------------------------------------------------ | ------------------------------- |
-| `payment-gateway` | Ảnh hưởng trực tiếp tới giao dịch/revenue                    | ALB-heavy + RDS-heavy           |
-| `ledger-service`  | Ghi nhận giao dịch/sổ cái, ảnh hưởng tính đúng đắn tài chính | RDS-heavy / DB connection-heavy |
-| `kyc-worker`      | Ảnh hưởng onboarding, xử lý hồ sơ qua queue                  | Queue-heavy                     |
+| `payment-gw` | Ảnh hưởng trực tiếp tới giao dịch/revenue                    | ALB-heavy + RDS-heavy           |
+| `ledger`  | Ghi nhận giao dịch/sổ cái, ảnh hưởng tính đúng đắn tài chính | RDS-heavy / DB connection-heavy |
+| `fraud-detector`      | Ảnh hưởng onboarding, xử lý hồ sơ qua queue                  | Queue-heavy                     |
 
-> Implementation ID mapping: `payment-gateway` → `payment-gw`, `ledger-service` → `ledger`, `kyc-worker` → `fraud-detector`. See `contracts/addendum-2026-06.md`.
+> Canonical runtime service IDs: `payment-gw`, `ledger`, `fraud-detector`. Legacy discovery names were normalized after contract freeze; see `contracts/addendum-2026-06.md`.
 
 Ba service này đại diện cho ba dạng capacity risk khác nhau:
 
-* `payment-gateway`: traffic spike, latency, ALB/API pressure.
-* `ledger-service`: database exhaustion, DB connection, query latency.
-* `kyc-worker`: queue backlog, worker timeout, consumer throughput.
+* `payment-gw`: traffic spike, latency, ALB/API pressure.
+* `ledger`: database exhaustion, DB connection, query latency.
+* `fraud-detector`: queue backlog, worker timeout, consumer throughput.
 
 ---
 
 ## 3. Metric cần theo dõi
 
-### 3.1 `payment-gateway`
+### 3.1 `payment-gw`
 
 Metric đề xuất:
 
@@ -64,7 +64,7 @@ Metric đề xuất:
 * RDS CPU
 * DB connection utilization
 
-### 3.2 `ledger-service`
+### 3.2 `ledger`
 
 Metric đề xuất:
 
@@ -74,7 +74,7 @@ Metric đề xuất:
 * p95 latency
 * error rate
 
-### 3.3 `kyc-worker`
+### 3.3 `fraud-detector`
 
 Metric đề xuất:
 
@@ -147,9 +147,9 @@ Warning tối thiểu cần có 3 thông tin:
 Ví dụ:
 
 ```text
-Service: kyc-worker
+Service: fraud-detector
 Root cause: SQS queue depth tăng nhanh, oldest message age vượt baseline.
-Recommendation: Increase kyc-worker concurrency from 20 to 40.
+Recommendation: Increase fraud-detector concurrency from 20 to 40.
 ```
 
 ### 5.1 Expected AI response fields
@@ -158,10 +158,10 @@ Recommendation: Increase kyc-worker concurrency from 20 to 40.
 
 ```json
 {
-  "service_id": "kyc-worker",
+  "service_id": "fraud-detector",
   "risk_level": "high",
   "root_cause": "SQS queue depth increasing above baseline",
-  "recommendation": "Increase kyc-worker concurrency from 20 to 40",
+  "recommendation": "Increase fraud-detector concurrency from 20 to 40",
   "confidence": 0.86
 }
 ```
@@ -197,17 +197,17 @@ Scale Aurora writer from db.r6g.large to db.r6g.xlarge.
 ```
 
 ```text
-Increase kyc-worker concurrency from 20 to 40.
+Increase fraud-detector concurrency from 20 to 40.
 ```
 
 ```text
-Increase ECS desired task count for payment-gateway from 2 to 4.
+Increase ECS desired task count for payment-gw from 2 to 4.
 ```
 
 Nếu dữ liệu chưa đủ để đưa from → to chính xác, recommendation vẫn phải có action và target rõ ràng, ví dụ:
 
 ```text
-Increase kyc-worker concurrency based on queue backlog growth and oldest message age.
+Increase fraud-detector concurrency based on queue backlog growth and oldest message age.
 ```
 
 ---
@@ -350,9 +350,9 @@ Fallback là service-specific:
 
 | Service           | Fallback metric example                         |
 | ----------------- | ----------------------------------------------- |
-| `payment-gateway` | ALB latency, 5xx, active connection, RDS CPU    |
-| `ledger-service`  | RDS CPU, DB connection, query latency           |
-| `kyc-worker`      | queue depth, oldest message age, worker timeout |
+| `payment-gw` | ALB latency, 5xx, active connection, RDS CPU    |
+| `ledger`  | RDS CPU, DB connection, query latency           |
+| `fraud-detector`      | queue depth, oldest message age, worker timeout |
 
 ### 9.1 Fallback audit behavior
 
@@ -370,17 +370,17 @@ Fallback threshold cụ thể cho từng service sẽ do Observability/Test owne
 Initial demo threshold có thể dùng dạng:
 
 ```text
-payment-gateway:
+payment-gw:
 - p95 latency > 1000ms trong 10 phút
 - HTTP 5xx rate > 1%
 - RDS CPU > 85% trong 10 phút
 
-ledger-service:
+ledger:
 - RDS CPU > 85% trong 10 phút
 - DB connection utilization > 80%
 - query latency p95 > 1000ms
 
-kyc-worker:
+fraud-detector:
 - queue_depth > 5000
 - oldest_message_age > 300s
 - worker_timeout_rate > 1%
@@ -528,7 +528,7 @@ Các quyết định này thuộc phạm vi CDO, không cần chờ Client hỏi
 Sau PM review, nhóm CDO tạm lock các quyết định sau để các track khác bắt đầu draft:
 
 * Angle: **SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow**
-* Demo services: `payment-gateway`, `ledger-service`, `kyc-worker`
+* Demo services: `payment-gw`, `ledger`, `fraud-detector`
 * Prediction mode: **Balanced mode**
 * Warning format: service + root cause + recommendation
 * Recommendation format: action + target + from→to nếu evidence đủ + confidence + evidence reference

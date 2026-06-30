@@ -30,3 +30,9 @@ terraform.rc
 local-store/
 logs/
 
+# Generated evidence artifacts
+/evidence/*
+!/evidence/*.md
+!/evidence/logs/
+!/evidence/logs/**
+
