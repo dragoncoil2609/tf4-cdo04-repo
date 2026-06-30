@@ -78,14 +78,17 @@ def align_and_impute(raw_result, start_time, end_time, step_seconds=60, fill_pol
         aligned (dict): {timestamp_int: float} đầy đủ 120 bucket
         gap_ratio (float): tỷ lệ bucket bị thiếu trước khi impute (0.0 – 1.0)
     """
-    expected_timestamps = list(range(start_time, end_time + step_seconds, step_seconds))
+    start_bucket = (int(start_time) // step_seconds) * step_seconds
+    end_bucket = (int(end_time) // step_seconds) * step_seconds
+    expected_timestamps = list(range(start_bucket, end_bucket + step_seconds, step_seconds))
     total_buckets = len(expected_timestamps)
 
-    # Build actual data map từ AMP values
+    # Build actual data map từ AMP values, bucketed to 1-minute boundaries.
     actual_data = {}
     for series in raw_result:
         for ts, val in series.get("values", []):
-            actual_data[int(ts)] = float(val)
+            bucket = (int(float(ts)) // step_seconds) * step_seconds
+            actual_data[bucket] = float(val)
 
     aligned = {}
     last_known_value = None

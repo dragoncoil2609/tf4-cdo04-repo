@@ -87,6 +87,20 @@ class TestAlignAndImpute:
             ts = self._START + i * self._STEP
             assert aligned[ts] == float(i * 10)
 
+    def test_off_minute_window_aligns_to_amp_buckets(self):
+        """Off-minute worker windows must match minute-bucketed AMP points."""
+        raw = self._make_raw({self._START + i * self._STEP: float(i * 10) for i in range(self._COUNT)})
+        start = self._START + 42
+        end = self._START + (self._COUNT - 1) * self._STEP + 42
+
+        aligned, gap = align_and_impute(raw, start, end, step_seconds=self._STEP,
+                                         fill_policy="forward_fill")
+
+        assert gap == 0.0
+        assert len(aligned) == self._COUNT
+        assert aligned[self._START] == 0.0
+        assert aligned[self._START + 9 * self._STEP] == 90.0
+
     def test_missing_forward_fill(self):
         """Middle bucket missing -> forward_fill repeats last known value."""
         raw = self._make_raw({
