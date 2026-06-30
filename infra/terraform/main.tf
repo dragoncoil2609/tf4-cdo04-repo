@@ -61,7 +61,8 @@ module "compute" {
   prediction_queue_name     = module.data.prediction_queue_name
   prediction_queue_dlq_name = module.data.prediction_queue_dlq_name
 
-  telemetry_api_image_tag = var.telemetry_api_image_tag
+  telemetry_api_image_tag  = var.telemetry_api_image_tag
+  adot_collector_image_tag = var.adot_collector_image_tag
 
   vpc_id            = module.networking.vpc_id
   public_subnet_ids = module.networking.public_subnet_ids

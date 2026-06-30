@@ -52,6 +52,11 @@ variable "telemetry_api_image_tag" {
   type        = string
 }
 
+variable "adot_collector_image_tag" {
+  description = "Docker image tag/URI for the ADOT Collector sidecar. Empty uses the public AWS OTEL collector image."
+  type        = string
+}
+
 # TODO (CPOA-40/CPOA-44): add SG, ALB, Scheduler, and additional service variables in assignee-owned work.
 
 variable "vpc_id" {

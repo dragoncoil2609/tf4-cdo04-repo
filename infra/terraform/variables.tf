@@ -48,6 +48,12 @@ variable "telemetry_api_image_tag" {
   default     = "MOCK_PLACEHOLDER_TELEMETRY_API:latest"
 }
 
+variable "adot_collector_image_tag" {
+  description = "Docker image tag/URI for the ADOT Collector sidecar. Empty uses the public AWS OTEL collector image."
+  type        = string
+  default     = ""
+}
+
 variable "prediction_worker_image_tag" {
   description = "Docker image tag/URI for the Prediction Worker ECS task definition (CPOA-47)"
   type        = string

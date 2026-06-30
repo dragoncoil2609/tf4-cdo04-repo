@@ -11,7 +11,8 @@ Chế độ chạy của hệ thống được chuyển đổi linh hoạt qua b
 | Thành phần trong Code (`src/`) | Tài nguyên AWS tương ứng (Production) | Mô tả hành vi & Vai trò |
 | :--- | :--- | :--- |
 | **`APP_MODE=aws`** | **ECS Fargate / ALB** | Kích hoạt cấu hình production, sử dụng các SDK AWS thực tế và tắt các file mock cục bộ. |
-| **`storage_adapter` (`AmpTelemetryAdapter`)** | **Amazon Managed Service for Prometheus (AMP)** | Thực hiện lưu trữ No-Op tại Ingest API. Đột phá qua việc lưu in-memory Prometheus Gauges và expose tại `/metrics` để ADOT Collector scrape. |
+| **`AmpTelemetryAdapter` (`storage_adapter`)** | **Amazon Managed Service for Prometheus (AMP)** | Thực hiện lưu trữ No-Op tại Ingest API. Đột phá qua việc lưu in-memory Prometheus Gauges và expose tại `/metrics` để ADOT Collector scrape. |
+| **`AmpDeliveryAdapter`** | **Không dùng trong production AWS** | `AMP_DELIVERY_ENABLED=false` khi `APP_MODE=aws`. Adapter chỉ dùng cho local dev/test/replay. Production dùng ADOT Collector sidecar scrape `/metrics` và SigV4 remote_write vào AMP. |
 | **`prometheus_exporter`** | **ADOT Collector (Sidecar)** | Expose endpoint `/metrics` định dạng Prometheus. ADOT Collector scrape định kỳ (15s) và remote_write về AMP sử dụng chữ ký IAM SigV4. |
 | **`s3_failure_buffer_adapter`** | **Amazon S3 Bucket** | Ghi các telemetry payload thất bại sau 3 lần retry vào S3 bucket chỉ định (`S3_FAILURE_BUFFER_BUCKET`). |
 | **`replay_service`** | **ECS Scheduled Task / EventBridge** | Quét bucket S3 định kỳ, đọc các bản ghi lỗi, gửi lại (replay) tới AMP và dọn dẹp (delete) object khi hoàn tất. |
@@ -53,6 +54,7 @@ Thiết lập các biến môi trường trong ECS Task Definition:
 APP_MODE=aws
 ENV=prod
 AWS_REGION=us-east-1
+AMP_DELIVERY_ENABLED=false
 S3_FAILURE_BUFFER_BUCKET=cdo-telemetry-failure-buffer
 AMP_REMOTE_WRITE_ENDPOINT=https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxx/api/v1/remote_write
 ```

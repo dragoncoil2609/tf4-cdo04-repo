@@ -88,7 +88,7 @@ PR opened ──► Doc Check ──► Lint & Validate ──► Test ──►
 | Manual Approval | GitHub Environments | Tạm dừng chờ Tech Lead phê duyệt trước khi chạy deploy | Trạng thái: Approved (áp dụng bắt buộc với Production) |
 | Apply | Terraform CLI | Chạy `terraform apply tfplan` sau GitHub Environment approval; không dùng lock bypass flag | Apply đúng saved plan artifact, state lock bật |
 | Smoke | Custom script | Batch 1 chỉ chuẩn bị scaffold trung thực; full smoke/E2E chạy sau khi Batch 0-8 hoàn tất | Không báo green giả; final run mới ghi evidence |
-| AMP ingest/query validation | Custom script / PromQL | Xác nhận collector/app `remote_write` đã ghi sample vào AMP và Worker query_range trả 1-minute samples đủ 120 phút theo tenant/service/metric | Có sample mới trong AMP và PromQL trả đủ window trước khi smoke AI |
+| AMP ingest/query validation | Custom script / PromQL | Xác nhận ADOT Collector sidecar remote_write đã ghi sample vào AMP và Worker query_range trả 1-minute samples đủ 120 phút theo tenant/service/metric. Kiểm tra CloudWatch logs của ADOT container (`/ecs/telemetry-api`, stream prefix `adot-collector`) để xác nhận không có lỗi export/auth. | Có sample mới trong AMP và PromQL trả đủ window trước khi smoke AI |
 
 ### 2.2 Branch strategy & Peer Review Matrix
 

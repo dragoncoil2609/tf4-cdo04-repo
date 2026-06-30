@@ -13,6 +13,43 @@ locals {
   telemetry_api_task_cpu      = 512
   telemetry_api_task_memory   = 1024
   telemetry_api_container_url = var.telemetry_api_image_tag
+  adot_collector_image        = var.adot_collector_image_tag != "" ? var.adot_collector_image_tag : "public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0"
+  adot_collector_config       = <<-YAML
+receivers:
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+        scrape_timeout: 10s
+      scrape_configs:
+        - job_name: telemetry-api
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["localhost:8080"]
+
+processors:
+  batch:
+
+exporters:
+  prometheusremotewrite:
+    endpoint: "${var.amp_remote_write_endpoint}"
+    auth:
+      authenticator: sigv4auth
+
+extensions:
+  health_check:
+  sigv4auth:
+    region: "${var.aws_region}"
+    service: aps
+
+service:
+  extensions: [health_check, sigv4auth]
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [prometheusremotewrite]
+YAML
 }
 
 resource "aws_cloudwatch_log_group" "telemetry_api" {
@@ -102,6 +139,7 @@ resource "aws_ecs_task_definition" "telemetry_api" {
         { name = "ENV", value = var.environment },
         { name = "ENVIRONMENT", value = var.environment },
         { name = "TELEMETRY_STORAGE_BACKEND", value = "prometheus_amp" },
+        { name = "AMP_DELIVERY_ENABLED", value = "false" },
         { name = "AMP_REMOTE_WRITE_ENDPOINT", value = var.amp_remote_write_endpoint },
         { name = "S3_FAILURE_BUFFER_BUCKET", value = var.evidence_bucket_name },
         { name = "S3_FAILURE_BUFFER_PREFIX", value = "failure-buffer/" },
@@ -112,6 +150,24 @@ resource "aws_ecs_task_definition" "telemetry_api" {
         interval = 30
         timeout  = 5
         retries  = 3
+      }
+    },
+    {
+      name      = "adot-collector"
+      image     = local.adot_collector_image
+      essential = true
+      environment = [
+        { name = "AWS_REGION", value = var.aws_region },
+        { name = "AMP_REMOTE_WRITE_ENDPOINT", value = var.amp_remote_write_endpoint },
+        { name = "AOT_CONFIG_CONTENT", value = local.adot_collector_config },
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.telemetry_api.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "adot-collector"
+        }
       }
     }
   ])
