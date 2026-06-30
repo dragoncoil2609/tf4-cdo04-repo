@@ -82,7 +82,7 @@ the expected inputs and outputs at each module call site.
 |---|---|
 | `networking` | VPC, public/private subnets (2 AZs), 1 NAT Gateway, IGW, S3 + DynamoDB Gateway Endpoints, ALB + ECS + Worker + AI Engine security groups |
 | `data` | AMP workspace, DynamoDB audit + policy tables, SQS prediction queue + DLQ, S3 evidence bucket (KMS key), Secrets Manager, SNS alert topic |
-| `compute` | ECR repos, ECS cluster, 4 Fargate services (API, Worker, AI Engine, ADOT Collector), public ALB, ECS Service Connect, EventBridge Scheduler |
+| `compute` | ECR repos, ECS cluster, 3 Fargate services (API, Worker, AI Engine), ADOT Collector sidecar in telemetry API task, public ALB, ECS Service Connect, EventBridge Scheduler |
 | `observability` | CloudWatch alarms (ALB 5xx/latency/unhealthy, ECS CPU/Memory, SQS depth/age/DLQ, DynamoDB throttles/errors), CloudWatch dashboard, SNS topic, AWS Budget |
 
 ## Variables
@@ -109,20 +109,21 @@ the expected inputs and outputs at each module call site.
 - **ADOT/collector**: When `adot_collector_image_tag` is empty, the
   compute module falls back to the public ADOT collector image
   (`public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0`).
-  The collector runs as a standalone ECS service with Service Connect alias
-  `adot-collector`. App services send OTLP telemetry via
-  `OTEL_EXPORTER_OTLP_ENDPOINT=http://adot-collector:4318`
-  (HTTP/protobuf, port 4318). A dedicated security group allows OTLP ingress
-  (gRPC 4317 / HTTP 4318) from the API, Worker, and AI Engine services.
-- **ECS Service Connect** for Worker->AI Engine and apps->ADOT Collector
-  (no internal ALB).
+  The collector runs as a **sidecar container in the telemetry-api ECS task**
+  (same `awsvpc` network namespace). It scrapes `localhost:8080/metrics`
+  from the telemetry-api container and remote_writes Prometheus samples to AMP
+  using IAM SigV4 (`sigv4auth`).
+  Configuration is embedded inline via `AOT_CONFIG_CONTENT` environment variable;
+  no custom image build or SSM parameter is required.
+  A **standalone ADOT ECS service** with Service Connect alias `adot-collector`
+  and OTLP ingress (gRPC 4317 / HTTP 4318) is deferred post-MVP.
+- **ECS Service Connect** for Worker -> AI Engine (no internal ALB).
 - **Single NAT Gateway** in the first public AZ to minimize cost.
 - **S3 and DynamoDB Gateway VPC Endpoints** (free tier) to avoid NAT data
   transfer charges for S3/DynamoDB traffic.
 - **ECS Fargate private tasks** (`assignPublicIp = DISABLED`), `awsvpc` mode.
 - **ECS rolling deployment** with circuit breaker for API, Worker, and AI Engine.
-  ADOT Collector uses ECS rolling deploy without circuit breaker. Blue/green via
-  CodeDeploy is post-MVP.
+  Blue/green via CodeDeploy is post-MVP.
 - **HTTPS via existing ACM certificate** for non-sandbox; cert must already
   exist in `us-east-1`. Terraform does NOT create Route53 or ACM resources.
 - **Budget**: Default $200/month via `budget_limit`, alerts to `alert_email`.

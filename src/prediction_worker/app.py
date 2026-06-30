@@ -291,12 +291,12 @@ def publish_sns_alert(prediction_id, tenant_id, service_name, decision, severity
         print(f"Lỗi gửi SNS alert: {str(e)}", flush=True)
 
 
-def process_job(job_data):
+def process_job(job_data, message_id=None):
     """
     Xử lý một bản tin dự báo từ SQS
     """
     # 1. Parse các trường dữ liệu bắt buộc từ SQS Body
-    prediction_id = job_data.get("correlation_id") or job_data.get("prediction_id") or str(uuid.uuid4())
+    prediction_id = job_data.get("correlation_id") or job_data.get("prediction_id") or message_id or str(uuid.uuid4())
     tenant_id = job_data.get("tenant_id")
     service_name = job_data.get("service_id") or job_data.get("service_name")
     lookback_window_minutes = job_data.get("lookback_window_minutes")
@@ -500,7 +500,7 @@ def main():
                 
                 # Bọc try-catch riêng cho từng message để xử lý retry/DLQ (CPOA-61)
                 try:
-                    process_job(body)
+                    process_job(body, message_id=message.get("MessageId"))
                     # Xóa tin nhắn khỏi hàng đợi sau khi xử lý thành công
                     sqs.delete_message(
                         QueueUrl=SQS_QUEUE_URL,

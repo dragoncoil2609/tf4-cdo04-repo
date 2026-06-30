@@ -26,15 +26,15 @@ Khi một ADR cũ không còn áp dụng, không xóa ADR cũ. Chỉ cập nhậ
 Sau đó append ADR mới ở dưới.
 
 
-## Ghi chú quyết định hiện tại (2026-06-26)
+## Ghi chú quyết định hiện tại (2026-06-30)
 
-ADR-011 là quyết định hiện tại đã được chấp nhận cho region, TSDB product, query language và metrics auth model. Mọi nội dung ADR cũ nhắc đến Singapore/`ap-southeast-1`, Amazon Timestream/Timestream for InfluxDB, InfluxDB tokens, Flux, `promql_evidence_reference` hoặc Timestream VPC endpoints chỉ được giữ làm ngữ cảnh lịch sử, trừ khi ADR-011 lặp lại rõ ràng. Khi triển khai hiện tại, phải xem các chi tiết đó là đã bị thay thế bởi AMP tại `us-east-1` với PromQL và IAM/SigV4.
+ADR-011 và ADR-012 là các quyết định hiện tại đã được chấp nhận cho region, TSDB product, query language, metrics auth model, và ADOT collector deployment topology. Mọi nội dung ADR cũ nhắc đến Singapore/`ap-southeast-1`, Amazon Timestream/Timestream for InfluxDB, InfluxDB tokens, Flux, `promql_evidence_reference`, Timestream VPC endpoints, hoặc ADOT standalone ECS service chỉ được giữ làm ngữ cảnh lịch sử, trừ khi ADR-011/ADR-012 lặp lại rõ ràng. Khi triển khai hiện tại, phải xem các chi tiết đó là đã bị thay thế bởi AMP tại `us-east-1` với PromQL, IAM/SigV4, và ADOT Collector sidecar trong telemetry-api task.
 
 ## Snapshot quyết định hiện tại cho Terraform v1 (2026-06-27)
 
 - Khu vực triển khai: `us-east-1`.
 - Metrics backend: AMP với PromQL và SigV4.
-- Metrics ingestion: Telemetry API emit OTLP/app metrics tới ADOT/Prometheus Collector tự quản lý trên ECS; collector remote_write vào AMP bằng SigV4; app-direct remote_write chỉ dùng nếu đã triển khai protobuf/Snappy/SigV4/retry.
+- Metrics ingestion: Telemetry API expose `/metrics` endpoint (Prometheus text format); ADOT Collector sidecar colocated trong cùng ECS task scrape `localhost:8080/metrics` và remote_write vào AMP bằng SigV4 (`sigv4auth`, `service=aps`). App-direct remote_write bị tắt trong AWS (`AMP_DELIVERY_ENABLED=false`) vì chưa triển khai protobuf/Snappy/SigV4/retry. ADOT standalone ECS service với Service Connect alias `adot-collector` là post-MVP hardening.
 - Compute: ECS Fargate Linux/x86, private tasks.
 - Cổng vào public: một public ALB cho `/v1/ingest`; sandbox hiện dùng HTTP tạm, ACM/HTTPS là future/non-sandbox hardening; ingress giới hạn bằng `allowed_ingress_cidrs` khai báo rõ, không có giá trị mặc định mở.
 - Luồng AI: Prediction Worker -> ECS Service Connect -> AI Engine. Terraform v1 không tạo internal ALB hoặc API Gateway; Worker -> AI SigV4 contract dùng STS signed identity proof verified by AI middleware/sidecar.
@@ -62,6 +62,10 @@ Các ADR dự kiến cho CDO-04:
 - ADR-006: Chọn EventBridge Scheduler + SQS + DLQ cho prediction orchestration.
 - ADR-007: Chọn DynamoDB làm prediction decision audit store.
 - ADR-008: Chọn 1 NAT Gateway + S3/DynamoDB Gateway Endpoints cho MVP networking.
+- ADR-009: Host AI Engine Service on ECS Fargate in Singapore.
+- ADR-010: Finalize Amazon Timestream for InfluxDB as the TSDB in ap-southeast-1.
+- ADR-011: Adopt AMP in us-east-1 with x86 ECS Fargate for CDO-04.
+- ADR-012: Chọn ADOT Collector sidecar trong telemetry-api task cho MVP (thay vì standalone ECS service).
 
 ---
 
@@ -927,6 +931,88 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * ⚠️ PrivateLink for AMP (`aps-workspaces`) is a production hardening option; the MVP can keep NAT + S3/DynamoDB Gateway Endpoints for cost control.
   * ✅ Terraform có thể bắt đầu sau khi docs chốt quyết định ADR-011/Terraform v1 này và reviewer chấp nhận bản cập nhật source of truth.
 
+---
+## ADR-012 - Chọn ADOT Collector sidecar trong telemetry-api task cho MVP
+
+* **Status**: Accepted
+
+* **Date**: 2026-06-30
+
+* **Context**:
+
+  ADR-011 đã chốt: Telemetry write path nên dùng ADOT Collector/Prometheus Agent remote_write vào AMP bằng SigV4; app-direct remote_write chỉ được dùng nếu app triển khai đầy đủ protobuf, Snappy, SigV4, batching, retry/backoff.
+
+  `infra/terraform/README.md` trước đó mô tả ADOT Collector là **standalone ECS service** với Service Connect alias `adot-collector`, OTLP ingress (gRPC 4317 / HTTP 4318), security group riêng. Tuy nhiên:
+
+  - Telemetry API hiện tại chỉ expose `/metrics` endpoint (Prometheus text format), **không có OTLP emitter**.
+  - `AmpDeliveryAdapter` gửi HTTP POST thẳng vào AMP remote_write **không có SigV4, không có protobuf, không có Snappy**, gây `403 Missing Authentication Token`.
+  - Standalone ADOT service cần thêm: ECS task definition + service mới, security group, Service Connect config, OTLP emitter trong app hoặc scrape target discovery. Tổng thay đổi lớn, rủi ro cao trước deadline Final E2E.
+
+  Cần quyết định: **ADOT standalone service** (đúng deploy topology docs) hay **ADOT sidecar colocated trong telemetry-api task** (đơn giản hơn cho MVP, vẫn đúng kiến trúc ADR-011).
+
+* **Decision**:
+
+  Nhóm CDO-04 chọn **ADOT Collector sidecar trong cùng ECS Fargate task với telemetry-api** cho MVP.
+
+  Triển khai cụ thể:
+
+  | Item | Decision |
+  |---|---|
+  | ADOT deployment model | Sidecar container trong telemetry-api task (cùng `awsvpc` network namespace) |
+  | Config method | `AOT_CONFIG_CONTENT` environment variable (YAML nhúng trực tiếp trong Terraform locals) |
+  | ADOT image | `public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0` (public AWS image, không cần custom build) |
+  | Receiver | `prometheus` receiver scrape `localhost:8080/metrics` (Prometheus text format) |
+  | Auth | `sigv4auth` extension, `service=aps`, region theo `var.aws_region` |
+  | App direct delivery | `AMP_DELIVERY_ENABLED=false` trong AWS (tắt `AmpDeliveryAdapter.deliver()`) |
+  | Task sizing | Giữ nguyên 512/1024 (không upsize), ADOT dùng chung tài nguyên task |
+  | Logging | ADOT logs ghi vào CloudWatch Log Group `/ecs/telemetry-api` với stream prefix `adot-collector` |
+  | IAM | Dùng chung task role (`aps:RemoteWrite` đã có sẵn) |
+  | Standalone ADOT service | Deferred post-MVP |
+
+  Luồng mới:
+
+  ```text
+  Client -> ALB -> telemetry-api -> cập nhật Prometheus gauge -> /metrics endpoint
+                                                ↓
+                                ADOT sidecar scrape localhost:8080/metrics
+                                                ↓
+                                ADOT SigV4 remote_write -> AMP
+  ```
+
+* **Consequence**:
+
+  * ✅ Đúng kiến trúc ADR-011: ADOT Collector remote_write vào AMP bằng SigV4.
+  * ✅ Không cần viết protobuf/Snappy/SigV4 trong Python.
+  * ✅ Sidecar dùng chung network namespace với telemetry-api, scrape `localhost` không cần security group/Service Connect/ALB.
+  * ✅ Dùng chung task role (đã có `aps:RemoteWrite`), không cần IAM role mới.
+  * ✅ Dùng ảnh public ADOT, không cần ECR repo mới, không cần CI build pipeline mới.
+  * ✅ Config nhúng trong Terraform locals (`AOT_CONFIG_CONTENT`), không cần SSM parameter.
+  * ✅ Ingest API trả `201 Accepted` thay vì `202 Buffered` khi ADOT hoạt động bình thường.
+  * ✅ Task sizing giữ nguyên 512/1024, không ảnh hưởng cost model.
+  * ⚠️ Không có S3 failure buffer cho ADOT remote_write failure — ADOT dùng bounded retry/queue nội bộ (không durable). S3 buffer chỉ cover app-direct/local replay path.
+  * ⚠️ Đường evidence khác với docs cũ: cần kiểm tra CloudWatch logs ADOT (`adot-collector` stream) + AMP query thay vì app-direct logs.
+  * ⚠️ Nếu ADOT container crash, toàn bộ telemetry pipeline mất metrics (không có fallback collector).
+  * ⚠️ Standalone ADOT service vẫn là hướng dài hạn nếu cần scale collector độc lập hoặc thêm OTLP ingest từ nhiều service.
+
+* **Alternatives considered**:
+
+  * **Standalone ADOT ECS service (theo `infra/terraform/README.md`)**:
+
+    Deferred post-MVP. Lý do: cần thêm ECS service, security group, Service Connect, và app phải emit OTLP metrics (hiện tại chưa có). Tổng thay đổi lớn hơn, rủi ro cao hơn trước deadline Final E2E.
+
+  * **Implement direct AMP remote_write bằng Python**:
+
+    Rejected. Cần viết protobuf serializer, Snappy compressor, SigV4 signer, batching, retry/backoff, request-size control. Độ phức tạp cao, dễ sai, không phù hợp với khuyến nghị của ADR-011.
+
+  * **Dùng AMP managed collector**:
+
+    Rejected vì managed collector có hourly cost (~$0.04/collector-hour) và ít linh hoạt hơn ADOT sidecar tự quản lý.
+
+  * **Giữ nguyên `AmpDeliveryAdapter` và sửa bằng cách thêm SigV4**:
+
+    Rejected vì chỉ thêm SigV4 là chưa đủ — AMP còn yêu cầu protobuf + Snappy. Sửa toàn bộ protocol stack trong Python là không kinh tế.
+
+---
 ## Related documents
 
 - `docs/00_client_debrief.md` - client discovery summary and scope lock

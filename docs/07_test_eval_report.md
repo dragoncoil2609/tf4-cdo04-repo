@@ -24,7 +24,7 @@
 
 Tất cả scenario phải tạo hoặc forward thành các signal đúng AI Telemetry Contract trước khi đưa vào `signal_window`: `cpu_usage_percent`, `memory_usage_percent`, `active_connections`, `db_connection_pool_pct`, `queue_depth`, `cache_hit_rate_pct`, `api_latency_ms`. Các metric phụ như `error_rate` hoặc `oldest_message_age_seconds` chỉ dùng cho dashboard/fallback nội bộ.
 
-Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry vào AMP qua `remote_write`, Prediction Worker query được PromQL `query_range` đủ 120 phút, và AI request vẫn giữ schema contract. Demo acceptance không tự động chứng minh 50k events/sec production ceiling; ceiling đó cần load test riêng với bounded samples/event và label cardinality.
+Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry vào AMP qua ADOT Collector sidecar scrape `/metrics` và `remote_write`, Prediction Worker query được PromQL `query_range` đủ 120 phút, và AI request vẫn giữ schema contract. Demo acceptance không tự động chứng minh 50k events/sec production ceiling; ceiling đó cần load test riêng với bounded samples/event và label cardinality.
 
 **SC-01 - Gradual Drift (`ledger`)**
 
@@ -57,7 +57,7 @@ Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemet
 | Test type | Tool | Coverage / Scope |
 |---|---|---|
 | Unit test | pytest / go test | `<X%>` - chưa có số liệu, cần bổ sung từ CI report |
-| Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger` → collector/app remote_write → AMP) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `fraud-detector` → AI/Fallback Engine → Amazon DynamoDB) |
+| Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger` → Telemetry API `/metrics` → ADOT sidecar scrape → SigV4 remote_write → AMP) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `fraud-detector` → AI/Fallback Engine → Amazon DynamoDB) |
 | E2E test | k6 (4 scenario script, xem §3.5) | SC-01 Gradual Drift, SC-02 Sudden Spike, SC-03 Slow Leak, SC-04 Noisy Baseline & AI Down |
 | Load test | k6 (`stages` cho SC-01/03, `ramping-arrival-rate` cho SC-02) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target synthetic có thể scale down trong sandbox tùy ngân sách |
 | Chaos test | Manual + k6 injected fault | 4 kịch bản: Gradual Drift, Sudden Spike, Slow Leak (memory), AI Down/Fallback |

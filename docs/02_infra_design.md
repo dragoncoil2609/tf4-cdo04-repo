@@ -71,7 +71,7 @@ Dashboard chỉ là nơi xem evidence. Phần chính của CDO là control plane
 
 | Axis | My number | Competing angle estimate |
 |---|---|---|
-| Budget fit | **~$158.16/tháng** full always-on x86 design tại `us-east-1` với public ingest ALB + ECS Service Connect cho Worker → AI; **~$189.79** với 20% buffer vẫn dưới hard budget $200 nếu task không cần upsize cho proxy sidecar | Dashboard-only có thể rẻ hơn, nhưng không cover đủ prediction workflow, audit-per-call, fallback, evidence-link requirement và AI serving nội bộ |
+| Budget fit | **~$158.16/tháng** full always-on x86 design tại `us-east-1` với public ingest ALB + ECS Service Connect cho Worker → AI; **~$189.79** với 20% buffer vẫn dưới hard budget $200. ADOT Collector sidecar chạy cùng telemetry-api task (512/1024, không upsize), scrape `localhost:8080/metrics`. | Dashboard-only có thể rẻ hơn, nhưng không cover đủ prediction workflow, audit-per-call, fallback, evidence-link requirement và AI serving nội bộ |
 | Cost / service | **~$52.72/service/tháng** thiết kế cho 3 service | EKS/self-hosted TSDB hoặc observability stack riêng dễ tăng compute + ops overhead |
 | Cost / prediction cycle | 3 services × mỗi 5 phút ≈ **25,920 prediction cycles/tháng**; chi phí ≈ **$0.0061/cycle** | Dashboard-only không có prediction cycle/audit decision tương đương |
 | Contract fit | AI ECS Fargate min 2/max 4, 120-minute signal window, IAM SigV4, S3 AI baseline, AI audit 365 ngày | Nếu dùng auth/window khác với AI contract thì W12 integration có thể fail dù infra chạy được ở demo local |
@@ -79,7 +79,7 @@ Dashboard chỉ là nơi xem evidence. Phần chính của CDO là control plane
 | Early-warning cadence | **5 phút** là balanced point: đủ nhanh để còn buffer cho yêu cầu cảnh báo trước ≥15 phút, nhưng chưa tăng query/job/audit volume quá mức | 1 phút nhanh hơn nhưng tăng noise/cost; 10 phút rẻ hơn nhưng giảm buffer cảnh báo sớm |
 | Công vận hành | **2-3 giờ/tuần** nhờ dùng managed services: ECS Fargate, SQS, AMP, DynamoDB | EKS hoặc self-hosted TSDB có thể **6-10 giờ/tuần** cho node, storage, upgrade, retention và incident handling |
 
-Điểm cost của thiết kế này không phải là rẻ nhất tuyệt đối. Rẻ nhất tuyệt đối sẽ là dashboard-only hoặc vài CloudWatch alarm tĩnh, nhưng hai hướng đó không giải quyết đúng pain point client đã nêu: không có người nhìn dashboard 24/7 và threshold tĩnh dễ quá nhạy hoặc quá trễ. Vì vậy tiêu chí tối ưu là **cost-to-requirement coverage**. Sau khi chuyển sang AMP tại `us-east-1` và dùng ECS Service Connect cho luồng Worker → AI, full always-on x86 design fit hard budget $200 cả trước và sau 20% buffer nếu proxy sidecar không làm task phải upsize. Dù tối ưu ở đâu, **không tắt audit/fallback**.
+Điểm cost của thiết kế này không phải là rẻ nhất tuyệt đối. Rẻ nhất tuyệt đối sẽ là dashboard-only hoặc vài CloudWatch alarm tĩnh, nhưng hai hướng đó không giải quyết đúng pain point client đã nêu: không có người nhìn dashboard 24/7 và threshold tĩnh dễ quá nhạy hoặc quá trễ. Vì vậy tiêu chí tối ưu là **cost-to-requirement coverage**. Sau khi chuyển sang AMP tại `us-east-1` và dùng ECS Service Connect cho luồng Worker → AI, full always-on x86 design fit hard budget $200 cả trước và sau 20% buffer với ADOT Collector sidecar colocated trong telemetry-api task (512/1024, không upsize). Dù tối ưu ở đâu, **không tắt audit/fallback**.
 
 ### 3.3 Weakness chấp nhận
 

@@ -76,14 +76,10 @@ resource "aws_iam_policy" "prediction_worker_task_policy" {
         Resource = var.amp_workspace_arn
       },
       {
-        Sid    = "AllowAuditAndPolicyDynamoDB"
+        Sid    = "AllowWriteAuditDynamoDB"
         Effect = "Allow"
         Action = [
-          "dynamodb:PutItem",
-          "dynamodb:GetItem",
-          "dynamodb:Query",
-          "dynamodb:UpdateItem",
-          "dynamodb:DescribeTable"
+          "dynamodb:PutItem"
         ]
         Resource = var.worker_dynamodb_table_arns
       },
@@ -93,36 +89,8 @@ resource "aws_iam_policy" "prediction_worker_task_policy" {
         Action = [
           "sns:Publish"
         ]
-        Resource = var.alert_topic_arn
+        Resource = "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.project_name}-operational-alerts-${var.environment}"
       },
-      {
-        Sid    = "AllowReadRuntimeParameters"
-        Effect = "Allow"
-        Action = [
-          "ssm:GetParameter",
-          "ssm:GetParameters",
-          "ssm:GetParametersByPath"
-        ]
-        Resource = var.worker_ssm_parameter_arns
-      },
-      {
-        Sid    = "AllowReadSecrets"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = var.worker_secret_arns
-      },
-      {
-        Sid    = "AllowDecryptConfigSecrets"
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt",
-          "kms:DescribeKey"
-        ]
-        Resource = var.kms_key_arn
-      }
     ]
   })
 
@@ -164,6 +132,14 @@ resource "aws_ecs_task_definition" "prediction_worker" {
       # ECS sends SIGTERM first, then waits stopTimeout before SIGKILL.
       stopTimeout = var.prediction_worker_stop_timeout_seconds
 
+      healthCheck = {
+        command     = ["CMD-SHELL", "python -c \"import pathlib,sys; sys.exit(0 if b'app.py' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)\""]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+
       environment = [
         {
           name  = "AWS_REGION"
@@ -174,10 +150,6 @@ resource "aws_ecs_task_definition" "prediction_worker" {
           value = var.environment
         },
         {
-          name  = "PREDICTION_QUEUE_URL"
-          value = var.prediction_queue_url
-        },
-        {
           name  = "SQS_QUEUE_URL"
           value = var.prediction_queue_url
         },
@@ -186,44 +158,16 @@ resource "aws_ecs_task_definition" "prediction_worker" {
           value = var.amp_query_endpoint
         },
         {
-          name  = "AUDIT_TABLE_NAME"
-          value = var.audit_table_name
-        },
-        {
           name  = "DYNAMODB_AUDIT_TABLE"
           value = var.audit_table_name
-        },
-        {
-          name  = "AI_SERVICE_NAME"
-          value = var.ai_service_name
-        },
-        {
-          name  = "AI_ENGINE_BASE_URL"
-          value = "http://ai-engine:8080"
-        },
-        {
-          name  = "AI_PREDICT_PATH"
-          value = var.ai_predict_path
         },
         {
           name  = "AI_ENGINE_ENDPOINT"
           value = "http://ai-engine:8080/v1/predict"
         },
         {
-          name  = "LOOKBACK_WINDOW_MINUTES"
-          value = tostring(var.lookback_window_minutes)
-        },
-        {
           name  = "AI_TIMEOUT_SECONDS"
           value = "2"
-        },
-        {
-          name  = "GRACEFUL_SHUTDOWN_SECONDS"
-          value = tostring(var.prediction_worker_stop_timeout_seconds)
-        },
-        {
-          name  = "AI_SIGV4_CONFIG_SECRET_ARN"
-          value = var.ai_sigv4_config_secret_arn
         },
         {
           name  = "ALERT_TOPIC_ARN"
