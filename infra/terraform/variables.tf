@@ -85,6 +85,6 @@ variable "alert_email" {
 variable "domain_name" {
   description = "Tên miền cần cấp chứng chỉ SSL trên ACM (được đăng ký trên Name.com)"
   type        = string
-  default     = "cdo04.internal.local"
+  default     = "xbrain26hackathon269.software"
 }
 
