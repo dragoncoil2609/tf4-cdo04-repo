@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow curl SigV4 env-var credentials in smoke test"
+paths = [
+  '''scripts/post_apply_smoke\.sh''',
+]
+regexes = [
+  '''--user\s+"\$\{AWS_ACCESS_KEY_ID:-\}:\$\{AWS_SECRET_ACCESS_KEY:-\}"''',
+]
