@@ -97,6 +97,8 @@ module "compute" {
   ai_engine_min_capacity         = 2
   ai_engine_max_capacity         = 4
   ai_engine_autoscale_cpu_target = 70
+
+  domain_name = var.domain_name
 }
 
 

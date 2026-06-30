@@ -22,6 +22,11 @@ variable "aws_region" {
   type        = string
 }
 
+variable "domain_name" {
+  description = "Domain name for ACM SSL certificate"
+  type        = string
+}
+
 variable "amp_remote_write_endpoint" {
   description = "AMP remote write endpoint URL"
   type        = string

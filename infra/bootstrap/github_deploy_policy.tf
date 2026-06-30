@@ -332,6 +332,24 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "arn:aws:budgets::${data.aws_caller_identity.current.account_id}:budget/tf4-cdo04-*"
     ]
   }
+
+  statement {
+    sid    = "AllowManageProjectACM"
+    effect = "Allow"
+
+    actions = [
+      "acm:RequestCertificate",
+      "acm:DescribeCertificate",
+      "acm:DeleteCertificate",
+      "acm:GetCertificate",
+      "acm:ListCertificates",
+      "acm:AddTagsToCertificate",
+      "acm:RemoveTagsFromCertificate",
+      "acm:ListTagsForCertificate"
+    ]
+
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "github_deploy_policy" {

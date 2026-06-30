@@ -30,6 +30,16 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http_from_public" {
   to_port     = 80
 }
 
+resource "aws_vpc_security_group_ingress_rule" "alb_https_from_public" {
+  security_group_id = aws_security_group.alb.id
+  description       = "Allow HTTPS from public/demo clients"
+
+  cidr_ipv4   = var.alb_ingress_cidr
+  from_port   = 443
+  ip_protocol = "tcp"
+  to_port     = 443
+}
+
 resource "aws_vpc_security_group_egress_rule" "alb_to_telemetry_api" {
   security_group_id = aws_security_group.alb.id
   description       = "Allow ALB to forward traffic to Telemetry API"

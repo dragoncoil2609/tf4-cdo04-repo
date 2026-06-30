@@ -56,6 +56,16 @@ output "alb_listener_arn" {
   value       = aws_lb_listener.http.arn
 }
 
+output "acm_certificate_arn" {
+  description = "ACM SSL certificate ARN"
+  value       = aws_acm_certificate.cert.arn
+}
+
+output "acm_domain_validation_options" {
+  description = "Domain validation options for DNS configuration"
+  value       = aws_acm_certificate.cert.domain_validation_options
+}
+
 # ── Telemetry API Service ─────────────────────────────────────────────────────
 
 output "telemetry_api_task_definition_arn" {

@@ -109,6 +109,22 @@ output "alb_listener_arn" {
   value       = module.compute.alb_listener_arn
 }
 
+output "acm_certificate_arn" {
+  description = "ACM SSL certificate ARN"
+  value       = module.compute.acm_certificate_arn
+}
+
+output "acm_validation_dns_records" {
+  description = "CNAME records to create on Name.com for DNS validation"
+  value = [
+    for dvo in module.compute.acm_domain_validation_options : {
+      name  = dvo.resource_record_name
+      type  = dvo.resource_record_type
+      value = dvo.resource_record_value
+    }
+  ]
+}
+
 output "telemetry_api_sg_id" {
   description = "Security group ID for the Telemetry API ECS service"
   value       = module.networking.telemetry_api_sg_id
