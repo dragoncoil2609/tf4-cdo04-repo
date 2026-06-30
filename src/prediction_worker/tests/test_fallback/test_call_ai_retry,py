@@ -1,0 +1,293 @@
+"""
+test_call_ai_retry.py — CPOA-73/74 | CDO-W12-031/032
+Kiểm chứng call_ai_with_retry xử lý ĐÚNG từng loại lỗi AI Engine.
+
+Đây là phần quan trọng nhất phải test kỹ vì:
+1. Timeout không được retry (theo contract worker timeout 2s)
+2. 429 phải retry với backoff đúng 1s → 2s → 4s
+3. 5xx chỉ retry tối đa 2 lần, không vô hạn
+4. 400 tuyệt đối không retry
+
+Dùng monkeypatch để giả lập requests.post và time.sleep (để test chạy nhanh,
+không phải đợi backoff thật 1+2+4=7 giây mỗi lần).
+"""
+from unittest.mock import MagicMock
+import requests
+import fallback_engine as fe
+
+
+def _mock_resp(status_code, json_body=None):
+    resp = MagicMock()
+    resp.status_code = status_code
+    if json_body is not None:
+        resp.json.return_value = json_body
+    return resp
+
+
+VALID_AI_RESPONSE = {
+    "anomaly": True,
+    "severity": 0.7,
+    "reasoning": "ok",
+    "audit_id": "x",
+    "recommendation": {
+        "action_verb": "SCALE_UP", "target": "x", "from_to": "2->4",
+        "confidence": 0.8, "evidence_link": "http://x",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Happy path — AI trả 200 ngay lần đầu
+# ---------------------------------------------------------------------------
+
+def test_success_first_try(monkeypatch):
+    monkeypatch.setattr(
+        fe.requests, "post",
+        lambda *a, **k: _mock_resp(200, VALID_AI_RESPONSE)
+    )
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)  # skip real sleep
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is not None
+    assert reason is None
+    assert status == 200
+
+
+# ---------------------------------------------------------------------------
+# CPOA-73: Timeout — KHÔNG retry, fallback ngay
+# ---------------------------------------------------------------------------
+
+def test_timeout_no_retry(monkeypatch):
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        call_count["n"] += 1
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_timeout"
+    assert call_count["n"] == 1   # CHỈ gọi 1 lần — timeout không retry
+
+
+def test_connection_error_treated_as_timeout(monkeypatch):
+    def fake_post(*a, **k):
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_timeout"
+
+
+# ---------------------------------------------------------------------------
+# CPOA-73/74: 429 — retry với backoff 1s -> 2s -> 4s
+# ---------------------------------------------------------------------------
+
+def test_429_always_exhausts_after_3_retries(monkeypatch):
+    call_count = {"n": 0}
+    sleep_calls = []
+
+    def fake_post(*a, **k):
+        call_count["n"] += 1
+        return _mock_resp(429)
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: sleep_calls.append(s))
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_429_retry_exhausted"
+    # 1 lần gọi đầu + 3 lần retry = 4 lần tổng
+    assert call_count["n"] == 4
+    # Backoff đúng thứ tự 1s, 2s, 4s theo contract
+    assert sleep_calls == [1, 2, 4]
+
+
+def test_429_then_success_on_first_retry(monkeypatch):
+    """429 lần đầu, retry lần 1 thành công ngay"""
+    responses = [_mock_resp(429), _mock_resp(200, VALID_AI_RESPONSE)]
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        r = responses[call_count["n"]]
+        call_count["n"] += 1
+        return r
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    sleep_calls = []
+    monkeypatch.setattr(fe.time, "sleep", lambda s: sleep_calls.append(s))
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is not None
+    assert reason is None
+    assert call_count["n"] == 2
+    assert sleep_calls == [1]   # chỉ sleep 1 lần trước retry thành công
+
+
+def test_429_then_500_breaks_retry_loop(monkeypatch):
+    """429 lần đầu, retry trả về 500 (status khác 429) → dừng loop, fallback"""
+    responses = [_mock_resp(429), _mock_resp(500)]
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        r = responses[min(call_count["n"], len(responses) - 1)]
+        call_count["n"] += 1
+        return r
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_429_retry_exhausted"
+
+
+# ---------------------------------------------------------------------------
+# CPOA-74: 5xx — retry tối đa 2 lần, KHÔNG vô hạn
+# ---------------------------------------------------------------------------
+
+def test_503_exhausts_after_2_retries(monkeypatch):
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        call_count["n"] += 1
+        return _mock_resp(503)
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_503"
+    # 1 lần đầu + 2 lần retry (MAX_5XX_RETRIES=2) = 3 lần tổng
+    assert call_count["n"] == 3
+
+
+def test_500_maps_to_ai_5xx_reason(monkeypatch):
+    monkeypatch.setattr(fe.requests, "post", lambda *a, **k: _mock_resp(500))
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert reason == "ai_5xx"  # không phải ai_503
+
+
+def test_503_retry_succeeds_on_attempt_1(monkeypatch):
+    responses = [_mock_resp(503), _mock_resp(200, VALID_AI_RESPONSE)]
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        r = responses[call_count["n"]]
+        call_count["n"] += 1
+        return r
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is not None
+    assert reason is None
+    assert call_count["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# 400 — KHÔNG retry tuyệt đối
+# ---------------------------------------------------------------------------
+
+def test_400_no_retry(monkeypatch):
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        call_count["n"] += 1
+        return _mock_resp(400)
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_400"
+    assert call_count["n"] == 1   # CHỈ 1 lần, 400 không bao giờ retry
+
+
+# ---------------------------------------------------------------------------
+# 200 nhưng schema invalid → ai_invalid_response (KHÔNG retry)
+# ---------------------------------------------------------------------------
+
+def test_200_with_invalid_schema_no_retry(monkeypatch):
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        call_count["n"] += 1
+        return _mock_resp(200, {"missing": "required_fields"})
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_invalid_response"
+    assert call_count["n"] == 1   # schema lỗi không retry, vì lỗi sẽ lặp lại y nguyên
+
+
+def test_429_retry_returns_invalid_schema(monkeypatch):
+    """429 → retry → 200 nhưng schema sai → ai_invalid_response, không phải 429_exhausted"""
+    responses = [_mock_resp(429), _mock_resp(200, {"bad": "schema"})]
+    call_count = {"n": 0}
+
+    def fake_post(*a, **k):
+        r = responses[call_count["n"]]
+        call_count["n"] += 1
+        return r
+
+    monkeypatch.setattr(fe.requests, "post", fake_post)
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_invalid_response"
+
+
+# ---------------------------------------------------------------------------
+# Unexpected status code
+# ---------------------------------------------------------------------------
+
+def test_unexpected_status_maps_to_ai_5xx(monkeypatch):
+    monkeypatch.setattr(fe.requests, "post", lambda *a, **k: _mock_resp(418))  # I'm a teapot
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert resp is None
+    assert reason == "ai_5xx"
+
+
+# ---------------------------------------------------------------------------
+# Latency tracking — phải đo được latency_ms
+# ---------------------------------------------------------------------------
+
+def test_latency_ms_is_measured(monkeypatch):
+    monkeypatch.setattr(fe.requests, "post", lambda *a, **k: _mock_resp(200, VALID_AI_RESPONSE))
+    monkeypatch.setattr(fe.time, "sleep", lambda s: None)
+
+    resp, reason, status, latency = fe.call_ai_with_retry({}, {}, None)
+
+    assert isinstance(latency, int)
+    assert latency >= 0

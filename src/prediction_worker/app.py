@@ -10,6 +10,13 @@ import requests
 from botocore.exceptions import ClientError
 from requests_aws4auth import AWS4Auth
 
+from fallback_engine import (   # THÊM — Phan Minh Tuấn CPOA-71..77
+    get_service_policy,
+    check_signal_window,
+    run_static_fallback,
+    call_ai_with_retry,
+)
+
 # Cấu hình biến môi trường
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL")
@@ -192,7 +199,8 @@ def save_audit_log(
     prediction_id, tenant_id, service_name, decision, prediction_source, score,
     evidence_status="complete_window", anomaly=False, severity=0.0, reasoning="",
     recommendation=None, audit_id=None, ai_status_code=0, ai_latency_ms=0,
-    deployment_version="v1.0.0", baseline_version="v1.0.0", prediction_status="complete"
+    deployment_version="v1.0.0", baseline_version="v1.0.0", prediction_status="complete",
+    fallback_reason=None
 ):
     """
     TASK: CPOA-103 | CDO-W12-058 - Retention policies
@@ -232,6 +240,9 @@ def save_audit_log(
         "baseline_version": baseline_version,
         "expires_at_epoch": expires_at_epoch
     }
+
+    if fallback_reason:
+        item["fallback_reason"] = fallback_reason
 
     # Bổ sung các thông tin recommendation nếu có
     if recommendation:
@@ -457,6 +468,73 @@ def process_job(job_data):
         decision = "SCALE_UP" if score > 80.0 else "KEEP_ALIVE"
         anomaly = score > 80.0
         severity = score / 100.0
+    
+    # CPOA-72: đọc service policy trước khi quyết định gọi AI hay fallback
+    policy = get_service_policy(tenant_id, service_name)
+    fallback_reason = None  # THÊM — ghi vào audit khi prediction_source là fallback
+
+    # CPOA-76: check signal window bằng policy (thay MAX_GAP_THRESHOLD cứng)
+    window_ok, window_reason = check_signal_window(aligned_metrics, max_gap_ratio, policy)
+
+    if not window_ok:
+        print(f"{window_reason}. Không gọi AI, kích hoạt fallback.", flush=True)
+        prediction_source = "STATIC_THRESHOLD_FALLBACK"
+        prediction_status = "fallback"
+        fallback_reason = "insufficient_signal_window"
+        reasoning = window_reason
+    elif aligned_metrics:
+        # 6. Gọi AI Engine bằng IAM SigV4 và validate response schema (CPOA-65, CPOA-66, CPOA-67)
+        headers = {
+            "X-Tenant-Id": tenant_id,
+            "X-Correlation-Id": prediction_id,
+            "Content-Type": "application/json"
+        }
+
+        # Tạo auth client động cho AI Engine
+        ai_auth = get_aws_auth("execute-api")
+
+        # CPOA-73/74/75: gọi AI với retry 429/5xx + validate schema, trả fallback_reason nếu fail
+        response, fallback_reason, ai_status_code, ai_latency_ms = call_ai_with_retry(
+            payload, headers, ai_auth
+        )
+
+        if response is not None:
+            result = response.json()
+
+            anomaly = result["anomaly"]
+            severity = float(result["severity"])
+            reasoning = result["reasoning"]
+            recommendation = result.get("recommendation")
+            audit_id = result.get("audit_id")
+
+            if recommendation:
+                decision = recommendation["action_verb"]
+                score = float(recommendation.get("confidence", 0.0))
+            else:
+                decision = "KEEP_ALIVE"
+                score = severity
+        else:
+            print(f"AI Engine fail: {fallback_reason}. Kích hoạt Fallback.", flush=True)
+            prediction_source = "STATIC_THRESHOLD_FALLBACK"
+            prediction_status = "fallback"
+            reasoning = f"AI Engine fallback_reason={fallback_reason}"
+    else:
+        print("Địa chỉ AMP không trả về dữ liệu. Kích hoạt Fallback.", flush=True)
+        prediction_source = "STATIC_THRESHOLD_FALLBACK"
+        prediction_status = "fallback"
+        fallback_reason = "ai_timeout"  # không có data để gọi AI → coi như unavailable
+        reasoning = "No AMP metrics data available. Triggered fallback."
+
+    # 7. Thực hiện tính toán fallback nếu cần (CPOA-73/74/75: dùng policy.fallback_rules
+    #    thay vì 1 threshold số duy nhất)
+    if prediction_source == "STATIC_THRESHOLD_FALLBACK":
+        fb = run_static_fallback(tenant_id, service_name, aligned_metrics, policy, fallback_reason)
+        decision = fb["decision"]
+        score = fb["score"]
+        anomaly = fb["anomaly"]
+        severity = fb["severity"]
+        reasoning = fb["reasoning"]
+        recommendation = fb["recommendation"]
 
     # 8. Lưu Audit Log kèm đầy đủ thông tin (CPOA-68)
     save_audit_log(
@@ -475,7 +553,8 @@ def process_job(job_data):
         ai_status_code=ai_status_code,
         ai_latency_ms=ai_latency_ms,
         deployment_version=deployment_version,
-        prediction_status=prediction_status
+        prediction_status=prediction_status,
+        fallback_reason=fallback_reason   # THÊM — CDO-W12-031/032/033/034
     )
 
     # 9. Gửi cảnh báo SNS nếu phát hiện anomaly nguy cơ cao (CPOA-69)
