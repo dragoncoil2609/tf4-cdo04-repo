@@ -279,10 +279,12 @@ Not applied:
 
 ## 8. Final cost evidence gate
 
-Runtime cost evidence is generated during final acceptance and intentionally not committed:
+Runtime cost evidence is generated during final acceptance:
 
 - `evidence/logs/cost-explorer-final.json`
 - `evidence/logs/budget-final.json`
+
+Current final test evidence focuses on live ingest/AI path. Cost Explorer same-day actuals remain delayed supporting evidence only; budget/circuit-breaker configuration plus the sizing model above remain the cost proof.
 
 Pass rule:
 

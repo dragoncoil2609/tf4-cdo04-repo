@@ -2,11 +2,15 @@
 // Emits all 7 contracted AI signals; proves steady ingest health, not stress ceiling.
 import http from 'k6/http';
 import { check } from 'k6';
+import exec from 'k6/execution';
 
 const RATE = Number(__ENV.RATE || 50);
 const DURATION = __ENV.DURATION || '10m';
-const TENANT_ID = __ENV.TENANT_ID || 'acceptance-tenant';
-const SERVICE_ID = __ENV.SERVICE_ID || 'ledger';
+const TENANT_ID = __ENV.TENANT_ID || 'demo-tenant-001';
+const SERVICE_IDS = (__ENV.SERVICE_IDS || __ENV.SERVICE_ID || 'ledger,payment-gw,fraud-detector')
+  .split(',')
+  .map((serviceId) => serviceId.trim())
+  .filter(Boolean);
 const ENDPOINT = __ENV.TELEMETRY_API_HOST || 'localhost:8080';
 const BASE_URL = /^https?:\/\//.test(ENDPOINT)
   ? ENDPOINT.replace(/\/$/, '')
@@ -29,8 +33,8 @@ export const options = {
       rate: RATE,
       timeUnit: '1s',
       duration: DURATION,
-      preAllocatedVUs: Math.max(10, Math.ceil(RATE / 2)),
-      maxVUs: Math.max(50, RATE * 2),
+      preAllocatedVUs: Math.max(50, RATE),
+      maxVUs: Math.max(100, RATE * 2),
     },
   },
   thresholds: {
@@ -41,11 +45,13 @@ export const options = {
 };
 
 export default function () {
-  const metric = METRICS[__ITER % METRICS.length];
+  const sequence = exec.scenario.iterationInTest;
+  const metric = METRICS[sequence % METRICS.length];
+  const serviceId = SERVICE_IDS[sequence % SERVICE_IDS.length];
   const payload = JSON.stringify({
     ts: new Date().toISOString(),
     tenant_id: TENANT_ID,
-    service_id: SERVICE_ID,
+    service_id: serviceId,
     metric_type: metric[0],
     value: metric[1],
     labels: metric[2],
@@ -56,7 +62,7 @@ export default function () {
       'Content-Type': 'application/json',
       'X-Tenant-Id': TENANT_ID,
     },
-    tags: { scenario: 'acceptance', service_id: SERVICE_ID },
+    tags: { scenario: 'acceptance', service_id: serviceId },
   });
 
   check(res, {
