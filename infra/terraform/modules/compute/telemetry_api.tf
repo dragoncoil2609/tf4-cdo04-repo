@@ -205,4 +205,9 @@ resource "aws_ecs_service" "telemetry_api" {
   lifecycle {
     ignore_changes = [desired_count]
   }
+
+  depends_on = [
+    aws_lb_listener.https,
+    aws_lb_listener_rule.ingest
+  ]
 }
