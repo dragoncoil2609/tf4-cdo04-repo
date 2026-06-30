@@ -243,11 +243,13 @@ jobs:
           echo "amp_query_endpoint=$(terraform -chdir=infra/terraform output -raw amp_query_endpoint)" >> "$GITHUB_OUTPUT"
 
       # Chạy Smoke Test sau khi deploy hạ tầng thành công (CPOA-78)
+      # ALB_BASE_URL dùng tên miền thực (xbrain26hackathon269.software) thay vì raw ALB DNS
+      # để tránh SSL cert mismatch (ACM cert chỉ valid cho custom domain, không valid cho *.elb.amazonaws.com)
       - name: Run Post-Apply Smoke Test
         if: github.event_name == 'push'
         env:
+          ALB_BASE_URL: https://xbrain26hackathon269.software
           ALB_DNS_NAME: ${{ steps.tf-outputs.outputs.alb_dns_name }}
-          ALB_SCHEME: https
           ECS_CLUSTER_NAME: ${{ steps.tf-outputs.outputs.ecs_cluster_name }}
           TELEMETRY_API_SERVICE_NAME: ${{ steps.tf-outputs.outputs.telemetry_api_service_name }}
           PREDICTION_WORKER_SERVICE_NAME: ${{ steps.tf-outputs.outputs.prediction_worker_service_name }}
