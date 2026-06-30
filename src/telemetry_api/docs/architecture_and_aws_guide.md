@@ -14,7 +14,7 @@ Chế độ chạy của hệ thống được chuyển đổi linh hoạt qua b
 | **`AmpTelemetryAdapter` (`storage_adapter`)** | **Amazon Managed Service for Prometheus (AMP)** | Thực hiện lưu trữ No-Op tại Ingest API. Đột phá qua việc lưu in-memory Prometheus Gauges và expose tại `/metrics` để ADOT Collector scrape. |
 | **`AmpDeliveryAdapter`** | **Không dùng trong production AWS** | `AMP_DELIVERY_ENABLED=false` khi `APP_MODE=aws`. Adapter chỉ dùng cho local dev/test/replay. Production dùng ADOT Collector sidecar scrape `/metrics` và SigV4 remote_write vào AMP. |
 | **`prometheus_exporter`** | **ADOT Collector (Sidecar)** | Expose endpoint `/metrics` định dạng Prometheus. ADOT Collector scrape định kỳ (15s) và remote_write về AMP sử dụng chữ ký IAM SigV4. |
-| **`s3_failure_buffer_adapter`** | **Amazon S3 Bucket** | Ghi các telemetry payload thất bại sau 3 lần retry vào S3 bucket chỉ định (`S3_FAILURE_BUFFER_BUCKET`). |
+| **`s3_failure_buffer_adapter`** | **Amazon S3 Bucket** | Chỉ buffer lỗi app-direct/local replay path. Production AWS dùng ADOT sidecar async nên lỗi ADOT remote_write không tự rơi vào S3; kiểm tra bằng ADOT logs + AMP query. |
 | **`replay_service`** | **ECS Scheduled Task / EventBridge** | Quét bucket S3 định kỳ, đọc các bản ghi lỗi, gửi lại (replay) tới AMP và dọn dẹp (delete) object khi hoàn tất. |
 | **`idempotency.py`** | **AMP Deduplication & S3 Key Partitioning** | Sinh khóa duy nhất dựa trên SHA-256 bhash các trường dữ liệu được sắp xếp nhằm chống trùng lặp dữ liệu trên AMP và làm khóa phân vùng S3. |
 | **`core/logging.py`** | **Amazon CloudWatch Logs** | Ghi log dưới định dạng JSON cấu trúc (Structured JSON Logs) chuyển tiếp trực tiếp vào CloudWatch Log Group `/ecs/tf4-cdo04-telemetry-api`. |
@@ -23,7 +23,7 @@ Chế độ chạy của hệ thống được chuyển đổi linh hoạt qua b
 
 ## 2. Quy tắc Phân vùng Dữ liệu S3 (S3 Partitioning Schema)
 
-Khi AMP remote_write gặp sự cố tạm thời hoặc kéo dài, dữ liệu được ghi xuống S3 theo cấu trúc phân vùng tối ưu hóa cho truy vấn Athena/Glue:
+Khi app-direct/local delivery path ghi failure buffer, dữ liệu được ghi xuống S3 theo cấu trúc phân vùng tối ưu hóa cho truy vấn Athena/Glue. Với production ADOT sidecar, ADOT remote_write lỗi được xử lý bằng retry/queue nội bộ và không tạo object S3:
 
 ```text
 s3://<S3_FAILURE_BUFFER_BUCKET>/telemetry-failures/tenant_id=<tenant_id>/service_id=<service_id>/metric_type=<metric_type>/date=<YYYY-MM-DD>/idempotency_key=<hash>.json

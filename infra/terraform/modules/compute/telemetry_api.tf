@@ -35,6 +35,11 @@ exporters:
     endpoint: "${var.amp_remote_write_endpoint}"
     auth:
       authenticator: sigv4auth
+    sending_queue:
+      enabled: true
+      queue_size: 256
+    retry_on_failure:
+      enabled: true
 
 extensions:
   health_check:
@@ -156,6 +161,7 @@ resource "aws_ecs_task_definition" "telemetry_api" {
       name      = "adot-collector"
       image     = local.adot_collector_image
       essential = true
+      command   = ["--config=env:AOT_CONFIG_CONTENT"]
       environment = [
         { name = "AWS_REGION", value = var.aws_region },
         { name = "AMP_REMOTE_WRITE_ENDPOINT", value = var.amp_remote_write_endpoint },

@@ -110,10 +110,7 @@ resource "aws_scheduler_schedule" "prediction_jobs" {
       service_id              = each.value
       lookback_window_minutes = var.lookback_window_minutes
       prediction_mode         = var.prediction_mode
-
-      # EventBridge Scheduler input is static.
-      # Worker can replace/extend this with a generated correlation_id if required.
-      correlation_id = "eventbridge-${each.value}-${var.environment}"
+      # correlation_id is intentionally omitted; worker uses SQS MessageId per run.
     })
   }
 

@@ -2,6 +2,7 @@
 # Public HTTP Application Load Balancer -- CDO-W12-055
 #
 # Exposes /health and /v1/ingest on port 80 only (no HTTPS/ACM).
+# /metrics is intentionally not routed; ADOT scrapes it on localhost inside the task.
 # HTTPS and certificate wiring are deferred to team assignment scope.
 # -----------------------------------------------------------------------------
 

@@ -10,7 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from telemetry_api.adapters.base import DeliveryResult
-from telemetry_api.core.config import Settings
+from telemetry_api.adapters.s3_failure_buffer_adapter import S3FailureBufferAdapter
+from telemetry_api.core.config import Settings, load_settings
 from telemetry_api.core.errors import BothAMPAndS3FailedError
 from telemetry_api.main import create_app
 from telemetry_api.observability.metrics import get_metrics_snapshot, reset_metrics_for_tests
@@ -113,6 +114,16 @@ def headers(corr_id: str = "cdo-w12-020-test-001") -> dict[str, str]:
         "X-Tenant-Id": "demo-tenant-001",
         "X-Correlation-Id": corr_id,
     }
+
+
+def test_aws_mode_forces_direct_amp_delivery_off(monkeypatch) -> None:
+    monkeypatch.setenv("APP_MODE", "aws")
+    monkeypatch.setenv("AMP_DELIVERY_ENABLED", "true")
+
+    settings = load_settings()
+
+    assert settings.app_mode == "aws"
+    assert settings.amp_delivery_enabled is False
 
 
 # 1. AMP SUCCESS
@@ -284,9 +295,11 @@ def test_pii_payload_not_buffered(app_and_client) -> None:
 
 
 # 8. REPLAY SERVICE LOCAL SIMULATION TEST
-def test_replay_service_local(tmp_path) -> None:
+def test_replay_service_local(tmp_path, monkeypatch) -> None:
     from telemetry_api.services.replay_service import ReplayService
     import os
+
+    monkeypatch.chdir(tmp_path)
 
     # Tạo setup settings giả lập local
     settings = Settings(
@@ -326,4 +339,34 @@ def test_replay_service_local(tmp_path) -> None:
     assert fake_amp.calls == 1
     # Tệp mock buffer sẽ bị xóa khi gửi thành công
     assert not os.path.exists(mock_file)
+
+
+def test_local_s3_buffer_write_is_replayable(tmp_path, monkeypatch) -> None:
+    from telemetry_api.services.replay_service import ReplayService
+
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(
+        env="local",
+        s3_failure_buffer_bucket="cdo-telemetry-failure-buffer",
+        s3_failure_buffer_prefix="telemetry-failures/",
+    )
+    payload = TelemetryPayload.model_validate(valid_payload())
+
+    buffer = S3FailureBufferAdapter(settings)
+    object_key = buffer.write(
+        payload=payload,
+        event_id="evt-roundtrip",
+        correlation_id="corr-roundtrip",
+        idempotency_key="idem-roundtrip",
+        retry_count=2,
+    )
+
+    assert (tmp_path / "local-store" / "s3-mock-buffer" / object_key).exists()
+
+    fake_amp = FakeAmpDeliveryAdapter([True])
+    replay_svc = ReplayService(settings, fake_amp)
+
+    assert replay_svc.replay_failures() == 1
+    assert fake_amp.calls == 1
+    assert not (tmp_path / "local-store" / "s3-mock-buffer" / object_key).exists()
 

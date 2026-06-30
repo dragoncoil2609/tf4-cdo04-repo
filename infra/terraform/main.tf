@@ -56,10 +56,8 @@ module "compute" {
   amp_workspace_arn         = module.data.amp_workspace_arn
   amp_query_endpoint        = module.data.amp_query_endpoint
 
-  prediction_queue_url      = module.data.prediction_queue_url
-  prediction_queue_arn      = module.data.prediction_queue_arn
-  prediction_queue_name     = module.data.prediction_queue_name
-  prediction_queue_dlq_name = module.data.prediction_queue_dlq_name
+  prediction_queue_url = module.data.prediction_queue_url
+  prediction_queue_arn = module.data.prediction_queue_arn
 
   telemetry_api_image_tag  = var.telemetry_api_image_tag
   adot_collector_image_tag = var.adot_collector_image_tag
@@ -79,20 +77,11 @@ module "compute" {
   prediction_worker_sg_id = module.networking.prediction_worker_sg_id
 
   audit_table_name = module.data.audit_table_name
-
-  kms_key_arn = module.data.kms_key_arn
-
-  worker_secret_arns = [
-    module.data.ai_sigv4_config_secret_arn,
-    module.data.tenant_ingest_token_secret_arn,
-    module.data.slack_webhook_secret_arn
+  worker_dynamodb_table_arns = [
+    module.data.audit_table_arn
   ]
 
-  ai_sigv4_config_secret_arn = module.data.ai_sigv4_config_secret_arn
-
-  ai_service_name         = "ai-engine"
-  ai_predict_path         = "/v1/predict"
-  lookback_window_minutes = 120
+  kms_key_arn = module.data.kms_key_arn
 
   baseline_s3_bucket_name = module.data.evidence_bucket_name
   baseline_s3_prefix      = "baselines/"

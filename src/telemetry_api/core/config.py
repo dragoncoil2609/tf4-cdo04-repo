@@ -87,6 +87,7 @@ def load_settings() -> Settings:
     app_mode = os.getenv("APP_MODE", "local")
     default_env = "prod" if app_mode == "aws" else "local"
     default_backend = "prometheus_amp" if app_mode == "aws" else "local_jsonl"
+    default_amp_delivery_enabled = False if app_mode == "aws" else Settings.amp_delivery_enabled
 
     return Settings(
         app_mode=app_mode,
@@ -115,7 +116,7 @@ def load_settings() -> Settings:
         amp_workspace_id=os.getenv("AMP_WORKSPACE_ID", Settings.amp_workspace_id),
         amp_remote_write_endpoint=os.getenv("AMP_REMOTE_WRITE_ENDPOINT", Settings.amp_remote_write_endpoint),
         delivery_mode=os.getenv("DELIVERY_MODE", Settings.delivery_mode),
-        amp_delivery_enabled=_read_bool("AMP_DELIVERY_ENABLED", Settings.amp_delivery_enabled),
+        amp_delivery_enabled=_read_bool("AMP_DELIVERY_ENABLED", default_amp_delivery_enabled) if app_mode != "aws" else False,
         amp_delivery_max_retries=_read_int("AMP_DELIVERY_MAX_RETRIES", Settings.amp_delivery_max_retries),
         amp_delivery_retry_base_delay_ms=_read_int("AMP_DELIVERY_RETRY_BASE_DELAY_MS", Settings.amp_delivery_retry_base_delay_ms),
         amp_delivery_retry_max_delay_ms=_read_int("AMP_DELIVERY_RETRY_MAX_DELAY_MS", Settings.amp_delivery_retry_max_delay_ms),

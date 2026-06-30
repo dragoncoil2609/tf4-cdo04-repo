@@ -96,16 +96,6 @@ variable "evidence_bucket_name" {
   type        = string
 }
 
-variable "prediction_queue_name" {
-  description = "SQS prediction queue name (for worker env reference)"
-  type        = string
-}
-
-variable "prediction_queue_dlq_name" {
-  description = "SQS prediction DLQ name (for worker env reference)"
-  type        = string
-}
-
 variable "private_subnet_ids" {
   description = "List of private subnet IDs for ECS tasks"
   type        = list(string)
@@ -165,62 +155,16 @@ variable "audit_table_name" {
   type        = string
 }
 
-# Temporary wildcard until data module exposes exact table ARNs.
-# Still satisfies worker capability for W12 demo.
 variable "worker_dynamodb_table_arns" {
-  description = "DynamoDB table ARNs the worker can access"
+  description = "DynamoDB audit table ARN the worker can write"
   type        = list(string)
-  default     = ["*"]
-}
-
-# Temporary wildcard until Observability/SNS module exposes final topic ARN.
-variable "alert_topic_arn" {
-  description = "SNS topic ARN for high-risk alerts"
-  type        = string
-  default     = "*"
-}
-
-# Temporary wildcard until data module exposes exact SSM parameter ARNs.
-variable "worker_ssm_parameter_arns" {
-  description = "SSM parameter ARNs the worker can read"
-  type        = list(string)
-  default     = ["*"]
-}
-
-variable "worker_secret_arns" {
-  description = "Secrets Manager secret ARNs the worker can read"
-  type        = list(string)
-  default     = ["*"]
 }
 
 variable "kms_key_arn" {
-  description = "KMS key ARN for decrypting config/secrets"
-  type        = string
-  default     = "*"
-}
-
-variable "ai_service_name" {
-  description = "AI Engine service name"
-  type        = string
-  default     = "ai-engine"
-}
-
-variable "ai_predict_path" {
-  description = "AI predict endpoint path"
-  type        = string
-  default     = "/v1/predict"
-}
-
-variable "lookback_window_minutes" {
-  description = "Prediction lookback window in minutes"
-  type        = number
-  default     = 120
-}
-
-variable "ai_sigv4_config_secret_arn" {
-  description = "Secrets Manager ARN for AI SigV4 config"
+  description = "KMS key ARN for AI Engine baseline decrypt"
   type        = string
 }
+
 # -----------------------------------------------------------------------------
 # AI Engine variables -- CDO-W12-011
 # -----------------------------------------------------------------------------

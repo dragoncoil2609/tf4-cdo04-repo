@@ -1,3 +1,4 @@
+# Reference only. Runtime ECS config is inline in infra/terraform/modules/compute/telemetry_api.tf.
 receivers:
   prometheus:
     config:
@@ -18,6 +19,11 @@ exporters:
     endpoint: "${AMP_REMOTE_WRITE_ENDPOINT}"
     auth:
       authenticator: sigv4auth
+    sending_queue:
+      enabled: true
+      queue_size: 256
+    retry_on_failure:
+      enabled: true
 
 extensions:
   health_check:

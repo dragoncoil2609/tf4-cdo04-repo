@@ -989,7 +989,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * ✅ Config nhúng trong Terraform locals (`AOT_CONFIG_CONTENT`), không cần SSM parameter.
   * ✅ Ingest API trả `201 Accepted` thay vì `202 Buffered` khi ADOT hoạt động bình thường.
   * ✅ Task sizing giữ nguyên 512/1024, không ảnh hưởng cost model.
-  * ⚠️ Không có S3 failure buffer cho ADOT remote_write failure — ADOT tự retry/queue nội bộ. S3 buffer chỉ cover app-direct delivery path.
+  * ⚠️ Không có S3 failure buffer cho ADOT remote_write failure — ADOT dùng bounded retry/queue nội bộ (không durable). S3 buffer chỉ cover app-direct/local replay path.
   * ⚠️ Đường evidence khác với docs cũ: cần kiểm tra CloudWatch logs ADOT (`adot-collector` stream) + AMP query thay vì app-direct logs.
   * ⚠️ Nếu ADOT container crash, toàn bộ telemetry pipeline mất metrics (không có fallback collector).
   * ⚠️ Standalone ADOT service vẫn là hướng dài hạn nếu cần scale collector độc lập hoặc thêm OTLP ingest từ nhiều service.

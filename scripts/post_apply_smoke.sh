@@ -78,6 +78,43 @@ for attempt in $(seq 1 15); do
   sleep 10
 done
 
+echo "Checking ${BASE_URL}/metrics is not public"
+metrics_status=$(http_code "${BASE_URL}/metrics" || true)
+if [[ "${metrics_status}" == "200" ]]; then
+  echo "Public /metrics is exposed via ALB; expected 404/403 because ADOT scrapes localhost" >&2
+  exit 1
+fi
+if [[ "${metrics_status}" == "404" || "${metrics_status}" == "403" ]]; then
+  echo "Public /metrics blocked as expected: HTTP ${metrics_status}"
+else
+  echo "Public /metrics returned HTTP ${metrics_status}; expected blocked endpoint"
+fi
+
+if [[ -n "${AMP_QUERY_ENDPOINT:-}" ]]; then
+  if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    echo "Skipping AMP query check: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY not exported for curl SigV4"
+  elif curl --help all 2>/dev/null | grep -q -- "--aws-sigv4"; then
+    echo "Checking AMP query endpoint"
+    amp_query_url="${AMP_QUERY_ENDPOINT%/api/v1/query}/api/v1/query"
+    amp_status=$(curl -sS -o /tmp/amp-smoke-response.txt -w "%{http_code}" \
+      --aws-sigv4 "aws:amz:${AWS_REGION:-us-east-1}:aps" \
+      --user "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}" \
+      -H "x-amz-security-token: ${AWS_SESSION_TOKEN:-}" \
+      --get "${amp_query_url}" \
+      --data-urlencode 'query=api_latency_ms{tenant_id="smoke-test",service_id="payment-gw"}' || true)
+    if [[ "${amp_status}" == "200" ]]; then
+      echo "AMP query endpoint reachable"
+    else
+      echo "AMP query check skipped/failed with HTTP ${amp_status}; ADOT logs will be checked next"
+      cat /tmp/amp-smoke-response.txt >&2 || true
+    fi
+  else
+    echo "Skipping AMP query check: curl lacks --aws-sigv4"
+  fi
+else
+  echo "Skipping AMP query check: AMP_QUERY_ENDPOINT not set"
+fi
+
 echo "Checking ECS service stability"
 aws ecs describe-services \
   --cluster "${ECS_CLUSTER_NAME}" \
@@ -117,6 +154,28 @@ if (( dlq_depth > initial_dlq_depth )); then
 fi
 if (( dlq_depth > 0 )); then
   echo "Prediction DLQ still has ${dlq_depth} pre-existing message(s)"
+fi
+
+if [[ -n "${AWS_REGION:-}" ]]; then
+  echo "Checking recent ADOT exporter errors"
+  adot_errors=$(aws logs filter-log-events \
+    --region "${AWS_REGION}" \
+    --log-group-name /ecs/telemetry-api \
+    --start-time "$(( ($(date +%s) - 3600) * 1000 ))" \
+    --filter-pattern '"adot-collector" "error"' \
+    --query 'length(events)' \
+    --output text 2>/dev/null || echo "unknown")
+  echo "Recent ADOT error events: ${adot_errors}"
+
+  echo "Checking known fallback policy table warning count"
+  policy_warnings=$(aws logs filter-log-events \
+    --region "${AWS_REGION}" \
+    --log-group-name /ecs/prediction-worker \
+    --start-time "$(( ($(date +%s) - 3600) * 1000 ))" \
+    --filter-pattern '"DynamoDB policy table"' \
+    --query 'length(events)' \
+    --output text 2>/dev/null || echo "unknown")
+  echo "Recent policy-table fallback warnings (accepted known gap): ${policy_warnings}"
 fi
 
 echo "Post-apply smoke checks passed"

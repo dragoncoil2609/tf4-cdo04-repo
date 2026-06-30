@@ -341,6 +341,20 @@ class TestProcessJobFallback:
 
     # ── AI unreachable: no AMP data ─────────────────────────────
 
+    def test_message_id_used_when_correlation_missing(self):
+        """Scheduler omits correlation_id; worker uses SQS MessageId for traceability."""
+        job = {**self._BASE_JOB}
+        job.pop("correlation_id")
+
+        with self._mock_query(aligned_metrics={}, gap_ratio=1.0), \
+             self._mock_fallback(85.0), \
+             self._mock_save() as mock_save, \
+             self._mock_sns():
+            process_job(job, message_id="sqs-message-123")
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["prediction_id"] == "sqs-message-123"
+
     def test_no_amp_data_triggers_fallback(self):
         """Empty aligned_metrics+high gap -> gap threshold branch, prediction_source fallback."""
         with self._mock_query(aligned_metrics={}, gap_ratio=1.0) as mock_q, \
@@ -433,7 +447,7 @@ class TestProcessJobFallback:
         """Missing service_id/service_name -> ValueError."""
         bad_job = {**self._BASE_JOB}
         del bad_job["service_id"]
-        with pytest.raises(ValueError, match="tenant_id"):
+        with pytest.raises(ValueError, match="service_id"):
             process_job(bad_job)
 
     def test_validates_lookback_120(self):

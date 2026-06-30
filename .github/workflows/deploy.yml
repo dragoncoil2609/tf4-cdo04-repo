@@ -190,6 +190,7 @@ jobs:
           echo "ai_engine_service_name=$(terraform -chdir=infra/terraform output -raw ai_engine_service_name)" >> "$GITHUB_OUTPUT"
           echo "prediction_queue_url=$(terraform -chdir=infra/terraform output -raw prediction_queue_url)" >> "$GITHUB_OUTPUT"
           echo "prediction_queue_dlq_url=$(terraform -chdir=infra/terraform output -raw prediction_queue_dlq_url)" >> "$GITHUB_OUTPUT"
+          echo "amp_query_endpoint=$(terraform -chdir=infra/terraform output -raw amp_query_endpoint)" >> "$GITHUB_OUTPUT"
 
       # Chạy Smoke Test sau khi deploy hạ tầng thành công (CPOA-78)
       - name: Run Post-Apply Smoke Test
@@ -202,4 +203,6 @@ jobs:
           AI_ENGINE_SERVICE_NAME: ${{ steps.tf-outputs.outputs.ai_engine_service_name }}
           PREDICTION_QUEUE_URL: ${{ steps.tf-outputs.outputs.prediction_queue_url }}
           PREDICTION_QUEUE_DLQ_URL: ${{ steps.tf-outputs.outputs.prediction_queue_dlq_url }}
+          AMP_QUERY_ENDPOINT: ${{ steps.tf-outputs.outputs.amp_query_endpoint }}
+          AWS_REGION: us-east-1
         run: bash scripts/post_apply_smoke.sh
