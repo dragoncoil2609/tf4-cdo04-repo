@@ -11,11 +11,11 @@ locals {
   # Danh sách ECS services
   ecs_services = ["ledger-service", "payment-gateway", "kyc-worker"]
 
-  # ALB metrics cho từng target group — tự động build metrics array
+  # ALB metrics cho từng target group — Đã vá lỗi đồng bộ độ dài vế true bằng cách thêm {}
   alb_request_metrics = [
     for idx, tg in local.alb_target_groups : (
       idx == 0
-      ? ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}"]
+      ? ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}", {}]
       : [".", ".", ".", var.alb_arn_suffix, ".", "targetgroup/${tg}", { yAxis = "right" }]
     )
   ]
@@ -23,7 +23,7 @@ locals {
   alb_5xx_metrics = [
     for idx, tg in local.alb_target_groups : (
       idx == 0
-      ? ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}"]
+      ? ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}", {}]
       : [".", ".", ".", var.alb_arn_suffix, ".", "targetgroup/${tg}", { yAxis = "right" }]
     )
   ]
@@ -262,11 +262,6 @@ resource "aws_cloudwatch_metric_alarm" "ai_5xx_alarm" {
 # CDO-04 Observability Module -- Additional Alarms
 # TASK: CPOA-103 | CDO-W12-058 - Retention policies
 # OWNER: Tạ Hoàng Huy
-#
-# DESCRIPTION:
-# Cấu hình Log Group lưu trữ audit logs của AI Engine:
-# 1. retention_in_days = 365 (lưu giữ 1 năm cho mục đích audit bảo mật).
-# 2. Cấu hình mã hóa KMS (kms_key_id) để đảm bảo an toàn dữ liệu logs at rest.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "ai_engine_audit" {
