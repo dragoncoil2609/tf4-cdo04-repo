@@ -91,6 +91,6 @@ variable "domain_name" {
 variable "enable_https" {
   description = "Bật cấu hình HTTPS cho ALB (chỉ bật sau khi chứng chỉ ACM đã được xác thực DNS thành công)"
   type        = bool
-  default     = false
+  default     = true
 }
 
