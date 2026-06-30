@@ -199,6 +199,7 @@ jobs:
         if: github.event_name == 'push'
         env:
           ALB_DNS_NAME: ${{ steps.tf-outputs.outputs.alb_dns_name }}
+          ALB_SCHEME: https
           ECS_CLUSTER_NAME: ${{ steps.tf-outputs.outputs.ecs_cluster_name }}
           TELEMETRY_API_SERVICE_NAME: ${{ steps.tf-outputs.outputs.telemetry_api_service_name }}
           PREDICTION_WORKER_SERVICE_NAME: ${{ steps.tf-outputs.outputs.prediction_worker_service_name }}
