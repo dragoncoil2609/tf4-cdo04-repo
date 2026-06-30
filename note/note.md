@@ -27,7 +27,7 @@ Dịch vụ **Prediction Worker** thực hiện việc đọc tin nhắn SQS, sa
 
 ### 🛡️ Bước 4: Xử lý Kết quả & Dự phòng (Decision & Fallback)
 *   **Kịch bản bình thường:** AI phân tích thành công và trả về thông tin mức độ rủi ro (`risk_level`), nguyên nhân gốc rễ (`root_cause`) và đề xuất hành động cụ thể (`recommendation` - ví dụ: *tăng lượng kyc-worker từ 20 lên 40*).
-*   **Kịch bản dự phòng (Fallback):** Nếu AI Engine bị sập hoặc gặp sự cố quá giờ (timeout), hệ thống tự động kích hoạt chế độ **Fail-open Fallback** để kiểm tra bằng các ngưỡng tĩnh (static thresholds) thiết lập sẵn trên CloudWatch, giúp duy trì liên tục khả năng giám sát.
+*   **Kịch bản dự phòng (Fallback) (CPOA-72):** Nếu AI Engine bị sập hoặc gặp sự cố quá thời gian phản hồi (timeout), hệ thống tự động kích hoạt chế độ **Static Threshold Fallback** bằng cách đọc các ngưỡng tĩnh được lưu trữ trong bảng **DynamoDB Service Policies** thay vì gọi AI Engine, giúp duy trì liên tục khả năng giám sát.
 
 ### 📝 Bước 5: Ghi nhật ký lịch sử (Audit Log)
 Tất cả các cuộc gọi dự báo (dù AI trả kết quả thành công hay hệ thống phải chạy luồng fallback) đều được mã hóa dữ liệu và lưu lại thành một bản ghi nhật ký tại **DynamoDB Audit Table** với thời hạn lưu trữ tự động xóa sau **90 ngày**.
@@ -85,3 +85,16 @@ Hệ thống được cấu hình sẵn 4 kịch bản kiểm thử tải trọn
 Nhằm duy trì hệ thống chạy liên tục 24/7 nhưng không vượt quá hạn mức ngân sách giới hạn **$200/tháng**, ứng dụng tích hợp sẵn cơ chế ngắt tải tự động:
 *   **Khi chi phí đạt mức 80%:** Tiến hành rà soát lại tần suất ghi chép log và giảm bớt các kịch bản chạy test giả lập tải cao.
 *   **Khi chi phí đạt mức 100% (Breaker triggered):** Hệ thống tự động kích hoạt cơ chế ngắt tải (Cost Breaker) để tạm dừng hoàn toàn việc chạy thử nghiệm tải giả lập (synthetic workload) hoặc các job phân tích tải không quan trọng. Tuy nhiên, luồng ghi nhật ký **Audit Log** và cơ chế dự phòng **Fallback** sẽ luôn luôn được giữ hoạt động để đảm bảo an toàn cho toàn hệ thống.
+
+---
+
+## 📝 8. Nhật ký Báo cáo Jira (Jira Task Reports)
+
+### 📌 Task: CPOA-72 | Triển khai bảng chính sách dự phòng tĩnh (DynamoDB Service Policy Fallback)
+*   **Mã Commit:** `5ea03e8adf222bc5d1eb7b51dd64a03d94be8eeb`
+*   **Mô tả công việc đã làm:**
+    1.  **Thiết lập bảng DynamoDB:** Định nghĩa bảng `tf4-cdo04-service-policies-sandbox` với Partition Key là `tenant_id` (S) và Sort Key là `service_name` (S).
+    2.  **Khởi tạo dữ liệu mẫu (Seeding):** Nạp sẵn ngưỡng tĩnh mặc định (`static_threshold = 85.0`) cho tenant `tnt-benchmark` của 3 dịch vụ `ledger`, `payment-gw`, và `fraud-detector`.
+    3.  **Cấp quyền bảo mật:** Bổ sung quyền hạn `dynamodb:GetItem` vào IAM Policy của Prediction Worker để chỉ cho phép đọc thông tin cấu hình từ bảng này.
+    4.  **Tích hợp Container:** Truyền tên bảng thông qua biến môi trường `DYNAMODB_POLICY_TABLE` vào định nghĩa ECS Task Definition của Prediction Worker.
+    5.  **Logic Fallback (Python app):** Lập trình hàm `get_static_threshold_fallback` gọi hàm `get_item` trên bảng DynamoDB này để lấy ngưỡng tĩnh thay thế khi kết nối tới AI Engine bị gián đoạn.
