@@ -13,6 +13,7 @@ on:
 permissions:
   id-token: write   # Bắt buộc để authenticate OIDC sang AWS STS
   contents: read    # Bắt buộc để checkout code
+  actions: write    # Bắt buộc để upload Terraform plan artifact lên PR
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -82,6 +83,53 @@ jobs:
           config-path: .gitleaks.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Job 2.5: Terraform Plan (chỉ chạy trên PR — để reviewer đọc plan trước khi merge)
+  terraform-plan:
+    needs: [lint-and-validate, security-scan]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::511825856493:role/tf4-cdo04-github-deploy-role
+          role-session-name: tf-plan-pr-${{ github.event.pull_request.number }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+      - name: Terraform Init
+        run: terraform -chdir=infra/terraform init
+
+      - name: Terraform Plan
+        run: |
+          terraform -chdir=infra/terraform plan -out=infra/terraform/tfplan \
+            -var="telemetry_api_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/telemetry_api:${{ github.sha }}" \
+            -var="prediction_worker_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/prediction_worker:${{ github.sha }}" \
+            -var="ai_engine_image_tag=511825856493.dkr.ecr.us-east-1.amazonaws.com/foresight-lens/ai_engine:${{ github.sha }}"
+
+      - name: Save Plan Output (human-readable)
+        run: |
+          terraform -chdir=infra/terraform show -no-color infra/terraform/tfplan > plan-output.txt
+          echo "--- Terraform Plan Summary ---" >> plan-output.txt
+          echo "PR: #${{ github.event.pull_request.number }}" >> plan-output.txt
+          echo "Commit: ${{ github.sha }}" >> plan-output.txt
+          echo "Branch: ${{ github.head_ref }}" >> plan-output.txt
+
+      - name: Upload Terraform Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-pr-${{ github.event.pull_request.number }}
+          path: plan-output.txt
+          retention-days: 14
 
   # Job 3: Build & Push Docker Images (Sử dụng Matrix Build)
   build-and-push:
