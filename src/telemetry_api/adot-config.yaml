@@ -19,11 +19,6 @@ exporters:
     endpoint: "${AMP_REMOTE_WRITE_ENDPOINT}"
     auth:
       authenticator: sigv4auth
-    sending_queue:
-      enabled: true
-      queue_size: 256
-    retry_on_failure:
-      enabled: true
 
 extensions:
   health_check:
