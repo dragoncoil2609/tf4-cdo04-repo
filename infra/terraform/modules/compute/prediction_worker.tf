@@ -84,6 +84,14 @@ resource "aws_iam_policy" "prediction_worker_task_policy" {
         Resource = var.worker_dynamodb_table_arns
       },
       {
+        Sid    = "AllowReadPolicyDynamoDB"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem"
+        ]
+        Resource = var.policy_table_arn
+      },
+      {
         Sid    = "AllowPublishAlerts"
         Effect = "Allow"
         Action = [
@@ -160,6 +168,10 @@ resource "aws_ecs_task_definition" "prediction_worker" {
         {
           name  = "DYNAMODB_AUDIT_TABLE"
           value = var.audit_table_name
+        },
+        {
+          name  = "DYNAMODB_POLICY_TABLE"
+          value = var.policy_table_name
         },
         {
           name  = "AI_ENGINE_ENDPOINT"

@@ -160,6 +160,16 @@ variable "worker_dynamodb_table_arns" {
   type        = list(string)
 }
 
+variable "policy_table_name" {
+  description = "DynamoDB service-policy table name"
+  type        = string
+}
+
+variable "policy_table_arn" {
+  description = "DynamoDB service-policy table ARN"
+  type        = string
+}
+
 variable "kms_key_arn" {
   description = "KMS key ARN for AI Engine baseline decrypt"
   type        = string

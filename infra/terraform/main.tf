@@ -81,6 +81,9 @@ module "compute" {
     module.data.audit_table_arn
   ]
 
+  policy_table_name = module.data.policy_table_name
+  policy_table_arn  = module.data.policy_table_arn
+
   kms_key_arn = module.data.kms_key_arn
 
   baseline_s3_bucket_name = module.data.evidence_bucket_name

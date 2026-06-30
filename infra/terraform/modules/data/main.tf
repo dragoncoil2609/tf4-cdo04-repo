@@ -57,9 +57,73 @@ resource "aws_dynamodb_table" "audit" {
 }
 
 # -----------------------------------------------------------------------------
-# TODO (CPOA-72): DynamoDB service policy fallback rules -- owned by Phan Minh Tuấn.
-# Placeholder only: add service policy table/items when fallback engine work lands.
+# CPOA-72: DynamoDB service policy fallback table -- static threshold rules.
+# When AI Engine is unreachable, Prediction Worker reads thresholds from
+# this table instead of calling the AI endpoint.
 # -----------------------------------------------------------------------------
+
+resource "aws_dynamodb_table" "policy" {
+  name         = "${var.project_name}-service-policies-${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "tenant_id"
+  range_key    = "service_name"
+
+  attribute {
+    name = "tenant_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "service_name"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = var.tags
+}
+
+resource "aws_dynamodb_table_item" "policy_ledger" {
+  table_name = aws_dynamodb_table.policy.name
+  hash_key   = aws_dynamodb_table.policy.hash_key
+  range_key  = aws_dynamodb_table.policy.range_key
+
+  item = jsonencode({
+    tenant_id        = { S = "tnt-benchmark" }
+    service_name     = { S = "ledger" }
+    static_threshold = { N = "85.0" }
+  })
+}
+
+resource "aws_dynamodb_table_item" "policy_payment_gw" {
+  table_name = aws_dynamodb_table.policy.name
+  hash_key   = aws_dynamodb_table.policy.hash_key
+  range_key  = aws_dynamodb_table.policy.range_key
+
+  item = jsonencode({
+    tenant_id        = { S = "tnt-benchmark" }
+    service_name     = { S = "payment-gw" }
+    static_threshold = { N = "85.0" }
+  })
+}
+
+resource "aws_dynamodb_table_item" "policy_fraud_detector" {
+  table_name = aws_dynamodb_table.policy.name
+  hash_key   = aws_dynamodb_table.policy.hash_key
+  range_key  = aws_dynamodb_table.policy.range_key
+
+  item = jsonencode({
+    tenant_id        = { S = "tnt-benchmark" }
+    service_name     = { S = "fraud-detector" }
+    static_threshold = { N = "85.0" }
+  })
+}
 
 resource "aws_sqs_queue" "prediction_dlq" {
   name                      = "${var.project_name}-prediction-dlq-${var.environment}"

@@ -62,6 +62,11 @@ output "audit_table_name" {
   value       = module.data.audit_table_name
 }
 
+output "policy_table_name" {
+  description = "DynamoDB service-policy table name"
+  value       = module.data.policy_table_name
+}
+
 output "evidence_bucket_name" {
   description = "S3 evidence bucket name"
   value       = module.data.evidence_bucket_name
