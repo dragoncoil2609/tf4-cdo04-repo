@@ -164,6 +164,14 @@ resource "aws_ecs_task_definition" "prediction_worker" {
       # ECS sends SIGTERM first, then waits stopTimeout before SIGKILL.
       stopTimeout = var.prediction_worker_stop_timeout_seconds
 
+      healthCheck = {
+        command     = ["CMD-SHELL", "pgrep -f 'python app.py' || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+
       environment = [
         {
           name  = "AWS_REGION"
