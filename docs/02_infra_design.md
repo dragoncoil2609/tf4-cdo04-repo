@@ -17,7 +17,7 @@ _Phân rã chi tiết theo block:_
 | ![Data Layer](assets/02_infra_design/data-layer-block.png) | Data Layer |
 | ![Observability](assets/02_infra_design/observability-block.png) | Observability |
 
-*Caption: Flow bắt đầu từ `payment-gateway`, `ledger-service` và `kyc-worker` gửi telemetry vào public ALB path `/v1/ingest`; k6 chỉ tạo synthetic load cho cùng ingest path. Public ALB hiện dùng HTTP tạm cho sandbox để ưu tiên đưa hệ thống chạy trước; ACM/HTTPS là hardening sau roadmap hoặc non-sandbox cutover. Region triển khai final của CDO-04 là `us-east-1` (US East / N. Virginia), đồng bộ với default `AWS_REGION=us-east-1` trong AI Deployment Contract và vẫn giữ nguyên tính region-agnostic của AI Engine. Layout tách rõ trust boundary: external actors ở ngoài AWS account; public ALB/NAT và private ECS services nằm trong VPC; regional managed services nằm ngoài VPC hoặc đi qua AWS service endpoints. ECS Fargate Telemetry API, Prediction Worker và **AI Engine** chạy trong private subnets của cùng ECS cluster với `assignPublicIp = DISABLED`, runtime Linux/x86. Worker gọi `POST /v1/predict` qua **ECS Service Connect service name** tới AI Engine, nên traffic prediction nằm trong private service-to-service path của VPC. EventBridge Scheduler, SQS, **Amazon Managed Service for Prometheus (AMP)**, DynamoDB, SNS, CloudWatch, S3, Secrets Manager và ECR là managed services. Scheduler dùng execution role có quyền `sqs:SendMessage`, không chạy trong private subnet và không cần security group hoặc NAT. Luồng prediction được tách bằng Scheduler → SQS → Worker để ingestion không bị kẹt khi AI endpoint chậm hoặc lỗi. Mỗi lần dự đoán, worker query metric evidence từ AMP bằng PromQL `query_range` cho đúng tenant/service/metric trong 120 phút gần nhất, đọc service policy, gọi AI internal `/v1/predict`, ghi audit vào DynamoDB, rồi đẩy evidence/alert qua CloudWatch/SNS. Nếu AI không phản hồi hoặc trả sai schema, worker chuyển sang static threshold fallback và vẫn ghi audit. Networking final dùng cost-optimized **1 NAT Gateway theo một AZ** trong public subnet cho outbound AWS API traffic chưa đi qua Gateway Endpoint; đây không phải “regional NAT” và không nằm trên đường gọi AI. S3 và DynamoDB đi qua **Gateway VPC Endpoints** để giảm NAT data processing và giữ đường evidence/audit private. AMP write path production-ready là Telemetry API emit OTLP/app metrics tới ADOT sidecar/collector, collector thực hiện Prometheus `remote_write` tới AMP bằng SigV4; PrivateLink endpoint `com.amazonaws.us-east-1.aps-workspaces` là production hardening option. Nếu AMP remote-write không nhận sample sau bounded retry, Telemetry API/collector ghi raw payload có idempotency key vào S3 failure buffer để replay theo runbook; S3 buffer không thay thế AMP hot path. Quyết định final ưu tiên cost-security fit cho capstone: giữ 1 zonal NAT + S3/DynamoDB Gateway Endpoints, không triển khai full interface VPCE trong MVP.*
+*Caption: Flow bắt đầu từ `payment-gw`, `ledger` và `fraud-detector` gửi telemetry vào public ALB path `/v1/ingest`; k6 chỉ tạo synthetic load cho cùng ingest path. Public ALB hiện dùng HTTP tạm cho sandbox để ưu tiên đưa hệ thống chạy trước; ACM/HTTPS là hardening sau roadmap hoặc non-sandbox cutover. Region triển khai final của CDO-04 là `us-east-1` (US East / N. Virginia), đồng bộ với default `AWS_REGION=us-east-1` trong AI Deployment Contract và vẫn giữ nguyên tính region-agnostic của AI Engine. Layout tách rõ trust boundary: external actors ở ngoài AWS account; public ALB/NAT và private ECS services nằm trong VPC; regional managed services nằm ngoài VPC hoặc đi qua AWS service endpoints. ECS Fargate Telemetry API, Prediction Worker và **AI Engine** chạy trong private subnets của cùng ECS cluster với `assignPublicIp = DISABLED`, runtime Linux/x86. Worker gọi `POST /v1/predict` qua **ECS Service Connect service name** tới AI Engine, nên traffic prediction nằm trong private service-to-service path của VPC. EventBridge Scheduler, SQS, **Amazon Managed Service for Prometheus (AMP)**, DynamoDB, SNS, CloudWatch, S3, Secrets Manager và ECR là managed services. Scheduler dùng execution role có quyền `sqs:SendMessage`, không chạy trong private subnet và không cần security group hoặc NAT. Luồng prediction được tách bằng Scheduler → SQS → Worker để ingestion không bị kẹt khi AI endpoint chậm hoặc lỗi. Mỗi lần dự đoán, worker query metric evidence từ AMP bằng PromQL `query_range` cho đúng tenant/service/metric trong 120 phút gần nhất, đọc service policy, gọi AI internal `/v1/predict`, ghi audit vào DynamoDB, rồi đẩy evidence/alert qua CloudWatch/SNS. Nếu AI không phản hồi hoặc trả sai schema, worker chuyển sang static threshold fallback và vẫn ghi audit. Networking final dùng cost-optimized **1 NAT Gateway theo một AZ** trong public subnet cho outbound AWS API traffic chưa đi qua Gateway Endpoint; đây không phải “regional NAT” và không nằm trên đường gọi AI. S3 và DynamoDB đi qua **Gateway VPC Endpoints** để giảm NAT data processing và giữ đường evidence/audit private. AMP write path production-ready là Telemetry API emit OTLP/app metrics tới ADOT sidecar/collector, collector thực hiện Prometheus `remote_write` tới AMP bằng SigV4; PrivateLink endpoint `com.amazonaws.us-east-1.aps-workspaces` là production hardening option. Nếu AMP remote-write không nhận sample sau bounded retry, Telemetry API/collector ghi raw payload có idempotency key vào S3 failure buffer để replay theo runbook; S3 buffer không thay thế AMP hot path. Quyết định final ưu tiên cost-security fit cho capstone: giữ 1 zonal NAT + S3/DynamoDB Gateway Endpoints, không triển khai full interface VPCE trong MVP.*
 
 ## 2. Component table
 
@@ -97,7 +97,7 @@ Dashboard chỉ là nơi xem evidence. Phần chính của CDO là control plane
 - **Header**: `X-Tenant-Id` bắt buộc cho mọi API call, nhưng không dùng header này làm nguồn xác thực duy nhất.
 - **Auth rule**: tenant phải được derive/validate từ API key, JWT hoặc SigV4 principal. `X-Tenant-Id` chỉ là context header sau khi credential đã được verify.
 - **Subscription tiers**: basic / pro / enterprise; ảnh hưởng quota, cadence và worker capacity.
-- **Demo scope**: 1 tenant chính, 3 service tier-1: `payment-gateway`, `ledger-service`, `kyc-worker`.
+- **Demo scope**: 1 tenant chính, 3 service tier-1: `payment-gw`, `ledger`, `fraud-detector`.
 
 Metric tối thiểu:
 
@@ -179,7 +179,7 @@ Policy tối thiểu:
 ```json
 {
   "tenant_id": "demo-tenant-001",
-  "service_id": "kyc-worker",
+  "service_id": "fraud-detector",
   "enabled_metrics": ["queue_depth", "api_latency_ms", "cpu_usage_percent"],
   "prediction_interval_minutes": 5,
   "quota_tier": "basic",
@@ -191,7 +191,7 @@ Policy tối thiểu:
       "threshold": 5000,
       "duration_minutes": 10,
       "risk_level": "high",
-      "recommendation": "Increase kyc-worker concurrency from 20 to 40"
+      "recommendation": "Increase fraud-detector concurrency from 20 to 40"
     }
   ]
 }
@@ -228,7 +228,7 @@ PromQL query pattern bắt buộc:
 ```promql
 api_latency_ms{
   tenant_id="demo-tenant-001",
-  service_id="payment-gateway",
+  service_id="payment-gw",
   env="prod",
   region="us-east-1"
 }
@@ -241,7 +241,7 @@ Worker hot path dùng `query_range` với `start`, `end`, `step=60s` trên selec
 ```text
 1. POST /platform/v1/tenants (tenant_name, contact, tier)
 2. Verify credential mapping với tenant_id
-3. Tạo service policy cho payment-gateway, ledger-service, kyc-worker: enabled metrics, quota, baseline version, fallback rules
+3. Tạo service policy cho payment-gw, ledger, fraud-detector: enabled metrics, quota, baseline version, fallback rules
 4. Cấu hình baseline và static fallback threshold theo từng service
 5. Đăng ký metric names + allowed labels cho AMP remote_write/query
 6. Gán quota và prediction cadence mặc định 5 phút; tenant không tự tăng cadence

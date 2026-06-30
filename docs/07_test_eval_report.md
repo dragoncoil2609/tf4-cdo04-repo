@@ -1,295 +1,156 @@
 # Test & Eval Report - Task force 4 · CDO Foresight Lens
 
 <!-- Doc owner: Nhóm CDO / QA Lead
-     Status: DRAFT v1.3 - interim template, số liệu thực tế sẽ điền sau khi hoàn tất Batch 0-8 và chạy final validation -->
+     Status: REDESIGNED from mentor template - pending acceptance rerun
+     Region: us-east-1
+     Environment: sandbox
+     Date updated: 2026-06-30 -->
 
-> **Lưu ý (DRAFT):** Bản này định hình cấu trúc báo cáo dựa trên thiết kế kịch bản test (`v1.3-SKELETON`). **Toàn bộ nội dung chưa được chạy thật** — các phân tích bottleneck, expected warning, và recommendation hiện là giả định thiết kế, chưa phải kết quả thực tế. Các giá trị "Measured/Achieved" còn để `<X>` sẽ được điền sau khi hoàn tất Batch 0-8 và chạy final E2E/QA. Tên service/ARN đồng bộ theo `02_infra_design.md` Architecture v1.0 (AWS ECS Fargate, region `us-east-1`).
-
----
-
-## 0. Synthetic Test Scenarios (TF4 - Scenario Design cho W12 Build)
-
-> **Lưu ý :** `ledger`, `payment-gw`, `fraud-detector` là mock monitored services dùng cho synthetic scenarios — khác với CDO platform workloads thực tế là Telemetry API, Prediction Worker và AI Engine. Compute/k6 runner cho các mock service là test-window-only và không nằm trong full-month platform estimate cost.
-
-### 0.1 Bảng tổng hợp 4 scenario
-
-| Scenario | Service mapping | Load profile | Mục tiêu mô phỏng |
-|---|---|---|---|
-| **SC-01 Gradual Drift** | `ledger` | Ramping-up 200 → 1,500 RPS trong 45 phút | Suy giảm hiệu năng dần do tăng tải tịnh tiến (p99 latency + AMP remote-write ingestion) |
-| **SC-02 Sudden Spike** | `payment-gw` | Burst 200 → 4,500 RPS trong 30s, duy trì 5 phút | Đột biến tải tức thời (flash sale/DDoS-like), test scale-out + circuit breaker |
-| **SC-03 Slow Leak** | `ledger` | Soak 800 RPS liên tục trong 2 tiếng | Memory/thread leak tích lũy dần, không giải phóng sau GC, dẫn tới OOM |
-| **SC-04 Noisy Baseline & AI Down** | `fraud-detector` | Răng cưa 100 → 2,000 RPS liên tục, kèm inject AI API timeout | Queue backlog tăng do AI timeout/down, test Fallback Engine kích hoạt đúng ngưỡng |
-
-### 0.2 Chi tiết từng scenario
-
-Tất cả scenario phải tạo hoặc forward thành các signal đúng AI Telemetry Contract trước khi đưa vào `signal_window`: `cpu_usage_percent`, `memory_usage_percent`, `active_connections`, `db_connection_pool_pct`, `queue_depth`, `cache_hit_rate_pct`, `api_latency_ms`. Các metric phụ như `error_rate` hoặc `oldest_message_age_seconds` chỉ dùng cho dashboard/fallback nội bộ.
-
-Thiết kế mới dùng AMP tại `us-east-1`; test phải chứng minh telemetry vào AMP qua ADOT Collector sidecar scrape `/metrics` và `remote_write`, Prediction Worker query được PromQL `query_range` đủ 120 phút, và AI request vẫn giữ schema contract. Demo acceptance không tự động chứng minh 50k events/sec production ceiling; ceiling đó cần load test riêng với bounded samples/event và label cardinality.
-
-**SC-01 - Gradual Drift (`ledger`)**
-
-- **Expected Warning**: `WARN_LEDGER_DRIFT_DETECTED` - `api_latency_ms`, `cpu_usage_percent` và `db_connection_pool_pct` tăng tuyến tính +15% mỗi 10 phút, khớp pattern anomaly lịch sử.
-- **Expected Recommendation**: "Phát hiện xu hướng trôi dạt hiệu năng tại `ledger`. Đề xuất scale-out task hoặc tối ưu batch/query trước khi AI SLO p99 500ms/platform p99 800ms bị vi phạm trong ~35 phút tới."
-- **Metrics cần tạo/forward**: `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`, `db_connection_pool_pct`; dashboard phụ có thể đo `amp_remote_write_latency_ms`.
-
-**SC-02 - Sudden Spike (`payment-gw`)**
-
-- **Expected Warning**: `CRITICAL_PAYMENT_SPIKE_DETECTED` - `active_connections` và `api_latency_ms` tăng nhanh, 5xx nội bộ vượt ngưỡng fallback, scale-out đang được trigger.
-- **Expected Recommendation**: "Hệ thống tự động scale-out `payment-gw` qua Target Tracking. Nếu budget alarm tiệm cận 90-100%, pause synthetic load test thay vì tắt audit/fallback. Khuyến nghị bật rate limiting ứng dụng theo quota demo."
-- **Metrics cần tạo/forward**: `active_connections`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`; `error_rate` chỉ dùng fallback/dashboard.
-
-**SC-03 - Slow Leak (`ledger`)**
-
-- **Expected Warning**: `WARN_LEDGER_RESOURCE_LEAK` - `memory_usage_percent` và `api_latency_ms` tăng liên tục không có plateau sau warm-up, dự báo OOM risk.
-- **Expected Recommendation**: "Dự báo `ledger` OOM trong ~4.2 tiếng. Khuyến nghị rolling restart và heap dump phân tích; nếu budget gần ngưỡng, giảm synthetic load/log verbosity, không giảm prediction cadence dưới 5 phút."
-- **Metrics cần tạo/forward**: `memory_usage_percent`, `cpu_usage_percent`, `api_latency_ms`, `active_connections`.
-
-**SC-04 - Noisy Baseline & AI Down (`fraud-detector`)**
-
-- **Expected Warning**: `CRITICAL_QUEUE_BACKLOG_ANOMALY` - `queue_depth` vượt baseline, AI `/v1/predict` timeout hoặc trả 5xx/503, Worker kích hoạt static threshold fallback.
-- **Expected Recommendation**: "Queue `fraud-detector` quá tải - Worker chuyển sang Static Rules, ghi Audit Decision vào DynamoDB và không delete SQS job trước khi audit write thành công. Cần điều tra DLQ/replay sau khi AI hồi phục."
-- **Metrics cần tạo/forward**: `queue_depth`, `api_latency_ms`, `cpu_usage_percent`, `memory_usage_percent`; dashboard phụ có thể đo DLQ/fallback counters.
-
----
+> **Design reset:** previous k6-heavy evidence was deleted and no longer represents current acceptance evidence. Runtime artifacts are generated on demand under `evidence/logs/`, which is intentionally not ignored so the final evidence pack can be committed. Final acceptance must be rerun from this design.
 
 ## 1. Test coverage
 
-| Test type | Tool | Coverage / Scope |
+| Requirement | Tool / command | Evidence |
 |---|---|---|
-| Unit test | pytest / go test | `<X%>` - chưa có số liệu, cần bổ sung từ CI report |
-| Integration test | Custom k6 script + Postman | Luồng ghi metric (`ledger` → Telemetry API `/metrics` → ADOT sidecar scrape → SigV4 remote_write → AMP) + Luồng dự báo và xử lý bất đồng bộ (Amazon SQS → `fraud-detector` → AI/Fallback Engine → Amazon DynamoDB) |
-| E2E test | k6 (4 scenario script, xem §3.5) | SC-01 Gradual Drift, SC-02 Sudden Spike, SC-03 Slow Leak, SC-04 Noisy Baseline & AI Down |
-| Load test | k6 (`stages` cho SC-01/03, `ramping-arrival-rate` cho SC-02) | Sustained 800-1,500 RPS (SC-01/03), burst 4,500 RPS (SC-02), peak target synthetic có thể scale down trong sandbox tùy ngân sách |
-| Chaos test | Manual + k6 injected fault | 4 kịch bản: Gradual Drift, Sudden Spike, Slow Leak (memory), AI Down/Fallback |
+| Unit + contract behavior | `PYTHONPATH=src/ai_engine:src pytest -q` | CI/local pytest output |
+| Deploy smoke | `bash scripts/post_apply_smoke.sh` | `evidence/logs/final-smoke.log` |
+| Complete Worker → AMP → AI → audit path | `bash tests/e2e/tf4_scenario_matrix.sh`; optional legacy single-service proof with `RUN_SINGLE_PIPELINE=1 bash tests/e2e/run_final_acceptance.sh` | `tf4-scenario-audit-scan.json`; optional `acceptance-ai-audit-scan.json` |
+| 4 TF4 scenarios | `bash tests/e2e/tf4_scenario_matrix.sh` | `tf4-scenario-summary.json`, `tf4-scenario-audit-scan.json` |
+| Precision/recall/F1/confusion matrix/Brier | `python tests/e2e/eval_report.py` | `eval-report.json`, `eval-report.md` |
+| Low-RPS load | `k6 run tests/k6/acceptance_ingest.js` at 50/100 RPS | `acceptance-50rps-summary.json`, `acceptance-100rps-summary.json` |
+| Security + tenant isolation probes | `bash tests/e2e/security_probes.sh` | `security-probes.json` |
+| Cost guard | Budget + Cost Explorer collection | `budget-final.json`, `cost-explorer-final.json` |
+| Curveballs/failure analysis | manual write-up | `evidence/curveball-responses.md` |
 
----
+Primary command:
 
-## 2. SLO evidence
+```bash
+bash tests/e2e/run_final_acceptance.sh
+```
 
-| SLO | Target | Measured | Window | Pass/Fail |
-|---|---|---|---|---|
-| API availability | ≥ 99.5% | `<X%>` | 2 weeks build period | `<✓/✗>` |
-| P99 latency (ledger / payment-gw) | < 350ms (SLA cứng theo SC-01/02) | `<Xms>` | Rolling 60s trong test window | `<✓/✗>` |
-| Error rate (5xx, SC-02 spike) | < 5% | `<X%>` | Rolling 30s tại peak | `<✓/✗>` |
-| Budget / cost guard | Platform estimate < $200/month before buffer | `<X USD>` | Full-month estimate + W12 test window actual | `<✓/✗>` |
+## 2. SLO and TF4 evidence
 
-### 2.1 SLO breach analysis
-
-- Cost guard dùng policy platform 50/80/100 của `$200/month`: 50% alert only, 80% alert + manual review/runbook, 100% emergency breaker cho `prediction-worker` và `ai-engine` only. Không dùng ngưỡng scenario-local làm SLO chính thức.
-- Nếu `ledger_p99_latency_ms` vượt 350ms liên tục ≥ 60s ở SC-01, root cause nghi vấn ưu tiên: AMP remote-write/query backpressure (ledger ghi metric vào AMP) hoặc ECS Task CPU chạm ngưỡng 85%.
-
-### 2.2 TF4 KPI Mapping
-
-> **Draft — chưa có số liệu thực.** Bảng này định nghĩa KPI cần đo sau khi Batch 0-8 hoàn tất; giá trị Measured sẽ điền trong final E2E/QA run.
-
-| KPI | Định nghĩa | Target | Stretch target | Scenario liên quan | Measured | Pass/Fail |
-|---|---|---|---|---|---|---|
-| **Detection Latency** | Thời gian từ khi anomaly xuất hiện đến khi Warning được phát ra | ≤ 5 phút | — | SC-01, SC-04 | `<X phút>` | `<✓/✗>` |
-| **SLO Breach Lead Time** | Khoảng thời gian hệ thống cảnh báo trước khi SLA thực sự bị vi phạm | ≥ 15 phút | — | SC-01 | `<X phút>` | `<✓/✗>` |
-| **False Positive Rate (FP)** | % cảnh báo sai / tổng cảnh báo phát ra | ≤ 12% | ≤ 10% | SC-01, SC-02, SC-04 | `<X%>` | `<✓/✗>` |
-| **Anomaly Catch Rate** | % kịch bản lỗi được phát hiện đúng / tổng kịch bản inject | ≥ 80% | ≥ 90% | SC-01 → SC-04 | `<X%>` | `<✓/✗>` |
-| **Fallback Activation Rate** | % lần AI timeout dẫn tới Fallback Engine kích hoạt đúng | 100% khi AI timeout vượt Worker hard limit 2,000ms | — | SC-04 | `<X%>` | `<✓/✗>` |
-| **Audit Decision Coverage** | % quyết định Fallback được ghi đầy đủ vào DynamoDB Audit log | 100% | — | SC-04 | `<X%>` | `<✓/✗>` |
-
+| Gate | Target | Source | Current status |
+|---|---|---|---|
+| API availability | ≥ 99.5% demo-quality | smoke + k6 summaries | pending rerun |
+| API latency | p95 < 1000ms at 50/100 RPS | k6 summaries | pending rerun |
+| Error rate | < 1% | k6 summaries | pending rerun |
+| AI Engine SLA | P99 < 500ms / 100 RPS by contract; CDO proves integrated call succeeds | audit `ai_latency_ms`, AI health | pending rerun |
+| Complete AI path | `AI_ENGINE` + `complete_window` + `ai_status_code=200` | DynamoDB audit scan | pending rerun |
+| 3+ services | `ledger`, `payment-gw`, `fraud-detector` | scenario ground truth + audit scan | pending rerun |
+| 4 real scenarios | gradual drift, sudden spike, slow leak, noisy baseline | scenario matrix | pending rerun |
+| Lead time | ≥15 min before breach on at least one ≥2h window | scenario ground truth + eval report | pending rerun |
+| Catch rate | ≥80% | eval report | pending rerun |
+| FP rate | ≤12% | eval report | pending rerun |
+| Calibration | Brier score or reliability bins | eval report | pending rerun |
+| Recommendation contract | action verb + target + from→to + confidence + evidence link | audit scan / eval report | pending rerun |
+| Audit | every prediction call, required fields, retention/encryption documented | DynamoDB audit + infra docs | pending rerun |
+| Fail-open fallback | static threshold fallback when AI unavailable / data gap too large | worker tests + curveball evidence | pending rerun |
+| Cost | budget/circuit breaker under $200 | budget/cost evidence | pending rerun |
 
 ## 3. Load test results
 
-### 3.1 Test setup
+### 3.1 Acceptance load
 
-- **Load profile** _(synthetic target — có thể scale down trong sandbox tùy ngân sách EC2)_: 4 kịch bản song song với peak thiết kế 50,000 events/sec:
-  - SC-01 Gradual Drift: ramp 200 → 1,500 RPS trong 45 phút
-  - SC-02 Sudden Spike: burst 200 → 4,500 RPS trong 30s, duy trì 5 phút
-  - SC-03 Slow Leak: soak 800 RPS liên tục trong 2 tiếng
-  - SC-04 Noisy Baseline: răng cưa 100 → 2,000 RPS liên tục
-- **Tenants/targets simulated**:
-  - `ledger` (3 Tasks, 1 vCPU / 2 GB RAM)
-  - `payment-gw` (2 Tasks, 4 vCPU / 8 GB RAM)
-  - `fraud-detector` (5 Tasks, 2 vCPU / 4 GB RAM)
-- **Tool**: k6, executor `ramping-arrival-rate` (đã tối ưu hóa để kiểm soát RPS thực tế)
+Acceptance load is intentionally boring and runs only after AI correctness passes:
 
-### 3.2 Results
+```bash
+k6 run tests/k6/acceptance_ingest.js \
+  -e TELEMETRY_API_HOST=<alb-dns> \
+  -e RATE=50 \
+  -e DURATION=10m \
+  --summary-export evidence/logs/acceptance-50rps-summary.json
+
+k6 run tests/k6/acceptance_ingest.js \
+  -e TELEMETRY_API_HOST=<alb-dns> \
+  -e RATE=100 \
+  -e DURATION=10m \
+  --summary-export evidence/logs/acceptance-100rps-summary.json
+```
 
 | Metric | Target | Achieved |
 |---|---|---|
-| RPS sustained (SC-01/03) | 800-1,500 | `<X>` |
-| RPS burst peak (SC-02) | 4,500 trong 30s | `<X>` |
-| P99 latency at peak | < 1,000ms (SC-02) / < 350ms (SC-01) | `<Xms>` |
-| Error rate at peak | < 5% (SC-02) | `<X%>` |
-| Auto-scale triggers (SC-02) | Scale-out ECS Task trong ≤ 2 phút | `<✓/✗>` |
-| Cost breaker dry-run | 100% budget event targets only `prediction-worker` and `ai-engine`; `telemetry-api` stays running | `<✓/✗>` |
+| RPS sustained | 50 then 100 | pending rerun |
+| p95 latency | < 1000ms | pending rerun |
+| Error rate | < 1% | pending rerun |
+| Dropped iterations | 0 | pending rerun |
+| Queue/DLQ safety | DLQ no growth | pending rerun |
 
-### 3.3 Bottleneck identified
+### 3.2 Stress diagnostics
 
-> **Lưu ý:** Đây là **hypothesis thiết kế** dựa trên kinh nghiệm và pattern kiến trúc, chưa phải kết quả đo thực tế. Cần verify sau khi chạy W12.
+Existing high-RPS k6 scripts are retained for ceiling discovery only:
 
-- **SC-01 (hypothesis)**: Độ trễ ghi (RemoteWrite Latency) hoặc query của AMP có thể tăng dưới áp lực backpressure/cardinality khi `ledger` ghi lượng lớn — cần quan sát CloudWatch metric trong W12.
-- **SC-02 (hypothesis)**: Public ALB ingest path hoặc ECS Service Connect proxy/task headroom có thể thành bottleneck khi `payment-gw` gặp tải burst — cần đo thực tế thời gian scale-out và proxy CPU/memory.
-- **SC-03 (hypothesis)**: `ledger` có thể có memory/thread leak không giải phóng sau GC — nguy cơ OOM ước tính ~4.2 tiếng, cần soak test thực tế xác nhận.
-- **SC-04 (hypothesis)**: AI timeout vượt Worker hard limit 2,000ms có thể làm tắc nghẽn SQS và đẩy message xuống DLQ — cần verify Fallback Engine kích hoạt đúng ngưỡng.
+- `tests/k6/sc01_gradual_drift.js`
+- `tests/k6/sc02_spike.js`
+- `tests/k6/sc03_slow_leak.js`
+- `tests/k6/sc04_noisy_baseline.js`
 
-### 3.4 Infrastructure prerequisites (Đồng bộ Architecture v1.0)
-
-| ECS Service | Task CPU / RAM | Task Count | Ghi chú |
-|---|---|---|---|
-| `ledger` mock fixture | 1 vCPU / 2 GB RAM | 3 Tasks trong test window | ECS Auto-scaling **disabled** với SC-01, SC-03; không nằm trong monthly platform estimate |
-| `payment-gw` mock fixture | 4 vCPU / 8 GB RAM | 2 Tasks trong test window | Rate limiter **disabled** tại ALB để đo raw capacity trong SC-02; không nằm trong monthly platform estimate |
-| `fraud-detector` mock fixture | 2 vCPU / 4 GB RAM | 5 Tasks trong test window | SQS visibility timeout = 30s; AI endpoint mock-timeout cho SC-04; không nằm trong monthly platform estimate |
-| k6 Runner | 8 vCPU / 16 GB RAM | 1 EC2 riêng | Tách khỏi ECS Cluster để tránh rủi ro noisy neighbor |
-
-### 3.5 Khung k6 Load Script Skeletons (Đạt tiêu chí: Sẵn sàng cho W12 Build)
-
-> **Cập nhật W12:** Các kịch bản k6 giờ đã được triển khai thành file thực tế trong `tests/k6/` thay vì inline skeleton dưới đây:
-> - `sc01_gradual_drift.js` — SC-01 Gradual Drift (ledger, ramp 200→1500 RPS)
-> - `sc02_spike.js` — SC-02 Sudden Spike (payment-gw, burst 4500 RPS)
-> - `sc03_slow_leak.js` — SC-03 Slow Leak (ledger, soak 800 RPS)
-> - `sc04_noisy_baseline.js` — SC-04 Noisy Baseline (fraud-detector, sawtooth 100→2000 RPS)
->
-> Tất cả script dùng endpoint `POST /v1/ingest`, payload `TelemetryPayload` (ts, tenant_id, service_id, metric_type, value, labels), labels low-cardinality, biến môi trường `TELEMETRY_API_HOST`. Chạy: `k6 run tests/k6/<script>.js -e TELEMETRY_API_HOST=<host>`.
->
-> **Inline skeletons cũ (giữ lại để tham khảo thiết kế gốc):**
-
-#### SC-01 — Gradual Drift Configuration (ledger)
-
-```javascript
-import http from 'k6/http';
-import { sleep, check } from 'k6';
-import { Trend } from 'k6/metrics';
-
-const p99Latency = new Trend('ledger_p99_latency_ms', true);
-
-export const options = {
-  stages: [
-    { duration: '15m', target: 200  }, // Warm-up
-    { duration: '20m', target: 1500 }, // Kéo tải lên 1,500 RPS để kích hoạt drift
-    { duration: '10m', target: 0    }, // Cool-down
-  ],
-  thresholds: {
-    'http_req_duration': ['p99<350'],
-    'http_req_failed':   ['rate<0.01'],
-  },
-};
-
-export default function () {
-  const res = http.post(
-    'http://<public-alb-dns>/v1/ingest',
-    JSON.stringify({ tenant_id: 'tenant-001', service_id: 'ledger', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 100 }),
-    { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-01' } }
-  );
-  p99Latency.add(res.timings.duration);
-  check(res, { 'status 200': (r) => r.status === 200 });
-  sleep(1);
-}
-```
-
-#### SC-02 — Sudden Spike Configuration (payment-gw)
-
-```javascript
-import http from 'k6/http';
-import { check } from 'k6';
-
-export const options = {
-  summaryTimeUnit: 'ms',
-  discardResponseBodies: true, // Chống tràn RAM trên k6 runner node khi chạy tải cao
-  scenarios: {
-    spike_attack: {
-      executor: 'ramping-arrival-rate',
-      startRate: 200,
-      timeUnit: '1s',
-      preAllocatedVUs: 1000,   // Cấp phát trước VU tránh độ trễ khởi tạo
-      maxVUs: 5000,
-      stages: [
-        { duration: '30s', target: 4500 }, // Burst: 200 → 4,500 RPS trong 30s
-        { duration: '5m',  target: 4500 }, // Duy trì tải peak trong 5 phút
-        { duration: '30s', target: 200  }, // Hạ tải về baseline
-      ],
-    },
-  },
-  thresholds: {
-    'http_req_failed':   ['rate<0.05'],
-    'http_req_duration': ['p99<1000'],
-  },
-};
-
-export default function () {
-  const payload = JSON.stringify({ tenant_id: 'tenant-001', service_id: 'payment-gw', metric_type: 'api_latency_ms', ts: new Date().toISOString(), value: Math.random() * 1000 });
-  const params  = { headers: { 'Content-Type': 'application/json' }, tags: { scenario: 'SC-02' } };
-  const res = http.post('http://<public-alb-dns>/v1/ingest', payload, params);
-  check(res, { 'status not 5xx': (r) => r.status < 500 });
-}
-```
-
-### 3.6 Quy trình Reset & Khôi phục môi trường (Post-Test Cleanup)
-
-Để loại bỏ triệt để hiện tượng nhiễm độc dữ liệu kiểm thử (Test Contamination), quy trình dọn dẹp bắt buộc phải chạy tự động sau mỗi scenario. **Lưu ý:** Hệ thống chạy trên AWS ECS Fargate — không dùng kubectl; cleanup thực hiện qua AWS CLI / ECS API.
-
-- **Clear Memory Leak (SC-03):** Force new deployment để ECS Fargate thay thế toàn bộ Task bằng instance sạch, đưa bộ nhớ về trạng thái ban đầu:
-  ```bash
-  aws ecs update-service \
-    --cluster foresight-staging \
-    --service ledger \
-    --force-new-deployment \
-    --region us-east-1
-  ```
-- **Purge Hàng đợi (SC-04):** Xóa sạch tin nhắn tồn đọng trên SQS và DLQ trước khi chạy kịch bản tiếp theo:
-  ```bash
-  aws sqs purge-queue --queue-url $FRAUD_DETECTOR_SQS_URL  --region us-east-1
-  aws sqs purge-queue --queue-url $FRAUD_DETECTOR_DLQ_URL  --region us-east-1
-  ```
-
----
+Old 2026-06-30 stress outputs were deleted and must not be used as final acceptance evidence.
 
 ## 4. Security test
 
-### 4.1 Penetration touch points
+### 4.1 Safe probes
 
-- ☐ Public `/v1/ingest` auth/schema bypass attempt
-- ☐ Cross-tenant data leak attempt across AMP labels, DynamoDB audit and S3 evidence
-- ☐ SQL injection / NoSQL injection
-- ☐ IAM privilege escalation giữa ECS Task roles, including AMP write role vs query role
-- ☐ Secret/SigV4 exposure via logs, including Authorization header, credential scope and webhook/tenant token
+`tests/e2e/security_probes.sh` records:
+
+| Probe | Expected |
+|---|---|
+| Public `/metrics` | 403/404 or any non-200 |
+| Missing tenant header | rejected |
+| Header/body tenant mismatch | 400 |
+| Missing metric field | 400/422 |
+| PII/high-cardinality label | 400/422 |
+
+Output: `evidence/logs/security-probes.json`.
 
 ### 4.2 Vulnerability scan
 
-- **Tool**: Trivy / Snyk / AWS Inspector `<chưa xác nhận tool chính thức>`
-- **CRITICAL findings**: `<0 - cần xác nhận>`
-- **HIGH findings**: `<≤ 3 với mitigation - cần xác nhận>`
-- **Report**: `<repo>/security/scan-results.json`
-
----
+- **Gitleaks**: configured in CI with `.gitleaks.toml` narrow SigV4 curl allowlist.
+- **Trivy**: configured in CI for container image scan.
+- **Pass rule**: 0 CRITICAL findings; HIGH findings need mitigation notes.
+- **Current artifact**: pending current CI run.
 
 ## 5. Multi-tenant isolation test
 
-| Test Method | Request Detail | Result |
+| Test | Method | Status |
 |---|---|---|
-| Tenant A reads Tenant B data via API | Inject token tenant A, request tenant B evidence/query | ❌ Should fail with 403 - `<chưa chạy>` |
-| Cross-tenant queue contamination | Tenant A enqueue SQS với `tenant_id` của B (liên quan flow SC-04) | Audit log (DynamoDB) catches mismatch - `<chưa chạy>` |
-| AMP label isolation | Query AMP series của tenant khác qua API trên `ledger` | Should return empty / error - `<chưa chạy>` |
-| DB/DLQ row-level isolation | Inspect SQS DLQ messages của `fraud-detector` sau SC-04, kiểm tra `tenant_id` | Không lẫn dữ liệu giữa tenant - `<chưa chạy>` |
+| Tenant header/body mismatch | `/v1/ingest` negative probe | pending rerun |
+| AI datapoint tenant mismatch | unit test in `src/ai_engine/tests/test_api.py` | covered locally/CI |
+| Cross-tenant queue contamination | mismatched synthetic job + audit inspection | pending / safe sandbox probe |
+| Cross-account tenant role isolation | STS assume-role between tenant accounts | N/A unless sandbox has tenant accounts/roles |
+| DB row-level security | tenant-scoped table/read API | N/A: no read API for tenant data in CDO-04 sandbox |
 
-> **All tests must pass** - any leak = SEV1 incident.
-
----
+Any real tenant leak = SEV1. N/A items must stay documented, not silently marked pass.
 
 ## 6. Failure analysis
 
-### 6.1 Failures encountered during 2-week build
-
-| # | Failure | Root cause | Fix | Time to fix |
+| # | Failure | Root cause | Fix | Status |
 |---|---|---|---|---|
-| 1 | k6 SC-02 dùng sai executor (`per-vu-iterations`) khiến RPS không kiểm soát đúng burst pattern | Executor không phù hợp mô phỏng spike theo RPS thực | Đổi sang `ramping-arrival-rate` với `preAllocatedVUs`/`maxVUs` | `<X giờ>` |
-| 2 | `<chưa phát sinh - sẽ cập nhật trong W12>` | ... | ... | `<X giờ>` |
+| 1 | Telemetry API rollback on task def `:11` | ADOT v0.40.0 rejected unsupported `sending_queue` config | Removed unsupported key; ADOT config simplified | fixed |
+| 2 | Gitleaks `curl-auth-user` failure | False positive on SigV4 env-var curl credentials | Added narrow `.gitleaks.toml` allowlist | fixed |
+| 3 | SQS age baseline failed | `ApproximateAgeOfOldestMessage` is CloudWatch metric, not SQS attribute | Use SQS attrs for depth and CloudWatch metric for age | fixed |
+| 4 | Prior k6 evidence was not acceptance-grade | Stress targets ran before correctness proof | Deleted runtime artifacts; redesigned acceptance-first tests | fixed |
+| 5 | Full final evidence missing | New test design not rerun yet | Run `tests/e2e/run_final_acceptance.sh` | pending |
 
-### 6.2 Test gaps acknowledged
+## 7. Final gate verdict
 
-- **Gap 1**: Toàn bộ 4 scenario (SC-01 → SC-04) hiện mới ở dạng skeleton/draft, chưa chạy thật trên Staging - số liệu Measured/Achieved trong báo cáo này còn placeholder, sẽ điền sau khi hoàn tất Batch 0-8 và chạy final E2E/QA.
-- **Gap 2**: Cost breaker dùng policy platform 50/80/100 trong `05_cost_analysis.md`; mock service/k6 cost là test-window-only và không thay thế budget evidence thật.
-- **Gap 3**: Penetration test và vulnerability scan (mục 4) chưa có lịch chạy cụ thể, cần xác nhận tool và schedule với Security team.
-- **Gap 4**: Multi-tenant isolation test (mục 5) chưa chạy - đây là rủi ro cao nhất vì leak = SEV1, cần ưu tiên trước capstone.
+| Gate group | Required artifact | Current status |
+|---|---|---|
+| Contract/unit | pytest output / CI artifact | pending rerun |
+| Smoke | `evidence/logs/final-smoke.log` | pending rerun |
+| AI complete-window path | `evidence/logs/acceptance-ai-audit-scan.json` | pending rerun |
+| TF4 scenario matrix | `evidence/logs/tf4-scenario-summary.json` | pending rerun |
+| Eval metrics | `evidence/logs/eval-report.json`, `evidence/logs/eval-report.md` | pending rerun |
+| Load acceptance | `acceptance-50rps-summary.json`, `acceptance-100rps-summary.json` | pending rerun |
+| Security/isolation | `security-probes.json` | pending rerun |
+| Cost | `budget-final.json`, `cost-explorer-final.json` | pending rerun |
 
----
+**Final status:** redesigned and cleaned. No current runtime evidence is committed. Do not claim acceptance until regenerated evidence passes the gates above.
 
 ## Related documents
 
-- [`02_infra_design.md`](02_infra_design.md) - SLO targets và Architecture v1.0 validated trong §3 doc này
-- [`03_security_design.md`](03_security_design.md) §14 - Risk registry mitigated bởi test results §6 doc này
-- [`../../ai/docs/04_eval_report.md`](../../ai/docs/04_eval_report.md) - Joint eval: AI engine quality (Fallback Engine SC-04) + CDO infra integration
+- [`02_infra_design.md`](02_infra_design.md)
+- [`03_security_design.md`](03_security_design.md)
+- [`05_cost_analysis.md`](05_cost_analysis.md)
+- [`../tests/README.md`](../tests/README.md)
+- [`../evidence/README.md`](../evidence/README.md)

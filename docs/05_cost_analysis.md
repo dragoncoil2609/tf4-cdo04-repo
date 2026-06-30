@@ -277,7 +277,26 @@ Not applied:
 
 ---
 
-## 8. Final defense statement
+## 8. Final cost evidence gate
+
+Runtime cost evidence is generated during final acceptance and intentionally not committed:
+
+- `evidence/logs/cost-explorer-final.json`
+- `evidence/logs/budget-final.json`
+
+Pass rule:
+
+| Item | Requirement |
+|---|---|
+| Budget exists | `tf4-cdo04-platform-budget-sandbox` or configured `BUDGET_NAME` exists |
+| Budget cap | <= `$200.00` |
+| Forecast | < `$200.00` |
+| Actual snapshot | no unexpected sandbox spike during test window |
+| Circuit breaker | budget policy and scale-down runbook documented |
+
+Cost Explorer same-day or 7-day sandbox actuals are supporting evidence only. They do **not** prove full-month operating cost. Final defense uses the design estimate in this document plus Budget API/circuit-breaker evidence from the current acceptance run.
+
+## 9. Final defense statement
 
 All-ECS Fargate is not the cheapest possible option, but it is the most consistent option for this CDO platform. The platform must run Telemetry API, Prediction Worker and AI Engine Service as deployable workloads with health checks, CloudWatch logs, task roles, autoscaling and rollback. AI serving stays private through ECS Service Connect. The final TSDB choice is **Amazon Managed Service for Prometheus (AMP) in `us-east-1`**, replacing fixed-cost Timestream for InfluxDB. The accepted full-month x86 design with public ingest ALB plus ECS Service Connect is **~$158.16/month**; with 20% buffer it is **~$189.79/month**, still under the $200/month target if proxy sidecar headroom does not force task upsize. The key operating guardrails are PromQL scoping, bounded label cardinality, bounded samples/event, fixed log retention, Service Connect proxy resource monitoring and keeping audit/fallback active even when reducing non-critical load.
 

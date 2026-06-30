@@ -13,6 +13,14 @@ http_code() {
   curl -sS -o /tmp/smoke-response.txt -w "%{http_code}" "$@"
 }
 
+resolve_alb_base_url() {
+  local endpoint="${ALB_BASE_URL:-${ALB_DNS_NAME}}"
+  case "${endpoint}" in
+    http://*|https://*) printf '%s\n' "${endpoint%/}" ;;
+    *) printf '%s\n' "${ALB_SCHEME:-http}://${endpoint%/}" ;;
+  esac
+}
+
 require ALB_DNS_NAME
 require ECS_CLUSTER_NAME
 require TELEMETRY_API_SERVICE_NAME
@@ -21,7 +29,7 @@ require AI_ENGINE_SERVICE_NAME
 require PREDICTION_QUEUE_URL
 require PREDICTION_QUEUE_DLQ_URL
 
-BASE_URL="http://${ALB_DNS_NAME}"
+BASE_URL="$(resolve_alb_base_url)"
 
 # Terraform returns after ECS service update starts; wait here so ALB does not hit
 # draining old tasks during the rolling deployment.

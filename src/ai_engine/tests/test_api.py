@@ -50,6 +50,8 @@ def test_detect_sudden_spike():
     data = r.json()
     assert data["anomaly"] is True
     assert data["recommendation"]["action_verb"] == "SCALE_UP"
+    assert {"action_verb", "target", "from_to", "confidence", "evidence_link"} <= set(data["recommendation"])
+    assert len(data["reasoning"]) <= 300
     assert "audit_id" in data
 
 
@@ -96,3 +98,11 @@ def test_tenant_id_mismatch_is_400():
     window = generate_baseline("cpu_usage_percent", 50, tenant_id="tnt-OTHER")  # != header tnt-1
     r = client.post("/v1/predict", json=_payload(window), headers=HEADERS)
     assert r.status_code == 400  # well-formed but cross-tenant input -> 400
+
+
+def test_data_gap_over_one_minute_is_400():
+    window = generate_baseline("cpu_usage_percent", 50)
+    window[60]["ts"] = "2026-06-25T10:10:00Z"
+    r = client.post("/v1/predict", json=_payload(window), headers=HEADERS)
+    assert r.status_code == 400
+    assert "gap" in r.json()["detail"].lower()

@@ -249,6 +249,9 @@ class TestSaveAuditLog:
         assert item["ai_status_code"] == Decimal("0")
         assert item["ai_latency_ms"] == Decimal("0")
         assert item["prediction_source"] == "AI_ENGINE"
+        assert item["evidence_status"] == "complete_window"
+        assert item["service_id"] == "svc-a"
+        assert "expires_at_epoch" in item
         # ConditionExpression must enforce idempotency
         assert "attribute_not_exists(tenant_id)" in call_kwargs["ConditionExpression"]
 
@@ -392,6 +395,44 @@ class TestProcessJobFallback:
         assert kwargs["decision"] == "KEEP_ALIVE"  # 30.0 <= 80.0
         assert kwargs["anomaly"] is False
         assert kwargs["severity"] == 0.3
+
+    # ── AI reachable: complete AI path ─────────────────────────
+
+    def test_ai_engine_success_records_contract_fields(self):
+        """AI 200 response -> audit keeps correlation, status, recommendation contract."""
+        start = 1719705600
+        end = start + 120 * 60
+        aligned = {"cpu_usage_percent": {start + i * 60: 42.0 for i in range(121)}}
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "anomaly": True,
+            "severity": 0.9,
+            "reasoning": "capacity drift detected",
+            "audit_id": "audit-123",
+            "recommendation": {
+                "action_verb": "SCALE_UP",
+                "target": "svc-a ECS Service",
+                "from_to": "2 -> 3 tasks",
+                "confidence": 0.91,
+                "evidence_link": "https://dashboard.internal/metrics/svc-a",
+            },
+        }
+
+        with self._mock_query(aligned_metrics=aligned, gap_ratio=0.0, start=start, end=end), \
+             self._mock_save() as mock_save, \
+             self._mock_sns(), \
+             mock.patch("prediction_worker.app.requests.post", return_value=response):
+            process_job(self._BASE_JOB)
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["prediction_id"] == "pred-fb-001"
+        assert kwargs["prediction_source"] == "AI_ENGINE"
+        assert kwargs["evidence_status"] == "complete_window"
+        assert kwargs["ai_status_code"] == 200
+        assert kwargs["audit_id"] == "audit-123"
+        assert kwargs["recommendation"]["action_verb"] == "SCALE_UP"
+        assert {"action_verb", "target", "from_to", "confidence", "evidence_link"} <= set(kwargs["recommendation"])
 
     # ── AI unreachable: AI engine HTTP 500 error ────────────────
 

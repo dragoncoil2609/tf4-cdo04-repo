@@ -5,7 +5,7 @@
 // gradually without GC recovery. Uses constant-arrival-rate for steady load.
 //
 // TelemetryPayload shape: ts, tenant_id, service_id, metric_type, value, labels
-// Endpoint: POST /v1/ingest  (expected 201)
+// Endpoint: POST /v1/ingest  (expected 201/202)
 // Low-cardinality labels only — no random IDs.
 // -----------------------------------------------------------------------------
 
@@ -43,8 +43,11 @@ const METRIC_TYPES = [
 let _metricIdx = 0;
 
 export default function () {
-  const host = __ENV.TELEMETRY_API_HOST || 'localhost:8080';
-  const url = `http://${host}/v1/ingest`;
+  const endpoint = __ENV.TELEMETRY_API_HOST || 'localhost:8080';
+  const baseUrl = /^https?:\/\//.test(endpoint)
+    ? endpoint.replace(/\/$/, '')
+    : `${__ENV.TELEMETRY_API_SCHEME || 'http'}://${endpoint.replace(/\/$/, '')}`;
+  const url = `${baseUrl}/v1/ingest`;
 
   const metricType = METRIC_TYPES[_metricIdx % METRIC_TYPES.length];
   _metricIdx++;
@@ -73,6 +76,6 @@ export default function () {
   p99Latency.add(res.timings.duration);
 
   check(res, {
-    'status is 201 (accepted)': (r) => r.status === 201,
+    'status is accepted': (r) => r.status === 201 || r.status === 202,
   });
 }
