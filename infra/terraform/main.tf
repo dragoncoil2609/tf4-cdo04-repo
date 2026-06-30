@@ -98,7 +98,7 @@ module "compute" {
   ai_engine_max_capacity         = 4
   ai_engine_autoscale_cpu_target = 70
 
-  domain_name = var.domain_name
+  domain_name  = var.domain_name
   enable_https = var.enable_https
 }
 
