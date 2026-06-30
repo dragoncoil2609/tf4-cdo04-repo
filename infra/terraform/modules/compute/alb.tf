@@ -63,22 +63,35 @@ resource "aws_lb_listener" "http" {
   protocol          = "HTTP"
 
   default_action {
-    type = "redirect"
+    type = var.enable_https ? "redirect" : "fixed-response"
 
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    dynamic "redirect" {
+      for_each = var.enable_https ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+
+    dynamic "fixed_response" {
+      for_each = var.enable_https ? [] : [1]
+      content {
+        content_type = "text/plain"
+        message_body = "Not Found"
+        status_code  = "404"
+      }
     }
   }
 
   tags = merge(var.tags, {
     Name    = "${var.project_name}-${var.environment}-http-listener"
-    Purpose = "http-to-https-redirect-listener"
+    Purpose = var.enable_https ? "http-to-https-redirect-listener" : "http-ingest-listener"
   })
 }
 
 resource "aws_lb_listener" "https" {
+  count             = var.enable_https ? 1 : 0
   load_balancer_arn = aws_lb.public.arn
   port              = 443
   protocol          = "HTTPS"
@@ -102,7 +115,7 @@ resource "aws_lb_listener" "https" {
 }
 
 resource "aws_lb_listener_rule" "ingest" {
-  listener_arn = aws_lb_listener.https.arn
+  listener_arn = var.enable_https ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
   priority     = 10
 
   action {

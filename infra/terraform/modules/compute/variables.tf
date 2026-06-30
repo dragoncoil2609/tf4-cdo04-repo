@@ -230,3 +230,8 @@ variable "ai_engine_secret_arns" {
   type        = list(string)
   default     = ["*"]
 }
+
+variable "enable_https" {
+  description = "Bật cấu hình HTTPS cho ALB"
+  type        = bool
+}

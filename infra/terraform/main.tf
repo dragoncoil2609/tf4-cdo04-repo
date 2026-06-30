@@ -99,6 +99,7 @@ module "compute" {
   ai_engine_autoscale_cpu_target = 70
 
   domain_name = var.domain_name
+  enable_https = var.enable_https
 }
 
 
