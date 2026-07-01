@@ -266,8 +266,9 @@ Luồng prediction:
 |---|---|---|---|
 | `tf4-cdo04/<env>/ai-engine-endpoint-config` | SSM Parameter Store | `prediction-worker` | Cấu hình không nhạy cảm: Service Connect service name/base URL, host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. Route 53/private DNS không nằm trong MVP. |
 | `tf4-cdo04/<env>/alert-email` | Terraform variable / SNS subscription | Observability module | địa chỉ SNS email; người nhận phải xác nhận subscription thủ công. |
-| `tf4-cdo04/<env>/tenant-ingest-token/<tenant>` | Secrets Manager | `telemetry-ingest` | Rotate thủ công cho demo tenants. ECS env injection cần restart task hoặc force deployment sau rotation. |
-| `tf4-cdo04/<env>/slack-webhook` | Secrets Manager | Bộ gửi thông báo tùy chọn cho tương lai | Không thuộc MVP; ưu tiên SNS email. |
+| `tf4-cdo04/<env>/tenant-ingest-token` | Secrets Manager + ECS `secrets` injection | `telemetry-ingest` / Telemetry API | Implemented path: ECS injects value as `TENANT_INGEST_TOKEN`; `/v1/ingest` requires `Authorization: Bearer <token>` when configured. Rotate thủ công cho demo tenants; force new ECS deployment sau rotation. |
+| `tf4-cdo04/<env>/slack-webhook-url` | Secrets Manager | Future alert sender | Không thuộc MVP; ưu tiên SNS email. Secret container exists but is not wired to compute until a real Slack sender consumes it. |
+| `tf4-cdo04/<env>/ai-sigv4-config` | Secrets Manager | Future Worker -> AI auth verifier | Future hardening only. Current Worker -> AI auth remains IAM SigV4 intent; AI app-side verifier remains SYS-09 caveat. |
 
 AMP không cần `influxdb/write-token`, `influxdb/read-token` hoặc `influxdb/admin-token`. AMP write/query dùng IAM/SigV4.
 

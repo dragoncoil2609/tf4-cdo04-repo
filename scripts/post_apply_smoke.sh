@@ -30,6 +30,10 @@ require PREDICTION_QUEUE_URL
 require PREDICTION_QUEUE_DLQ_URL
 
 BASE_URL="$(resolve_alb_base_url)"
+INGEST_AUTH_HEADER=()
+if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+  INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
+fi
 
 # Terraform returns after ECS service update starts; wait here so ALB does not hit
 # draining old tasks during the rolling deployment.
@@ -72,6 +76,7 @@ for attempt in $(seq 1 15); do
     -H "Content-Type: application/json" \
     -H "X-Tenant-Id: smoke-test" \
     -H "X-Correlation-Id: smoke-test" \
+    "${INGEST_AUTH_HEADER[@]}" \
     -d '{"ts":"2026-06-29T00:00:00Z","tenant_id":"smoke-test","service_id":"payment-gw","metric_type":"api_latency_ms","value":1,"labels":{"region":"us-east-1","environment":"smoke"}}' || true)
   if [[ "${ingest_status}" == "201" || "${ingest_status}" == "202" ]]; then
     echo "Ingest smoke passed"

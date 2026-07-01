@@ -93,6 +93,8 @@ module "compute" {
     module.data.ai_sigv4_config_secret_arn
   ]
 
+  tenant_ingest_token_secret_arn = module.data.tenant_ingest_token_secret_arn
+
   ai_engine_desired_count        = 2
   ai_engine_min_capacity         = 2
   ai_engine_max_capacity         = 4

@@ -28,6 +28,10 @@ SEED_MINUTES="${SEED_MINUTES:-125}"
 POLL_SECONDS="${POLL_SECONDS:-600}"
 BASE_URL="$(resolve_alb_base_url)"
 PREDICTION_ID="acceptance-$(date +%Y%m%d%H%M%S)"
+INGEST_AUTH_HEADER=()
+if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+  INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
+fi
 
 post_metric() {
   local payload="$1"
@@ -36,6 +40,7 @@ post_metric() {
     -H "Content-Type: application/json" \
     -H "X-Tenant-Id: ${TENANT_ID}" \
     -H "X-Correlation-Id: ${PREDICTION_ID}" \
+    "${INGEST_AUTH_HEADER[@]}" \
     -d "${payload}"
 }
 

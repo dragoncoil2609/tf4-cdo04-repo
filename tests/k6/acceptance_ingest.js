@@ -7,6 +7,7 @@ import exec from 'k6/execution';
 const RATE = Number(__ENV.RATE || 50);
 const DURATION = __ENV.DURATION || '10m';
 const TENANT_ID = __ENV.TENANT_ID || 'demo-tenant-001';
+const TENANT_INGEST_TOKEN = __ENV.TENANT_INGEST_TOKEN || '';
 const SERVICE_IDS = (__ENV.SERVICE_IDS || __ENV.SERVICE_ID || 'ledger,payment-gw,fraud-detector')
   .split(',')
   .map((serviceId) => serviceId.trim())
@@ -57,11 +58,16 @@ export default function () {
     labels: metric[2],
   });
 
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Tenant-Id': TENANT_ID,
+  };
+  if (TENANT_INGEST_TOKEN) {
+    headers.Authorization = `Bearer ${TENANT_INGEST_TOKEN}`;
+  }
+
   const res = http.post(`${BASE_URL}/v1/ingest`, payload, {
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Tenant-Id': TENANT_ID,
-    },
+    headers,
     tags: { scenario: 'acceptance', service_id: serviceId },
   });
 

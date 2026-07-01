@@ -584,9 +584,9 @@ KMS/SSM/Secrets:
   - `/<project>/<env>/prediction/lookback_window_minutes`
   - `/<project>/<env>/ai/baseline_s3_prefix`
 - Secrets Manager, KMS encrypted, values managed outside Terraform:
-  - `tf4-cdo04/<env>/tenant-ingest-token`
-  - `tf4-cdo04/<env>/slack-webhook-url`
-  - `tf4-cdo04/<env>/ai-sigv4-config`
+  - `tf4-cdo04/<env>/tenant-ingest-token` — wired to Telemetry API through ECS `secrets` as `TENANT_INGEST_TOKEN`; `/v1/ingest` enforces `Authorization: Bearer <token>` when configured.
+  - `tf4-cdo04/<env>/slack-webhook-url` — future optional Slack path; MVP uses SNS email.
+  - `tf4-cdo04/<env>/ai-sigv4-config` — future AI auth hardening config; Worker -> AI remains IAM SigV4 intent and SYS-09 caveat until verifier exists.
 
 ### 5.5 Compute module
 
@@ -848,9 +848,9 @@ Good:
 
 - GitHub OIDC uses dedicated deploy role, not static long-lived AWS key.
 - ECS task roles split by service.
-- Telemetry task gets only remote write, SQS send, S3 failure-buffer put.
-- Worker task gets SQS consume, APS query, DynamoDB audit/policy, SNS publish.
-- AI task gets baseline/evidence read, SSM/Secrets/KMS, metrics publish.
+- Telemetry task gets remote write, SQS send, S3 failure-buffer put; ECS execution role reads only tenant ingest token secret and decrypts it through project KMS for task-start injection.
+- Worker task gets SQS consume, APS query, DynamoDB audit/policy, SNS publish; no Secrets Manager runtime dependency in current MVP.
+- AI task gets baseline/evidence read, SSM/Secrets/KMS, metrics publish; AI SigV4 app-side enforcement remains production hardening.
 
 Risks:
 
@@ -864,7 +864,7 @@ Risks:
 - S3 evidence bucket encrypted and blocks public access.
 - DynamoDB SSE enabled.
 - KMS key exists for AI/audit/secrets related flows.
-- Secrets Manager values are not managed in Terraform state.
+- Secrets Manager values are not managed in Terraform state; ECS injects the tenant ingest token by ARN through task definition `secrets`.
 - PII denylist and high-cardinality rejection at telemetry boundary.
 
 ### 7.4 AI auth mismatch
@@ -884,6 +884,7 @@ k6 run tests/k6/acceptance_ingest.js \
   -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software \
   -e TENANT_ID=demo-tenant-001 \
   -e SERVICE_IDS=ledger,payment-gw,fraud-detector \
+  -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
   -e RATE=50 \
   -e DURATION=3h \
   --summary-export evidence/logs/acceptance-50rps-3h-final-summary.json

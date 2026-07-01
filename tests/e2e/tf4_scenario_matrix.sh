@@ -29,6 +29,10 @@ WARMUP_MINUTES="${WARMUP_MINUTES:-120}"
 SCENARIO_MINUTES="${SCENARIO_MINUTES:-60}"
 POLL_SECONDS="${POLL_SECONDS:-1200}"
 BASE_URL="$(resolve_alb_base_url)"
+INGEST_AUTH_HEADER=()
+if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+  INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
+fi
 mkdir -p evidence/logs
 
 SCENARIOS=(
@@ -45,6 +49,7 @@ post_metric() {
     -H "Content-Type: application/json" \
     -H "X-Tenant-Id: ${TENANT_ID}" \
     -H "X-Correlation-Id: ${correlation_id}" \
+    "${INGEST_AUTH_HEADER[@]}" \
     -d "${payload}"
 }
 

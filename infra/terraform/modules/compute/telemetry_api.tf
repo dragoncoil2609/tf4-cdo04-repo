@@ -145,6 +145,12 @@ resource "aws_ecs_task_definition" "telemetry_api" {
         { name = "S3_FAILURE_BUFFER_PREFIX", value = "failure-buffer/" },
         { name = "PREDICTION_QUEUE_URL", value = var.prediction_queue_url },
       ]
+      secrets = [
+        {
+          name      = "TENANT_INGEST_TOKEN"
+          valueFrom = var.tenant_ingest_token_secret_arn
+        }
+      ]
       healthCheck = {
         command  = ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
         interval = 30

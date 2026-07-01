@@ -301,6 +301,57 @@ def test_tenant_header_body_mismatch_returns_400(client: TestClient) -> None:
     assert metrics_data["telemetry_ingest_rejected_by_reason"]["tenant_mismatch"] == 1
 
 
+def test_ingest_token_unset_keeps_local_auth_optional(client: TestClient) -> None:
+    """Local mode không cấu hình token vẫn nhận request không có Authorization."""
+
+    response = post_ingest(client, valid_payload())
+
+    assert response.status_code == 201
+
+
+def test_ingest_token_configured_requires_authorization(telemetry_file: Path) -> None:
+    """Khi TENANT_INGEST_TOKEN được inject, thiếu Authorization bị từ chối."""
+
+    settings = Settings(local_telemetry_file=str(telemetry_file), tenant_ingest_token="secret-token")
+    token_client = TestClient(create_app(settings))
+
+    response = post_ingest(token_client, valid_payload())
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid or missing ingest token"
+    metrics_data = token_client.get("/debug/metrics-json").json()
+    assert metrics_data["telemetry_ingest_rejected_by_reason"]["invalid_ingest_token"] == 1
+
+
+def test_ingest_token_configured_rejects_wrong_bearer(telemetry_file: Path) -> None:
+    """Bearer token sai bị từ chối."""
+
+    settings = Settings(local_telemetry_file=str(telemetry_file), tenant_ingest_token="secret-token")
+    token_client = TestClient(create_app(settings))
+    headers = tenant_headers()
+    headers["Authorization"] = "Bearer wrong-token"
+
+    response = post_ingest(token_client, valid_payload(), headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid or missing ingest token"
+    metrics_data = token_client.get("/debug/metrics-json").json()
+    assert metrics_data["telemetry_ingest_rejected_by_reason"]["invalid_ingest_token"] == 1
+
+
+def test_ingest_token_configured_accepts_correct_bearer(telemetry_file: Path) -> None:
+    """Bearer token đúng được chấp nhận."""
+
+    settings = Settings(local_telemetry_file=str(telemetry_file), tenant_ingest_token="secret-token")
+    token_client = TestClient(create_app(settings))
+    headers = tenant_headers()
+    headers["Authorization"] = "Bearer secret-token"
+
+    response = post_ingest(token_client, valid_payload(), headers=headers)
+
+    assert response.status_code == 201
+
+
 # --- 8. KIỂM THỬ BẢO VỆ GHI LOG & DUNG LƯỢNG ---
 
 def test_invalid_json_returns_400(client: TestClient) -> None:

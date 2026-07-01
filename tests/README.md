@@ -39,6 +39,7 @@ export ALB_BASE_URL=https://xbrain26hackathon269.software
 export TELEMETRY_API_HOST=https://xbrain26hackathon269.software
 export TENANT_ID=demo-tenant-001
 export SERVICE_IDS=ledger,payment-gw,fraud-detector
+export TENANT_INGEST_TOKEN=<secret-manager-value>  # required after Secrets Manager wiring is deployed
 ```
 
 Raw ALB DNS with `https://` causes certificate hostname mismatch because ACM cert is for `xbrain26hackathon269.software`.
@@ -80,6 +81,7 @@ k6 run tests/k6/acceptance_ingest.js \
   -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software \
   -e TENANT_ID=demo-tenant-001 \
   -e SERVICE_IDS=ledger,payment-gw,fraud-detector \
+  -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
   -e RATE=50 \
   -e DURATION=2m \
   --summary-export evidence/logs/acceptance-50rps-2m-final-summary.json
@@ -103,6 +105,7 @@ k6 run tests/k6/acceptance_ingest.js \
   -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software \
   -e TENANT_ID=demo-tenant-001 \
   -e SERVICE_IDS=ledger,payment-gw,fraud-detector \
+  -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
   -e RATE=50 \
   -e DURATION=3h \
   --summary-export evidence/logs/acceptance-50rps-3h-final-summary.json

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from json import JSONDecodeError
@@ -11,7 +12,7 @@ from fastapi import APIRouter, Request
 from pydantic import ValidationError
 from starlette.responses import JSONResponse
 
-from telemetry_api.core.app_state import get_ingest_service
+from telemetry_api.core.app_state import get_ingest_service, get_settings
 from telemetry_api.core.errors import BadRequestError
 from telemetry_api.core.logging import log_structured
 from telemetry_api.middleware.correlation_id import get_or_create_correlation_id
@@ -36,6 +37,14 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
     header_tenant_id = tenant_id_header.strip()
     if not header_tenant_id:
         raise BadRequestError("X-Tenant-Id header is required", reason="missing_tenant_header")
+
+    settings = get_settings(request)
+    if settings.tenant_ingest_token:
+        auth_header = request.headers.get("Authorization", "")
+        bearer_prefix = "Bearer "
+        token = auth_header[len(bearer_prefix):] if auth_header.startswith(bearer_prefix) else ""
+        if not hmac.compare_digest(token, settings.tenant_ingest_token):
+            raise BadRequestError("Invalid or missing ingest token", reason="invalid_ingest_token")
 
     # 2. Đọc và parse JSON body
     try:

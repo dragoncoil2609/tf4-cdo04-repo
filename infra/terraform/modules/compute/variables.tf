@@ -180,6 +180,12 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "tenant_ingest_token_secret_arn" {
+  description = "Secrets Manager ARN for tenant ingest token injected into telemetry-api"
+  type        = string
+  default     = ""
+}
+
 # -----------------------------------------------------------------------------
 # AI Engine variables -- CDO-W12-011
 # -----------------------------------------------------------------------------
