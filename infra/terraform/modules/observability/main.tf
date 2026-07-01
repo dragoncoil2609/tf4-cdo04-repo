@@ -75,13 +75,15 @@ locals {
     )
   ]
 
-  # ECS metrics (CPU + Memory) cho từng service
-  ecs_metrics = flatten([
-    for idx, svc in local.ecs_services : [
-      ["AWS/ECS", "CPUUtilization", "ServiceName", svc, "ClusterName", var.ecs_cluster_name],
-      [".", "MemoryUtilization", ".", svc, ".", var.ecs_cluster_name, { yAxis = "right" }],
-    ]
-  ])
+  # ECS metrics (CPU + Memory) cho từng service - Cấu trúc mảng 2 cấp chuẩn hóa (Đã sửa lỗi)
+  ecs_metrics = [
+    ["AWS/ECS", "CPUUtilization", "ServiceName", "ledger-service", "ClusterName", var.ecs_cluster_name],
+    [".", "MemoryUtilization", ".", "ledger-service", ".", var.ecs_cluster_name, { yAxis = "right" }],
+    ["AWS/ECS", "CPUUtilization", "ServiceName", "payment-gateway", "ClusterName", var.ecs_cluster_name],
+    [".", "MemoryUtilization", ".", "payment-gateway", ".", var.ecs_cluster_name, { yAxis = "right" }],
+    ["AWS/ECS", "CPUUtilization", "ServiceName", "kyc-worker", "ClusterName", var.ecs_cluster_name],
+    [".", "MemoryUtilization", ".", "kyc-worker", ".", var.ecs_cluster_name, { yAxis = "right" }]
+  ]
 }
 
 # -----------------------------------------------------------------------------
@@ -176,7 +178,7 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
         }
       },
 
-      # ── Widget 5: SQS Messages & Age ─────────────────────────────────────
+      # ── Widget 5: SQS Messages & Age (Đã đồng bộ biến nhóm) ────────────────
       {
         type   = "metric"
         x      = 0
@@ -189,13 +191,13 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
           stat   = "Maximum"
           region = var.aws_region
           metrics = [
-            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${local.name_prefix}-queue"],
-            [".", "ApproximateAgeOfOldestMessage", ".", "${local.name_prefix}-queue", { yAxis = "right" }],
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", var.prediction_queue_name],
+            [".", "ApproximateAgeOfOldestMessage", ".", var.prediction_queue_name, { yAxis = "right" }],
           ]
         }
       },
 
-      # ── Widget 6: SQS DLQ Depth ───────────────────────────────────────────
+      # ── Widget 6: SQS DLQ Depth (Đã đồng bộ biến nhóm) ────────────────────
       {
         type   = "metric"
         x      = 12
@@ -208,7 +210,7 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
           stat   = "Sum"
           region = var.aws_region
           metrics = [
-            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${local.name_prefix}-dlq"],
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", var.prediction_queue_dlq_name],
           ]
         }
       },
@@ -310,7 +312,7 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth_alarm" {
   treat_missing_data = "notBreaching"
 
   dimensions = {
-    QueueName = "${local.name_prefix}-dlq"
+    QueueName = var.prediction_queue_dlq_name
   }
 
   alarm_description = jsonencode({
