@@ -36,3 +36,6 @@ logs/
 !/evidence/logs/
 !/evidence/logs/**
 
+# Scratch directory
+/scratch/
+
