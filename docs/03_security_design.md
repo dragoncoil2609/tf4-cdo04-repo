@@ -5,7 +5,7 @@
 **Project:** TF4 Foresight Lens
 **Infra source of truth:** `02_infra_design.md`
 **Angle:** SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow
-**Core stack:** Public ALB + API Gateway HTTP API (`AWS_IAM`) + VPC Link + ECS Fargate Linux/x86 + ECS Service Connect fallback + Amazon Managed Service for Prometheus (AMP) + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
+**Core stack:** API Gateway HTTP API (`AWS_IAM` for `/v1/ingest` and `/v1/predict`, `NONE` for `/health`) + VPC Link + internal ALB + ECS Fargate Linux/x86 + ECS Service Connect fallback + Amazon Managed Service for Prometheus (AMP) + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
 
 ---
 
@@ -48,7 +48,7 @@ flowchart TB
 
     subgraph VPC["VPC us-east-1"]
         subgraph Public["Public subnet"]
-            ALB["ALB HTTP :80 temporary sandbox<br/>HTTPS :443 future<br/>/v1/ingest"]
+            APIGW["API Gateway HTTP API<br/>/health NONE<br/>/v1/ingest AWS_IAM<br/>/v1/predict AWS_IAM"]
         end
 
         subgraph PrivateApp["Private app subnets"]
@@ -72,12 +72,12 @@ flowchart TB
         EB["EventBridge<br/>5-minute schedule"]
     end
 
-    PG -->|HTTP temporary sandbox + X-Tenant-Id| ALB
-    LS -->|HTTP temporary sandbox + X-Tenant-Id| ALB
-    KW -->|HTTP temporary sandbox + X-Tenant-Id| ALB
-    K6 -->|synthetic telemetry| ALB
+    PG -->|HTTPS SigV4 + X-Tenant-Id + X-Tenant-Ingest-Token| APIGW
+    LS -->|HTTPS SigV4 + X-Tenant-Id + X-Tenant-Ingest-Token| APIGW
+    KW -->|HTTPS SigV4 + X-Tenant-Id + X-Tenant-Ingest-Token| APIGW
+    K6 -->|synthetic telemetry SigV4| APIGW
 
-    ALB --> INGEST
+    APIGW -->|VPC Link -> internal ALB :80| INGEST
     INGEST -->|validated metric samples| COLLECTOR
     COLLECTOR -->|SigV4 remote_write| AMP
     INGEST --> CW
@@ -106,7 +106,7 @@ Nguyên tắc bảo mật chính:
 
 | Component | Placement | Public access | Lý do |
 |---|---|---:|---|
-| ALB `/v1/ingest` | Public subnet cho demo | Có, HTTP temporary sandbox; HTTPS/ACM future | Cho phép k6/Locust và service demo gửi telemetry mà không cần VPN. |
+| API Gateway `/v1/ingest` | Public AWS edge; VPC Link to internal ALB | Có, HTTPS execute-api/custom domain; `AWS_IAM`/SigV4 required | Cho phép k6/producer gửi telemetry công khai nhưng chỉ khi có IAM principal và tenant ingest token. |
 | ECS `telemetry-ingest` | Private app subnets | Không | Chỉ nhận traffic từ ALB security group. |
 | Collector / remote_write path | Private app subnets hoặc sidecar | Không | Gửi Prometheus samples tới AMP bằng SigV4. |
 | ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query AMP, gọi AI qua ECS Service Connect và ghi audit. |
@@ -116,29 +116,29 @@ Nguyên tắc bảo mật chính:
 | SQS/DLQ | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và queue policy. |
 | S3 evidence | AWS managed | Bucket private | Lưu evidence snapshot/failure buffer, bật encryption. |
 
-Trong capstone, ALB public chỉ là boundary có kiểm soát cho ingestion. ECS task vẫn private. Nếu sau này các producer chạy trong cùng VPC, public ingest boundary có thể được thay bằng private ingress pattern mà không thay đổi logic chính của Worker → AI Service Connect path.
+Trong capstone, API Gateway HTTP API là public boundary có kiểm soát cho ingestion. ECS task và ALB vẫn private. Nếu sau này các producer chạy trong cùng VPC, public ingest boundary có thể được thay bằng private ingress pattern mà không thay đổi logic chính của Worker → AI path.
 
 ### 3.2 Security Groups
 
 | Security group | Inbound | Outbound | Gắn với |
 |---|---|---|---|
-| `tf4-cdo04-alb-sg` | Sandbox: `80` từ explicit `allowed_ingress_cidrs`; non-sandbox/future: `443` với ACM và 80->443 redirect; không có giá trị mặc định mở `0.0.0.0/0` | `8080` tới `tf4-cdo04-ingest-sg` | Public ALB |
+| `tf4-cdo04-alb-sg` | API Gateway VPC Link SG ingress tới HTTP `:80`; không có public ingress CIDR. | `8080` tới `tf4-cdo04-ingest-sg` | Internal ALB (private subnets, không có public ingress) |
 | `tf4-cdo04-ingest-sg` | `8080` từ `tf4-cdo04-alb-sg` | `443` tới AWS service endpoints / collector path | ECS `telemetry-ingest` |
 | `tf4-cdo04-worker-sg` | Không cần inbound cho worker loop | `443` tới AWS service endpoints; app port tới AI Engine Service Connect endpoint `/v1/predict` | ECS `prediction-worker` |
 | `tf4-cdo04-ai-engine-sg` | App port từ `tf4-cdo04-worker-sg`/Service Connect path; container health check `/health` | `443` tới CloudWatch/Secrets/ECR/S3 qua NAT hoặc VPC endpoints | ECS `ai-engine` |
 
 Inbound được giới hạn theo nguyên tắc:
 
-- Public entry point duy nhất là ALB `/v1/ingest`; sandbox dùng HTTP tạm, non-sandbox/future dùng HTTPS với ACM.
+- Public entry point duy nhất là API Gateway HTTP API; ALB là internal, chỉ nhận traffic từ VPC Link.
 - ECS task không có public IP.
 - `prediction-worker` không cần public inbound trong normal operation.
 
 ### 3.3 TLS và request boundary
 
-- Sandbox hiện cho phép HTTP trên port `80` để đưa hệ thống chạy trước.
-- Non-sandbox/future hardening dùng ACM và ALB terminate HTTPS trên port `443`.
-- Khi HTTPS bật, HTTP port `80` redirect sang HTTPS.
-- TLS policy target: TLS 1.2+.
+- Public client tới API Gateway dùng HTTPS trên execute-api endpoint hoặc custom domain tương lai.
+- API Gateway tới internal ALB dùng HTTP `:80` qua VPC Link trong private subnets.
+- ACM cert giữ cho API Gateway custom domain tương lai; không còn ALB public HTTPS listener.
+- TLS policy target cho public edge: TLS 1.2+.
 - Mọi ingest request phải có header `X-Tenant-Id`.
 - `telemetry-ingest` validate body `tenant_id` phải khớp với `X-Tenant-Id`.
 - Payload vượt giới hạn batch size sẽ bị reject với `413`.
@@ -244,10 +244,11 @@ Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terra
 
 Luồng ingest:
 
-- Producer gọi ALB qua HTTP trong sandbox tạm; non-sandbox/future dùng HTTPS với ACM.
-- ALB security group chỉ cho phép `allowed_ingress_cidrs` đã khai báo rõ.
+- Producer gọi API Gateway HTTP API qua HTTPS với SigV4 service `execute-api`.
+- API Gateway route `POST /v1/ingest` enforce `AWS_IAM`; unsigned request trả `403` trước khi tới ALB.
+- Internal ALB security group chỉ cho phép VPC Link SG ingress port `:80`.
 - Request có `X-Tenant-Id`; header này là ngữ cảnh, không phải nguồn xác thực.
-- MVP dùng demo tenant bearer token qua `Authorization: Bearer <tenant-ingest-token>` và lưu trong Secrets Manager.
+- Tenant ingest token đi qua `X-Tenant-Ingest-Token`; legacy `Authorization: Bearer <tenant-ingest-token>` chỉ là local/internal fallback khi không dùng SigV4.
 - `telemetry-ingest` validate tenant, schema, PII denylist và metric allowlist trước khi emit OTLP/app metrics tới ADOT sidecar/collector; collector thực hiện Prometheus `remote_write` tới AMP bằng SigV4.
 
 Luồng prediction:
@@ -271,9 +272,9 @@ API Gateway HTTP API được chọn làm SigV4 enforcement point vì ALB không
 | **Cost** | Lower ($1/M requests) | Higher |
 | **Custom domain** | ACM certificate, Name.com DNS CNAME | ACM certificate |
 
-**HTTP API không hỗ trợ WAF**: API Gateway HTTP API không có integration với AWS WAF. Mitigation: chỉ route `/v1/predict` được expose qua HTTP API và enforce `AWS_IAM`; public telemetry path `/v1/ingest` và `/health` đi qua ALB `:443` với `allowed_ingress_cidrs` khai báo rõ. `/v1/predict` không được route trên ALB public `:443`. Nếu cần WAF protection trong production, phải migrate `/v1/predict` lên REST API Gateway hoặc dùng CloudFront + WAF trước API Gateway.
+**HTTP API không hỗ trợ WAF**: API Gateway HTTP API không có integration với AWS WAF. Mitigation: ALB không còn public ingress; `/v1/ingest` và `/v1/predict` đều expose qua HTTP API và enforce `AWS_IAM`/SigV4, còn `/health` chỉ dùng cho smoke/readiness. Nếu cần WAF protection trong production, phải migrate lên REST API Gateway hoặc dùng CloudFront + WAF trước API Gateway.
 
-**HTTP API không hỗ trợ resource policies**: API Gateway HTTP API không có resource-based policy. Mitigation: enforce `AWS_IAM` trên route, giới hạn Worker task role chỉ có `execute-api:Invoke` cho method `POST` và path `/v1/predict` trên HTTP API ARN cụ thể.
+**HTTP API không hỗ trợ resource policies**: API Gateway HTTP API không có resource-based policy. Mitigation: enforce `AWS_IAM` trên ingest/predict route, giới hạn deploy/smoke role có `execute-api:Invoke` cho `POST /v1/ingest` và `POST /v1/predict`, giới hạn Worker task role cho `POST /v1/predict` trên HTTP API ARN cụ thể.
 
 ### 4.7 DNS and ACM (Name.com)
 
@@ -293,7 +294,7 @@ API Gateway HTTP API được chọn làm SigV4 enforcement point vì ALB không
 |---|---|---|---|
 | `tf4-cdo04/<env>/ai-engine-endpoint-config` | SSM Parameter Store | `prediction-worker` | Cấu hình không nhạy cảm: Service Connect service name/base URL, host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. Route 53/private DNS không nằm trong MVP. |
 | `tf4-cdo04/<env>/alert-email` | Terraform variable / SNS subscription | Observability module | địa chỉ SNS email; người nhận phải xác nhận subscription thủ công. |
-| `tf4-cdo04/<env>/tenant-ingest-token` | Terraform `random_password` -> Secrets Manager secret version + ECS `secrets` injection | `telemetry-ingest` / Telemetry API | Implemented demo path: Terraform generates token, stores it in Secrets Manager, and exposes sensitive output for k6. Token is stored in Terraform state by explicit project choice. ECS injects value as `TENANT_INGEST_TOKEN`; `/v1/ingest` requires `Authorization: Bearer <token>` when configured. Rotation means taint/replace secret version or rotate manually, then force new ECS deployment. |
+| `tf4-cdo04/<env>/tenant-ingest-token` | Terraform `random_password` -> Secrets Manager secret version + ECS `secrets` injection | `telemetry-ingest` / Telemetry API | Implemented demo path: Terraform generates token, stores it in Secrets Manager, and exposes sensitive output for k6. Token is stored in Terraform state by explicit project choice. ECS injects value as `TENANT_INGEST_TOKEN`; public `/v1/ingest` requires API Gateway `AWS_IAM`/SigV4 plus `X-Tenant-Ingest-Token`. Legacy `Authorization: Bearer <token>` remains local/internal fallback. Rotation means taint/replace secret version or rotate manually, then force new ECS deployment. |
 | `tf4-cdo04/<env>/slack-webhook-url` | Secrets Manager | Future alert sender | Không thuộc MVP; ưu tiên SNS email. Secret container exists but is not wired to compute until a real Slack sender consumes it. |
 | `tf4-cdo04/<env>/ai-sigv4-config` | Secrets Manager | Future Worker -> AI auth verifier | Future hardening only. Current Worker -> AI auth remains IAM SigV4 intent; AI app-side verifier remains SYS-09 caveat. |
 
@@ -512,7 +513,7 @@ Các thay đổi security-sensitive cần review:
 
 - IAM policy changes.
 - Security group changes.
-- Public ALB exposure changes.
+- Internal ALB exposure changes.
 - Secret injection changes.
 - Audit retention hoặc encryption changes.
 - AMP workspace policy / remote_write/query permission changes.

@@ -31,7 +31,7 @@ All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service t
 
 | Component | AWS Service | Config | Estimate/month |
 |---|---|---|---:|
-| Core compute | ECS Fargate x86 | 5 tasks total: Telemetry API 2 + Prediction Worker 1 + AI Engine 2, each 0.5 vCPU / 1GB | **$90.10** |
+| Core compute | ECS Fargate x86 | 4 tasks total: Telemetry API 1 + Prediction Worker 1 + AI Engine 2, each 1 vCPU / 2GB (telemetry), 0.5 vCPU / 1GB (worker, AI) | **$90.10** |
 | Application Load Balancer | 1 ALB + 1 LCU | Internal ALB behind API Gateway VPC Link; one ALB serves telemetry and AI target groups | **$22.27** |
 | API Gateway HTTP API | HTTP API + VPC Link | `AWS_IAM`/SigV4 enforcement for Worker → AI; ~25,920 AI POST calls/month × (`$1/M` HTTP API requests + ~0.00012GB/request NAT data for full 120m payload) | **$0.17** |
 | NAT Gateway | VPC | 1 NAT Gateway theo một AZ + ~12GB base AWS API data processing; Worker private subnet uses NAT for outbound to public execute-api endpoint, with Path A request payload cost counted in API Gateway row | **$33.39** |
@@ -42,7 +42,7 @@ All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service t
 | CloudWatch + SNS | Logs, metrics, dashboard, alarms, notifications | 14-day app logs; AI internal audit logs are KMS encrypted with 365-day retention | **$8.00** |
 | Secrets Manager + KMS | Config/encryption | Endpoint config, webhook/tenant secret, KMS keys | **$3.40** |
 | ECR | Private registry | Small images + lifecycle policy | **$0.50** |
-| **Full always-on total** |  | Network path uses 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB uses AMP; Worker → AI uses API Gateway HTTP API + VPC Link + same ALB restricted listener | **~$158.33** |
+| **Full always-on total** |  | Network path uses 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB uses AMP; Worker → AI uses API Gateway HTTP API + VPC Link + internal ALB | **~$158.33** |
 | **+20% ops buffer** |  | Buffer for operational variance, logs, small request deltas and API Gateway request growth | **~$190.00** |
 
 > Pricing note: AWS Pricing MCP facts used here for `us-east-1`: Fargate x86 $0.04048/vCPU-hour + $0.004445/GB-hour; ALB $0.0225/hour + $0.008/LCU-hour; NAT $0.045/hour + $0.045/GB. AMP pricing is usage-based: first 40M ingested samples/month and first 10GB storage are effectively enough for demo volume; query samples are billed from usage but ~21.8M/month is about $0.0022 and rounds to $0.00. These are capstone estimates to defend budget, not a replacement for AWS Cost Explorer.
@@ -234,7 +234,7 @@ Production hardening path:
 
 ## 5. Cost optimization applied
 
-- [x] **All-ECS but right-sized**: 0.5 vCPU / 1GB per task for Telemetry API, Worker and AI Engine; AI min 2, max 4 theo AI Deployment Contract.
+- [x] **All-ECS but right-sized**: 1 vCPU / 2GB Telemetry API + 0.5 vCPU / 1GB Worker + 2×0.5 vCPU / 1GB AI; AI min 2, max 4 theo AI Deployment Contract.
 - [x] **x86 Fargate**: explicitly selected for compatibility and contract stability; ARM64 remains future optimization.
 - [x] **1 NAT Gateway theo một AZ**: cheaper than NAT per AZ for capstone. Accepted trade-off: NAT egress is not fully HA, but Worker → AI does not depend on NAT.
 - [x] **S3/DynamoDB Gateway Endpoints**: no hourly endpoint charge; reduces NAT data processing for S3/DynamoDB paths.

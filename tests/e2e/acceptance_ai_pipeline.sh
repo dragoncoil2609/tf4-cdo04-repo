@@ -28,8 +28,19 @@ SEED_MINUTES="${SEED_MINUTES:-125}"
 POLL_SECONDS="${POLL_SECONDS:-600}"
 BASE_URL="$(resolve_api_gateway_base_url)"
 PREDICTION_ID="acceptance-$(date +%Y%m%d%H%M%S)"
+# Ingest authentication: use AWS SigV4 when credentials exist, else Bearer token.
+# SigV4 path sends X-Tenant-Ingest-Token instead of Authorization: Bearer.
 INGEST_AUTH_HEADER=()
-if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+INGEST_AUTH_FLAGS=()
+if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+  INGEST_AUTH_FLAGS=(--aws-sigv4 "aws:amz:${AWS_REGION}:execute-api" --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}")
+  if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
+    INGEST_AUTH_HEADER+=(-H "x-amz-security-token: ${AWS_SESSION_TOKEN}")
+  fi
+  if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+    INGEST_AUTH_HEADER+=(-H "X-Tenant-Ingest-Token: ${TENANT_INGEST_TOKEN}")
+  fi
+elif [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
   INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
 fi
 
@@ -40,6 +51,7 @@ post_metric() {
     -H "Content-Type: application/json" \
     -H "X-Tenant-Id: ${TENANT_ID}" \
     -H "X-Correlation-Id: ${PREDICTION_ID}" \
+    "${INGEST_AUTH_FLAGS[@]}" \
     "${INGEST_AUTH_HEADER[@]}" \
     -d "${payload}"
 }

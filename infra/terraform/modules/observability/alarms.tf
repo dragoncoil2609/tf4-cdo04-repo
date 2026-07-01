@@ -111,7 +111,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_alb_5xx_rate" {
   }
 }
 
-# Running task count < 2
+# Running task count < 1 (MVP single writer)
 resource "aws_cloudwatch_metric_alarm" "telemetry_api_running_tasks" {
   alarm_name          = "${var.project_name}-telemetry-api-running-tasks-${var.environment}"
   comparison_operator = "LessThanThreshold"
@@ -120,8 +120,8 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_running_tasks" {
   namespace           = "ECS/ContainerInsights"
   period              = 60
   statistic           = "Minimum"
-  threshold           = 2
-  alarm_description   = "Telemetry API running task count is below 2"
+  threshold           = 1
+  alarm_description   = "Telemetry API running task count is below 1 (MVP single writer)"
   alarm_actions       = local.scoped_alarm_actions
   treat_missing_data  = "breaching"
 

@@ -24,7 +24,7 @@ infra/
 │   ├── modules/
 │   │   ├── networking/    # VPC, public/private subnets, SGs, 1 NAT, S3/DynamoDB Gateway Endpoints
 │   │   ├── data/          # AMP workspace, DynamoDB audit/policy, SQS/DLQ, S3 evidence, Secrets/KMS
-│   │   ├── compute/       # Public ALB, ECS Cluster, ECS Fargate Services, ECS Service Connect, Scheduler
+│   │   ├── compute/       # API Gateway HTTP API/VPC Link, internal ALB, ECS Cluster, ECS Fargate Services, ECS Service Connect, Scheduler
 │   │   └── observability/ # CloudWatch Logs/Metrics/Dashboard/Alarms, SNS/Budget alerting
 │   ├── main.tf
 │   ├── variables.tf
@@ -163,7 +163,7 @@ Trong quá trình khởi tạo môi trường mới thông qua pipeline, các t�
 | 1 | Database & Message Queue (DynamoDB, SQS) | Nơi lưu trữ và truyền tin |
 | 2 | Observability Core (CloudWatch Logs/Metrics, Dashboard, SNS) | Hạ tầng giám sát và alert sẵn sàng nhận log/metric |
 | 3 | Compute Layer (ECS Cluster, Fargate Task Definitions cho Telemetry API, Worker, AI Engine) | Môi trường tính toán chứa container |
-| 4 | Ingress + private AI routing | Public `/v1/ingest` đi qua API Gateway HTTP API; Worker gọi AI qua NAT → API Gateway HTTP API `AWS_IAM` → VPC Link → internal ALB `:80` → AI Engine target group. ECS Service Connect giữ làm rollback/fallback. |
+| 4 | Ingress + private AI routing | Public `/v1/ingest` và `/v1/predict` đều qua API Gateway HTTP API với `AWS_IAM`/SigV4; Worker gọi AI qua NAT → API Gateway HTTP API `AWS_IAM` → VPC Link → internal ALB `:80` → AI Engine target group. Ingest clients ký SigV4 service `execute-api`, gửi token qua `X-Tenant-Ingest-Token`. ECS Service Connect giữ làm rollback/fallback. |
 
 ---
 

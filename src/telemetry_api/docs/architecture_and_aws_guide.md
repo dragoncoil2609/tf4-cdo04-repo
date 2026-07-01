@@ -61,7 +61,7 @@ AMP_REMOTE_WRITE_ENDPOINT=https://aps-workspaces.us-east-1.amazonaws.com/workspa
 
 #### Bước 2: Kiểm tra trạng thái sức khỏe
 ```bash
-curl -i http://<ALB_DNS_NAME>/health
+curl -i https://<API_GATEWAY_BASE_URL>/health
 ```
 **Kết quả mong đợi (HTTP 200 OK):**
 ```json
@@ -77,7 +77,7 @@ curl -i http://<ALB_DNS_NAME>/health
 
 #### Bước 3: Gửi Telemetry Hợp lệ
 ```bash
-curl -X POST http://<ALB_DNS_NAME>/v1/ingest \
+curl -X POST https://<API_GATEWAY_BASE_URL>/v1/ingest \
   -H "Content-Type: application/json" \
   -H "X-Tenant-Id: demo-tenant-001" \
   -H "X-Correlation-Id: test-aws-ingest-001" \

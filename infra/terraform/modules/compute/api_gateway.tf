@@ -3,7 +3,7 @@
 #
 # Routes:
 #   GET  /health      NONE   -> internal ALB
-#   POST /v1/ingest   NONE   -> internal ALB
+#   POST /v1/ingest   AWS_IAM -> internal ALB
 #   POST /v1/predict  AWS_IAM -> internal ALB
 #
 # VPC Link integration targets internal ALB HTTP :80 listener.
@@ -62,7 +62,7 @@ resource "aws_apigatewayv2_route" "health" {
 resource "aws_apigatewayv2_route" "ingest" {
   api_id             = aws_apigatewayv2_api.main.id
   route_key          = "POST /v1/ingest"
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
   target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }
 

@@ -31,7 +31,7 @@ evidence/logs/audit-recent-scan.json
 
 ## 2. Runtime env
 
-Use API Gateway public endpoint for final evidence:
+Use API Gateway public endpoint for final evidence. When running in AWS (with credentials), SigV4 signing is automatic; the k6 script uses the jslib SignatureV4 module and curl-based scripts use `--aws-sigv4`. The ingest token is passed through `X-Tenant-Ingest-Token` header when signed, or `Authorization: Bearer` when unsigned.
 
 ```bash
 export AWS_REGION=us-east-1
@@ -88,8 +88,11 @@ k6 run tests/k6/acceptance_ingest.js \
   -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
   -e RATE=50 \
   -e DURATION=2m \
+  -e AWS_REGION=us-east-1 \
   --summary-export evidence/logs/acceptance-50rps-2m-final-summary.json
 ```
+
+Note: When `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables are set, the k6 script automatically switches to SigV4 signing with service `execute-api`, sending the tenant token through `X-Tenant-Ingest-Token` header instead of `Authorization: Bearer`. The same environment variables (`TELEMETRY_API_HOST`, `TENANT_ID`, `TENANT_INGEST_TOKEN`, `RATE`, `DURATION`) remain unchanged.
 
 Observed:
 
@@ -112,6 +115,7 @@ k6 run tests/k6/acceptance_ingest.js \
   -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
   -e RATE=50 \
   -e DURATION=3h \
+  -e AWS_REGION=us-east-1 \
   --summary-export evidence/logs/acceptance-50rps-3h-final-summary.json
 ```
 
@@ -184,7 +188,40 @@ Latest good records are documented in `docs/07_test_eval_report.md`.
 - **Endpoint**: `POST /v1/ingest`
 - **Payload**: `{ts, tenant_id, service_id, metric_type, value, labels}`
 - **Headers**: `Content-Type: application/json`, `X-Tenant-Id: <tenant_id>`
+- **Auth**: `AWS_IAM`/SigV4 enforced by API Gateway with service `execute-api`. Unsigned requests return `403`. Bearer fallback (`Authorization: Bearer <token>`) used only when AWS credentials are absent (local dev).
+- **Tenant token**: Passed via `X-Tenant-Ingest-Token` header in SigV4 mode; the signed request does not use the `Authorization` header for the ingest token.
 - **Expected success**: `201` or `202`
+
+### 8.1 SigV4 ingest usage
+
+k6 (automatic when `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set):
+
+```bash
+k6 run tests/k6/acceptance_ingest.js \
+  -e TELEMETRY_API_HOST=https://api.example.com \
+  -e TENANT_ID=demo-tenant-001 \
+  -e SERVICE_IDS=ledger,payment-gw,fraud-detector \
+  -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
+  -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+  -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+  -e AWS_REGION=us-east-1 \
+  -e RATE=50 \
+  -e DURATION=2m
+```
+
+curl (use `--aws-sigv4` flag, available in curl 7.75+):
+
+```bash
+curl -X POST "${API_GATEWAY_BASE_URL}/v1/ingest" \
+  --aws-sigv4 "aws:amz:${AWS_REGION}:execute-api" \
+  --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
+  -H "x-amz-security-token: ${AWS_SESSION_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: demo-tenant-001" \
+  -H "X-Tenant-Ingest-Token: ${TENANT_INGEST_TOKEN}" \
+  -d '{"ts":"...","tenant_id":"demo-tenant-001","service_id":"ledger","metric_type":"cpu_usage_percent","value":42,"labels":{"region":"us-east-1"}}'
+```
+
 - **Labels**: low-cardinality only (`region`, `environment`) plus required metric labels.
 
 | Metric | Required labels |

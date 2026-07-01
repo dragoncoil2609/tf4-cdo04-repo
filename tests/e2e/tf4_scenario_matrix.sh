@@ -29,8 +29,19 @@ WARMUP_MINUTES="${WARMUP_MINUTES:-120}"
 SCENARIO_MINUTES="${SCENARIO_MINUTES:-60}"
 POLL_SECONDS="${POLL_SECONDS:-1200}"
 BASE_URL="$(resolve_api_gateway_base_url)"
+# Ingest authentication: use AWS SigV4 when credentials exist, else Bearer token.
+# SigV4 path sends X-Tenant-Ingest-Token instead of Authorization: Bearer.
 INGEST_AUTH_HEADER=()
-if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+INGEST_AUTH_FLAGS=()
+if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+  INGEST_AUTH_FLAGS=(--aws-sigv4 "aws:amz:${AWS_REGION}:execute-api" --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}")
+  if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
+    INGEST_AUTH_HEADER+=(-H "x-amz-security-token: ${AWS_SESSION_TOKEN}")
+  fi
+  if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+    INGEST_AUTH_HEADER+=(-H "X-Tenant-Ingest-Token: ${TENANT_INGEST_TOKEN}")
+  fi
+elif [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
   INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
 fi
 mkdir -p evidence/logs
@@ -49,6 +60,7 @@ post_metric() {
     -H "Content-Type: application/json" \
     -H "X-Tenant-Id: ${TENANT_ID}" \
     -H "X-Correlation-Id: ${correlation_id}" \
+    "${INGEST_AUTH_FLAGS[@]}" \
     "${INGEST_AUTH_HEADER[@]}" \
     -d "${payload}"
 }

@@ -94,7 +94,7 @@ resource "aws_cloudwatch_dashboard" "cost_dashboard" {
 ####  Hướng dẫn đối soát hóa đơn
 1.  **Theo dõi hạn mức ngày**: Đảm bảo chi phí trung bình hàng ngày dưới **$6.66/ngày** để duy trì trong hạn mức $200/tháng.
 2.  **Xác thực thẻ tài nguyên (Tagging)**: Đảm bảo mọi tài nguyên được tạo có tag `Project = tf4-cdo04` and `Environment = ${var.environment}`.
-3.  **Kiểm tra dịch vụ ECS**: Nếu chi phí tăng đột biến, kiểm tra số lượng task hoạt động của `telemetry-api` (tối đa 2) và xem `ai-engine` / `prediction-worker` đã được scale về 0 hay chưa (nếu circuit breaker đã kích hoạt).
+3.  **Kiểm tra dịch vụ ECS**: Nếu chi phí tăng đột biến, kiểm tra `telemetry-api` đang giữ 1 task MVP single-writer và xem `ai-engine` / `prediction-worker` đã được scale về 0 hay chưa (nếu circuit breaker đã kích hoạt).
 4.  **Kiểm tra NAT Gateway**: Theo dõi dung lượng xử lý dữ liệu của NAT Gateway để tránh chạy load test quá công suất ngoài khung giờ quy định.
 5.  **Chu kỳ đối soát**: Thực hiện đối soát định kỳ hàng tuần dung lượng AMP Ingest và lượng message ném vào DLQ của SQS.
 EOT

@@ -59,11 +59,29 @@ run_probe() {
   local tmp_body status passed response
   tmp_body="$(mktemp)"
 
+  # Determine if SigV4 should be used for this probe.
+  # Auth modes: valid = apply SigV4 when AWS creds exist, else Bearer.
+  #             none   = no auth header at all (for unsigned-403 probes).
+  #             invalid = supply an invalid Bearer token.
+  local use_sigv4=false
+  if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" && "${auth_mode}" == "valid" ]]; then
+    use_sigv4=true
+  fi
+
   args=(-sS -o "${tmp_body}" -w "%{http_code}" -X "${method}" "${base_url}${path}")
+
   if [[ -n "${tenant_header}" ]]; then
     args+=(-H "X-Tenant-Id: ${tenant_header}")
   fi
-  if [[ -n "${TENANT_INGEST_TOKEN:-}" && "${auth_mode}" == "valid" ]]; then
+  if ${use_sigv4}; then
+    args+=(--aws-sigv4 "aws:amz:${AWS_REGION}:execute-api" --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}")
+    if [[ -n "${AWS_SESSION_TOKEN:-}" ]]; then
+      args+=(-H "x-amz-security-token: ${AWS_SESSION_TOKEN}")
+    fi
+    if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+      args+=(-H "X-Tenant-Ingest-Token: ${TENANT_INGEST_TOKEN}")
+    fi
+  elif [[ -n "${TENANT_INGEST_TOKEN:-}" && "${auth_mode}" == "valid" && ! "${use_sigv4}" ]]; then
     args+=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
   elif [[ "${auth_mode}" == "invalid" ]]; then
     args+=(-H "Authorization: Bearer invalid-token")
@@ -107,7 +125,11 @@ PY
   run_probe "public_metrics_blocked" "not_200" "GET" "/metrics"
   printf ','
   run_probe "unsigned_predict_requires_iam" "403" "POST" "/v1/predict" '{"signal_window":[],"context":{"deployment_version":"security","time_range":{"start_ts":"2026-06-30T00:00:00Z","end_ts":"2026-06-30T02:00:00Z"}}}'
-  if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+  if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    # SigV4 enforced: unsigned ingest should be rejected with 403.
+    printf ','
+    run_probe "unsigned_ingest_requires_sigv4" "403" "POST" "/v1/ingest" "${missing_tenant_body}" "tenant-a" "none"
+  elif [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
     printf ','
     run_probe "missing_auth_token" "reject" "POST" "/v1/ingest" "${missing_tenant_body}" "tenant-a" "none"
     printf ','
