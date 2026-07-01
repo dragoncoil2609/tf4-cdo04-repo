@@ -1372,7 +1372,7 @@ export <span class="fn">TENANT_INGEST_TOKEN</span>=<span class="str">"$(terrafor
 
       <div class="eyebrow"><span class="dot"></span>8.7 Trạng Thái Thử Nghiệm Thực Tế (Test Evidence Caveat)</div>
       <div class="callout callout-warning reveal">
-        <p><strong>Caveat về thử nghiệm K6 3h:</strong> Quá trình chạy load test 3h ở mức tải 50 RPS phát sinh 5 dropped iterations và 1 failed request trên tổng số 539,995 requests (Tỷ lệ lỗi cực thấp ~0.00093% dropped và 99.9998% success). Kết quả này đã được hội đồng chấp thuận thông qua dưới dạng Operational Pass.</p>
+        <p><strong>Caveat về thử nghiệm K6 3h:</strong> Quá trình chạy load test 3h ở mức tải 50 RPS phát sinh 27 dropped iterations và 19 failed requests trên tổng số 539,974 requests (Tỷ lệ lỗi cực thấp ~0.005% dropped và 99.9965% success). Kết quả này đã được hội đồng chấp thuận thông qua dưới dạng Operational Pass.</p>
       </div>
     </section>
 
@@ -1655,7 +1655,7 @@ aws ecs update-service --cluster <span class="str">"tf4-cdo04-sandbox-cluster"</
 
       <div class="eyebrow"><span class="dot"></span>13.2 Các Rào Cản/Caveats Vận Hành</div>
       <p class="reveal">
-        Hệ thống ghi nhận caveat k6 3h tải 50 RPS có phát sinh dropped iterations cực nhỏ (5 dropped iterations, 1 failed request trên tổng số 539,995 requests, tương đương 99.9998% success), cơ chế xác thực SigV4 trên AI Engine chưa thực thi ở mức app-side (SYS-09 auth mismatch), và dữ liệu Actual Cost từ Cost Explorer bị trễ so với thực tế.
+        Hệ thống ghi nhận caveat k6 3h tải 50 RPS có phát sinh dropped iterations cực nhỏ (27 dropped iterations, 19 failed requests trên tổng số 539,974 requests, tương đương 99.9965% success), cơ chế xác thực SigV4 trên AI Engine chưa thực thi ở mức app-side (SYS-09 auth mismatch), và dữ liệu Actual Cost từ Cost Explorer bị trễ so với thực tế.
       </p>
 
       <div class="eyebrow"><span class="dot"></span>13.3 Thứ Tự Ưu Tiên Vá Lỗi (Priority Fix Order)</div>

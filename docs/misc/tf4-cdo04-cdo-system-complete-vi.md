@@ -828,7 +828,12 @@ ACM cert:
 
 ### 6.5 Dashboard
 
-CloudWatch dashboard contains cost/operational widgets and SRE guidance. It is visualization evidence, not source of truth for prediction. Source of truth for metric input remains AMP and source of truth for decision remains DynamoDB audit.
+CloudWatch dashboard chứa các widget giám sát chi phí, hoạt động vận hành hệ thống và tài liệu hướng dẫn SRE. Dashboard đóng vai trò hiển thị trực quan (visualization evidence), không phải nguồn dữ liệu quyết định (source of truth). Nguồn dữ liệu đầu vào vẫn là AMP và lịch sử quyết định được lưu trong DynamoDB audit.
+
+**Cập nhật cấu hình Dashboard & Alarms mới nhất:**
+- **Sửa lỗi Dimension trên Dashboard:** Các widgets giám sát ALB trên Dashboard hiện đã được đồng bộ để sử dụng giá trị ARN suffix động của Target Group (`var.telemetry_api_target_group_arn_suffix`, `var.ai_engine_target_group_arn_suffix`) thay vì hardcode các giá trị legacy (`ledger-tg`, `payment-tg`, `kyc-tg`). Widgets giám sát ECS CPU/Memory cũng đã chuyển sang sử dụng các biến tên dịch vụ thực tế (`var.telemetry_api_service_name`, `var.worker_service_name`, `var.ai_engine_service_name`) thay vì tên cũ (`ledger-service`, etc.).
+- **Loại bỏ cảnh báo trùng lặp:** Cảnh báo `prediction_dlq_visible` trùng lặp trong `alarms.tf` đã được loại bỏ. Hệ thống giữ lại cảnh báo `dlq_depth_alarm` vì có đi kèm cấu hình `ok_actions` và thông tin phân loại sự cố chi tiết hơn.
+- **Bổ sung trạng thái khôi phục (Recovery Notifications):** Tất cả các cảnh báo vận hành quan trọng (pager-worthy alarms) như quá tải CPU/Memory, trễ phản hồi (p99 latency) và số lượng tác vụ hoạt động thấp hiện đã được bổ sung tham số `ok_actions` trỏ về SNS topic tương ứng, giúp thông báo phục hồi tự động khi hệ thống ổn định trở lại.
 
 ### 6.6 Budget alarms and cost breaker
 
@@ -963,7 +968,7 @@ Additional pass criteria:
 - F1/confusion/Brier reported.
 - >= 1 scenario lead time >= 15min.
 - k6 50 RPS accepted: p95 < 1000ms, error rate < 1%, sustained ~50 RPS.
-- 3h k6 caveat visible: 5 dropped iterations and 1 failed request over 539,995 requests; owner accepted as operational pass.
+- 3h k6 caveat visible: 27 dropped iterations và 19 failed requests trên tổng số 539,974 requests (tỷ lệ lỗi 0.0035%); dự án chấp nhận dưới dạng operational pass.
 - Security probes/tests cover tenant mismatch and `/metrics` exposure.
 - DLQ no growth.
 - Budget < $200 by sizing model and budget/cost-breaker configuration.
@@ -1019,12 +1024,12 @@ Final live evidence has been regenerated under `evidence/logs/` and summarized i
 Current demo acceptance status:
 
 ```text
-2m 50 RPS smoke: PASS, 6,001 requests, 0 failures, 0 dropped iterations.
-3h 50 RPS run: accepted PASS with caveat, 539,995 requests, p95 257 ms, 1 failed request, 5 dropped iterations.
-Worker/AI path: PASS, DynamoDB audit contains AI_ENGINE + complete_window + ai_status_code=200 for ledger, payment-gw, fraud-detector.
+2m 50 RPS smoke: PASS, 5,999 requests, 0 failures, 2 dropped iterations.
+3h 50 RPS run: accepted PASS với caveat, 539,974 requests, p95 256.19 ms, 19 failed requests (0.0035%), 27 dropped iterations.
+Worker/AI path: PASS, DynamoDB audit chứa bản ghi AI_ENGINE + complete_window + ai_status_code=200 đầy đủ cho cả 3 services: ledger, payment-gw, fraud-detector.
 ```
 
-Caveat: 3h k6 is not a strict zero-drop pass. It is accepted as operational pass because drop rate was ~0.00093% and request success was 99.9998%.
+Caveat: Chạy k6 3h không đạt tỷ lệ zero-drop tuyệt đối (phát sinh 27 dropped iterations khiến exit code của k6 là 99) và có 19 requests thất bại (0.0035%). Kết quả này được chấp thuận là operational pass vì tỷ lệ thành công của request đạt tới 99.9965%.
 
 ---
 
