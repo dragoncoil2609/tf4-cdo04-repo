@@ -169,6 +169,12 @@ output "tenant_ingest_token_secret_arn" {
   value       = module.data.tenant_ingest_token_secret_arn
 }
 
+output "tenant_ingest_token" {
+  description = "Terraform-managed demo tenant ingest token for k6/default demo workflow"
+  value       = module.data.tenant_ingest_token
+  sensitive   = true
+}
+
 output "slack_webhook_secret_arn" {
   description = "Secrets Manager ARN for Slack webhook"
   value       = module.data.slack_webhook_secret_arn

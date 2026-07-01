@@ -121,6 +121,12 @@ output "tenant_ingest_token_secret_arn" {
   value       = aws_secretsmanager_secret.tenant_ingest_token.arn
 }
 
+output "tenant_ingest_token" {
+  description = "Terraform-managed demo tenant ingest token for k6/default demo workflow"
+  value       = random_password.tenant_ingest_token.result
+  sensitive   = true
+}
+
 output "slack_webhook_secret_arn" {
   description = "Secrets Manager ARN for Slack webhook"
   value       = aws_secretsmanager_secret.slack_webhook_url.arn

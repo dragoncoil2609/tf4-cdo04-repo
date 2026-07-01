@@ -39,7 +39,7 @@ export ALB_BASE_URL=https://xbrain26hackathon269.software
 export TELEMETRY_API_HOST=https://xbrain26hackathon269.software
 export TENANT_ID=demo-tenant-001
 export SERVICE_IDS=ledger,payment-gw,fraud-detector
-export TENANT_INGEST_TOKEN=<secret-manager-value>  # required after Secrets Manager wiring is deployed
+export TENANT_INGEST_TOKEN="$(terraform -chdir=infra/terraform output -raw tenant_ingest_token)"  # Terraform-managed demo token; stored in Terraform state
 ```
 
 Raw ALB DNS with `https://` causes certificate hostname mismatch because ACM cert is for `xbrain26hackathon269.software`.
