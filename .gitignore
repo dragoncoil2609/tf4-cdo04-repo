@@ -39,3 +39,5 @@ logs/
 # Scratch directory
 /scratch/
 
+# Claude
+/.claude/

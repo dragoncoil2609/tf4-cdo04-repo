@@ -4,7 +4,7 @@
      Status: FINAL LIVE EVIDENCE CAPTURED - accepted for demo with noted k6 caveat
      Region: us-east-1
      Environment: sandbox
-     Date updated: 2026-07-01 -->
+     Date updated: 2026-07-02 -->
 
 ## 1. Executive verdict
 
@@ -13,7 +13,7 @@
 Live evidence chứng minh:
 
 ```text
-Telemetry ingest over custom HTTPS domain works.
+Telemetry ingest through API Gateway AWS_IAM works.
 3 canonical services emit metrics for tenant demo-tenant-001.
 Prediction worker reads AMP and reaches AI Engine.
 DynamoDB audit contains AI_ENGINE + complete_window + ai_status_code=200 records.
@@ -23,8 +23,9 @@ DynamoDB audit contains AI_ENGINE + complete_window + ai_status_code=200 records
 Caveat được giữ rõ ràng:
 
 ```text
-3h k6 had 5 dropped_iterations and 1 failed request out of 539,995 requests.
-Operationally negligible; accepted by project owner as pass.
+3h k6 exited 99 because strict dropped_iterations count<1 threshold failed.
+Observed 27 dropped iterations and 19 failed requests out of 539,974 requests.
+Failure rate was 0.0035%, below the <1% gate.
 Do not describe it as a zero-drop strict k6 pass.
 ```
 
@@ -34,12 +35,14 @@ Runtime evidence lives under `evidence/logs/`.
 
 | Evidence | File |
 |---|---|
-| 2m 50 RPS smoke summary | `evidence/logs/acceptance-50rps-2m-final-summary.json` |
-| 3h 50 RPS final summary | `evidence/logs/acceptance-50rps-3h-final-summary.json` |
-| 3h run log | `evidence/logs/acceptance-50rps-3h-domain-demo-tenant.log` |
-| Worker CloudWatch export | `evidence/logs/prediction-worker-recent.json` |
-| AI Engine CloudWatch export | `evidence/logs/ai-engine-recent.json` |
-| DynamoDB audit scan | `evidence/logs/audit-recent-scan.json` |
+| Curated live evidence index | `evidence/logs/live-testing-20260701-141831/curated/README.md` |
+| 2m 50 RPS smoke summary | `evidence/logs/live-testing-20260701-141831/curated/k6-50rps-2m-summary.json` |
+| 3h 50 RPS final summary | `evidence/logs/live-testing-20260701-141831/curated/k6-50rps-3h-summary.json` |
+| Trimmed 3h k6 final log | `evidence/logs/live-testing-20260701-141831/curated/k6-50rps-3h-log-thresholds.txt` |
+| SigV4 smoke proof | `evidence/logs/live-testing-20260701-141831/curated/preflight-post-apply-smoke-signed.log` |
+| Final poll summary | `evidence/logs/live-testing-20260701-141831/curated/poll-final-summary.tsv` |
+| DynamoDB audit samples | `evidence/logs/live-testing-20260701-141831/curated/poll-*-audit-sample.json` |
+| AMP query samples | `evidence/logs/live-testing-20260701-141831/curated/amp-sample-*.json` |
 
 Superseded evidence remains diagnostic only:
 
@@ -47,65 +50,82 @@ Superseded evidence remains diagnostic only:
 acceptance-50rps-*insecure*
 acceptance-50rps-*domain-multiservice*
 acceptance-50rps-*domain.log without demo tenant
+CloudWatch tail/error captures from live-testing-20260701-141831
 ```
 
-## 3. Load and ingest evidence
+## 3. Preflight evidence
 
-### 3.1 2m smoke gate
+Source: `preflight-post-apply-smoke-signed.log`.
+
+| Probe | Result | Verdict |
+|---|---:|---|
+| `/health` | 200 | PASS |
+| unsigned `POST /v1/ingest` | 403 | PASS |
+| signed `POST /v1/ingest` | 201 | PASS |
+| unsigned `POST /v1/predict` | 403 | PASS |
+| signed `POST /v1/predict` | 200 | PASS |
+| AMP query endpoint | reachable | PASS |
+| ECS services after wait | stable | PASS |
+| DLQ baseline | 652 pre-existing | caveat baseline |
+
+## 4. Load and ingest evidence
+
+### 4.1 2m smoke gate
 
 Run target:
 
 ```text
-URL=https://xbrain26hackathon269.software
+URL=https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com
 TENANT_ID=demo-tenant-001
 SERVICE_IDS=ledger,payment-gw,fraud-detector
 RATE=50
 DURATION=2m
 ```
 
-Result from `acceptance-50rps-2m-final-summary.json`:
+Result from `k6-50rps-2m-summary.json`:
 
 | Metric | Result | Gate |
 |---|---:|---|
-| HTTP requests | 6,001 | ok |
-| Sustained RPS | 49.910/s | ok |
-| p95 latency | 246.51 ms | < 1000 ms |
+| HTTP requests | 5,999 | ok |
+| Sustained RPS | 49.894/s | ok |
+| p95 latency | 258.94 ms | < 1000 ms |
 | Failed requests | 0 | < 1% |
-| Dropped iterations | 0 | strict pass |
-| Checks | 6,001 / 6,001 | pass |
+| Dropped iterations | 2 | caveat |
+| Checks | 5,999 / 5,999 | pass |
 
-### 3.2 3h final 50 RPS gate
+### 4.2 3h final 50 RPS gate
 
 Run target:
 
 ```text
-URL=https://xbrain26hackathon269.software
+URL=https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com
 TENANT_ID=demo-tenant-001
 SERVICE_IDS=ledger,payment-gw,fraud-detector
 RATE=50
 DURATION=3h
 ```
 
-Result from `acceptance-50rps-3h-final-summary.json`:
+Result from `k6-50rps-3h-summary.json`:
 
 | Metric | Result | Gate / interpretation |
 |---|---:|---|
-| HTTP requests | 539,995 | ~540k sustained ingest calls |
-| Sustained RPS | 49.9986/s | target met |
-| p95 latency | 257.42 ms | pass, < 1000 ms |
-| Max latency | 2.08 s | isolated spike |
-| Failed requests | 1 / 539,995 = 0.000185% | pass, < 1% |
-| Checks | 539,994 / 539,995 = 99.9998% | pass |
-| Dropped iterations | 5 / ~540,000 = 0.00093% | owner-accepted caveat |
-| k6 exit code | 99 | caused by strict zero-drop threshold |
+| HTTP requests | 539,974 | ~540k sustained ingest calls |
+| Sustained RPS | 49.9965/s | target met |
+| p95 latency | 256.19 ms | pass, < 1000 ms |
+| Avg latency | 249.00 ms | ok |
+| Max latency | 19.38 s | isolated driver/network spike |
+| Failed requests | 19 / 539,974 = 0.0035% | pass, < 1% |
+| Checks | 539,955 / 539,974 = 99.9965% | pass |
+| Dropped iterations | 27 | strict zero-drop caveat |
+| k6 exit code | 99 | caused by strict dropped_iterations threshold |
 
 Mentor-facing wording (trình bày với mentor):
 
 ```text
-The 3-hour run sustained 50 RPS over 539,995 ingest requests with p95 latency 257 ms and 99.9998% accepted responses. Five local k6 dropped iterations occurred over the 3-hour run; this is documented as a negligible scheduler/headroom artifact and not hidden.
+The 3-hour run sustained 50 RPS over 539,974 ingest requests with p95 latency 256 ms and a 0.0035% failed-request rate. Twenty-seven local k6 dropped iterations occurred over the 3-hour run; this is documented as a strict-threshold caveat and not hidden.
 ```
 
-## 4. Telemetry path semantics
+## 5. Telemetry path semantics
 
 Current runtime path:
 
@@ -132,71 +152,75 @@ Telemetry cadence demo thông thường:
 50 RPS = about 143x demo producer headroom
 ```
 
-## 5. AI prediction evidence
+## 6. AI prediction evidence
 
-DynamoDB audit scan shows live records for tenant `demo-tenant-001` and all 3 canonical services.
+DynamoDB audit query shows live records for tenant `demo-tenant-001` and all 3 canonical services.
 
 Latest good AI complete-window records:
 
-| Time UTC | Service | Source | Evidence | AI status | Latency | Decision |
-|---|---|---|---|---:|---:|---|
-| 2026-06-30T17:52:32Z | fraud-detector | AI_ENGINE | complete_window | 200 | 759 ms | SCALE_UP |
-| 2026-06-30T17:52:33Z | payment-gw | AI_ENGINE | complete_window | 200 | 199 ms | SCALE_UP |
-| 2026-06-30T17:52:34Z | ledger | AI_ENGINE | complete_window | 200 | 25 ms | SCALE_UP |
-| 2026-06-30T17:57:31Z | fraud-detector | AI_ENGINE | complete_window | 200 | 258 ms | SCALE_UP |
-| 2026-06-30T17:57:32Z | payment-gw | AI_ENGINE | complete_window | 200 | 19 ms | SCALE_UP |
-| 2026-06-30T17:57:34Z | ledger | AI_ENGINE | complete_window | 200 | 19 ms | SCALE_UP |
+| Time UTC | Service | Source | Evidence | AI status |
+|---|---|---|---|---:|
+| 2026-07-01T17:37:31.904208+00:00 | fraud-detector | AI_ENGINE | complete_window | 200 |
+| 2026-07-01T17:37:32.860310+00:00 | payment-gw | AI_ENGINE | complete_window | 200 |
+| 2026-07-01T17:37:34.677907+00:00 | ledger | AI_ENGINE | complete_window | 200 |
 
-Audit outcome summary from recent scan:
+Audit evolution during run:
 
 ```text
-AI_ENGINE + complete_window + 200: 6 records
-AI_ENGINE + partial_window + 200: 3 records
-3 services covered: ledger, payment-gw, fraud-detector
+poll-01: STATIC_THRESHOLD_FALLBACK partial_window ai_status_code=0
+poll-03: AI_ENGINE partial_window ai_status_code=200
+poll-05: AI_ENGINE complete_window ai_status_code=200
+final:   AI_ENGINE complete_window ai_status_code=200 for all 3 services
 ```
 
-Điều này fix issue false `gap_ratio=100%` trước đó; live worker hiện đã reach AI Engine sau khi AMP window fills.
+Điều này chứng minh cold-start gap handling và full AI path thành công sau khi AMP window fills.
 
-## 6. Worker and AI Engine logs
+## 7. Runtime health evidence
 
-Worker evidence:
+Final poll:
+
+| Check | Result | Verdict |
+|---|---:|---|
+| ECS bad services | 0 | PASS |
+| SQS main visible/inflight | 0 / 0 | PASS |
+| DLQ visible/inflight | 652 / 0 | unchanged baseline |
+| AMP instant queries | 20 / 21 present | caveat |
+| DynamoDB latest audit rows | 30 queried | PASS |
+
+Earlier polls had AMP 21/21 present. Final 20/21 is a point-in-time query caveat, not a worker failure because final audit still shows complete-window AI_ENGINE records.
+
+## 8. Worker and AI Engine log caveat
+
+CloudWatch tail/error artifacts from `live-testing-20260701-141831` did not contain useful service logs because collection failed/no useful content was produced.
+
+Use these artifacts as pass evidence instead:
 
 ```text
-worker jobs started: 144
-worker audit saved: 144
-worker SNS alerts: 144
-AI_ENGINE audit records: 9
-complete_window AI records: 6
+k6 summaries
+preflight smoke
+ECS service state
+SQS main/DLQ depth
+AMP query responses
+DynamoDB audit records
 ```
 
-AI Engine evidence:
+Do not claim CloudWatch service-log review as pass evidence for this run.
 
-```text
-GET /health 200: 965
-POST /v1/predict 200: 6 in recent AI Engine logs
-```
-
-Log noise không chặn (non-blocking):
-
-```text
-envoy_bug removed guard envoy.reloadable_features.use_http_client_to_fetch_aws_credentials
-```
-
-Tác động: không chặn `/health` hoặc `/v1/predict`.
-
-## 7. Security and isolation evidence
+## 9. Security and isolation evidence
 
 Được cover bởi code/tests và smoke design:
 
 | Probe | Status |
 |---|---|
+| `POST /v1/ingest` requires API Gateway SigV4 | preflight unsigned 403, signed 201 |
+| `POST /v1/predict` requires API Gateway SigV4 | preflight unsigned 403, signed 200 |
 | Missing `X-Tenant-Id` rejected | covered by Telemetry API tests |
 | Header/body tenant mismatch rejected | covered by Telemetry API tests |
 | PII/high-cardinality label rejected | covered by Telemetry API tests |
-| Public `/metrics` not routed via ALB | ALB forwards only `/health` and `/v1/ingest` |
+| Public `/metrics` not routed | smoke/design coverage |
 | Cross-account tenant isolation | N/A in single sandbox |
 
-## 8. Cost evidence
+## 10. Cost evidence
 
 Cost Explorer actuals chậm 24-48h, nên same-day run không thể prove full billing impact.
 
@@ -206,26 +230,29 @@ Mentor-safe statement (trình bày với mentor):
 Budget guardrail and cost breaker are configured. Cost Explorer snapshot is delayed supporting evidence. Projected monthly cost remains under $200 based on deployed resource sizing.
 ```
 
-## 9. Final gate table
+## 11. Final gate table
 
 | Gate group | Evidence | Verdict |
 |---|---|---|
 | Unit/contract | pytest previously passed: 155 passed, 1 warning | PASS |
-| HTTPS smoke | custom domain `/health` 200, HTTP redirects to HTTPS | PASS |
-| Ingest smoke | 2m 50 RPS, 6,001 requests, 0 failures, 0 drops | PASS |
-| 3h ingest load | 539,995 requests, p95 257 ms, 1 failure, 5 drops | PASS with caveat |
+| API Gateway smoke | `/health` 200, unsigned protected routes 403, signed routes pass | PASS |
+| Ingest smoke | 2m 50 RPS, 5,999 requests, 0 failures | PASS with drop caveat |
+| 3h ingest load | 539,974 requests, p95 256 ms, 19 failures, 27 drops | PASS with caveat |
 | 3 services | `ledger`, `payment-gw`, `fraud-detector` | PASS |
 | AI path | `AI_ENGINE`, `complete_window`, `ai_status_code=200` | PASS |
-| Worker gap logic | latest gap no longer false 100%; complete_window records exist | PASS |
-| DLQ/queue | no DLQ growth observed in current run context | PASS |
+| Worker gap logic | fallback -> partial AI -> complete AI transition captured | PASS |
+| DLQ/queue | main queue 0/0, DLQ unchanged at 652 | PASS |
 | Cost guard | budget/cost breaker configured | PASS |
 
-## 10. Remaining caveats
+## 12. Remaining caveats
 
 Không overclaim các điểm sau:
 
 ```text
-- 3h k6 was owner-accepted despite 5 dropped iterations; not strict zero-drop k6 pass.
+- 3h k6 was accepted despite 27 dropped iterations; not strict zero-drop k6 pass.
+- 19 failed requests were observed; failure rate still passed the <1% gate.
+- CloudWatch log collection did not yield useful service logs for this live run.
+- Final AMP instant query was 20/21; previous polls were 21/21 and final audit was healthy.
 - 50 RPS is ingest API headroom, not normal telemetry cadence and not AMP event persistence rate.
 - 100 RPS acceptance was not rerun in this final evidence set.
 - Cross-account tenant isolation is N/A in this single sandbox.

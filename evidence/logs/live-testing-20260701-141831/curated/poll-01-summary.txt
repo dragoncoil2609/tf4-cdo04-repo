@@ -1,0 +1,24 @@
+poll poll-01
+k6_summary_not_written_yet
+ecs {'name': 'tf4-cdo04-sandbox-telemetry-api', 'status': 'ACTIVE', 'desired': 1, 'running': 1, 'pending': 0, 'deployments': 1}
+ecs {'name': 'tf4-cdo04-sandbox-prediction-worker', 'status': 'ACTIVE', 'desired': 1, 'running': 1, 'pending': 0, 'deployments': 1}
+ecs {'name': 'tf4-cdo04-sandbox-ai-engine', 'status': 'ACTIVE', 'desired': 2, 'running': 2, 'pending': 0, 'deployments': 1}
+sqs-main.json {'ApproximateNumberOfMessages': '0', 'ApproximateNumberOfMessagesNotVisible': '0'}
+sqs-dlq.json {'ApproximateNumberOfMessages': '652', 'ApproximateNumberOfMessagesNotVisible': '0'}
+amp_present 21
+amp_missing 0
+log_errors_parse_error _aws_apigateway_tf4-cdo04-sandbox-api-errors.json Expecting value: line 1 column 1 (char 0)
+log_errors_parse_error _ecs_ai-engine-errors.json Expecting value: line 1 column 1 (char 0)
+log_errors_parse_error _ecs_prediction-worker-errors.json Expecting value: line 1 column 1 (char 0)
+log_errors_parse_error _ecs_telemetry-api-errors.json Expecting value: line 1 column 1 (char 0)
+audit_count 30
+audit ledger STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T15:02:34.614377+00:00
+audit payment-gw STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T15:02:32.624878+00:00
+audit fraud-detector STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T15:02:31.976402+00:00
+audit ledger STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:57:34.611012+00:00
+audit payment-gw STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:57:32.713870+00:00
+audit fraud-detector STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:57:31.768904+00:00
+audit ledger STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:52:34.586093+00:00
+audit payment-gw STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:52:32.603240+00:00
+audit fraud-detector STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:52:31.779211+00:00
+audit ledger STATIC_THRESHOLD_FALLBACK partial_window 0 2026-07-01T14:47:34.577931+00:00

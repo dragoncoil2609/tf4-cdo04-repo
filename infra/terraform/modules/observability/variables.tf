@@ -80,6 +80,12 @@ variable "telemetry_api_target_group_arn_suffix" {
   default     = ""
 }
 
+variable "ai_engine_target_group_arn_suffix" {
+  description = "AI Engine target group ARN suffix for ALB CloudWatch dimensions (empty if not yet deployed)"
+  type        = string
+  default     = ""
+}
+
 variable "prediction_queue_name" {
   description = "SQS prediction queue name (CloudWatch dimension)"
   type        = string

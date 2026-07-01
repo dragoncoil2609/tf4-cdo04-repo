@@ -133,6 +133,7 @@ module "observability" {
 
   alb_arn_suffix                        = module.compute.alb_arn_suffix
   telemetry_api_target_group_arn_suffix = module.compute.telemetry_api_target_group_arn_suffix
+  ai_engine_target_group_arn_suffix     = module.compute.ai_engine_target_group_arn_suffix
 
   prediction_queue_name     = module.data.prediction_queue_name
   prediction_queue_dlq_name = module.data.prediction_queue_dlq_name

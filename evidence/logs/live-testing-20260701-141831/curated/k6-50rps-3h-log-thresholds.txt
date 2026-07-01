@@ -1,0 +1,180 @@
+running (2h59m16.0s), 013/077 VUs, 537760 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 013/077 VUs  2h59m16.0s/3h0m0s  50.00 iters/s
+
+running (2h59m17.0s), 012/077 VUs, 537811 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m17.0s/3h0m0s  50.00 iters/s
+
+running (2h59m18.0s), 012/077 VUs, 537861 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m18.0s/3h0m0s  50.00 iters/s
+
+running (2h59m19.0s), 012/077 VUs, 537911 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m19.0s/3h0m0s  50.00 iters/s
+
+running (2h59m20.0s), 012/077 VUs, 537961 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m20.0s/3h0m0s  50.00 iters/s
+
+running (2h59m21.0s), 012/077 VUs, 538011 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m21.0s/3h0m0s  50.00 iters/s
+
+running (2h59m22.0s), 012/077 VUs, 538061 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m22.0s/3h0m0s  50.00 iters/s
+
+running (2h59m23.0s), 012/077 VUs, 538111 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m23.0s/3h0m0s  50.00 iters/s
+
+running (2h59m24.0s), 012/077 VUs, 538161 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m24.0s/3h0m0s  50.00 iters/s
+
+running (2h59m25.0s), 012/077 VUs, 538211 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m25.0s/3h0m0s  50.00 iters/s
+
+running (2h59m26.0s), 012/077 VUs, 538261 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m26.0s/3h0m0s  50.00 iters/s
+
+running (2h59m27.0s), 012/077 VUs, 538311 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m27.0s/3h0m0s  50.00 iters/s
+
+running (2h59m28.0s), 012/077 VUs, 538361 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m28.0s/3h0m0s  50.00 iters/s
+
+running (2h59m29.0s), 012/077 VUs, 538411 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m29.0s/3h0m0s  50.00 iters/s
+
+running (2h59m30.0s), 012/077 VUs, 538461 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m30.0s/3h0m0s  50.00 iters/s
+
+running (2h59m31.0s), 012/077 VUs, 538511 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m31.0s/3h0m0s  50.00 iters/s
+
+running (2h59m32.0s), 013/077 VUs, 538560 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 013/077 VUs  2h59m32.0s/3h0m0s  50.00 iters/s
+
+running (2h59m33.0s), 012/077 VUs, 538611 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m33.0s/3h0m0s  50.00 iters/s
+
+running (2h59m34.0s), 012/077 VUs, 538661 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m34.0s/3h0m0s  50.00 iters/s
+
+running (2h59m35.0s), 012/077 VUs, 538711 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m35.0s/3h0m0s  50.00 iters/s
+
+running (2h59m36.0s), 012/077 VUs, 538761 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m36.0s/3h0m0s  50.00 iters/s
+
+running (2h59m37.0s), 012/077 VUs, 538811 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m37.0s/3h0m0s  50.00 iters/s
+
+running (2h59m38.0s), 012/077 VUs, 538861 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m38.0s/3h0m0s  50.00 iters/s
+
+running (2h59m39.0s), 012/077 VUs, 538911 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m39.0s/3h0m0s  50.00 iters/s
+
+running (2h59m40.0s), 012/077 VUs, 538961 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m40.0s/3h0m0s  50.00 iters/s
+
+running (2h59m41.0s), 013/077 VUs, 539010 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 013/077 VUs  2h59m41.0s/3h0m0s  50.00 iters/s
+
+running (2h59m42.0s), 012/077 VUs, 539061 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m42.0s/3h0m0s  50.00 iters/s
+
+running (2h59m43.0s), 012/077 VUs, 539111 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m43.0s/3h0m0s  50.00 iters/s
+
+running (2h59m44.0s), 012/077 VUs, 539161 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m44.0s/3h0m0s  50.00 iters/s
+
+running (2h59m45.0s), 012/077 VUs, 539211 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m45.0s/3h0m0s  50.00 iters/s
+
+running (2h59m46.0s), 012/077 VUs, 539261 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m46.0s/3h0m0s  50.00 iters/s
+
+running (2h59m47.0s), 012/077 VUs, 539311 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m47.0s/3h0m0s  50.00 iters/s
+
+running (2h59m48.0s), 012/077 VUs, 539361 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m48.0s/3h0m0s  50.00 iters/s
+
+running (2h59m49.0s), 013/077 VUs, 539410 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 013/077 VUs  2h59m49.0s/3h0m0s  50.00 iters/s
+
+running (2h59m50.0s), 012/077 VUs, 539461 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m50.0s/3h0m0s  50.00 iters/s
+
+running (2h59m51.0s), 012/077 VUs, 539511 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m51.0s/3h0m0s  50.00 iters/s
+
+running (2h59m52.0s), 012/077 VUs, 539561 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m52.0s/3h0m0s  50.00 iters/s
+
+running (2h59m53.0s), 013/077 VUs, 539610 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 013/077 VUs  2h59m53.0s/3h0m0s  50.00 iters/s
+
+running (2h59m54.0s), 012/077 VUs, 539661 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m54.0s/3h0m0s  50.00 iters/s
+
+running (2h59m55.0s), 012/077 VUs, 539711 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m55.0s/3h0m0s  50.00 iters/s
+
+running (2h59m56.0s), 012/077 VUs, 539761 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m56.0s/3h0m0s  50.00 iters/s
+
+running (2h59m57.0s), 012/077 VUs, 539811 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m57.0s/3h0m0s  50.00 iters/s
+
+running (2h59m58.0s), 012/077 VUs, 539861 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m58.0s/3h0m0s  50.00 iters/s
+
+running (2h59m59.0s), 012/077 VUs, 539911 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  2h59m59.0s/3h0m0s  50.00 iters/s
+
+running (3h00m00.0s), 012/077 VUs, 539961 complete and 0 interrupted iterations
+acceptance_ingest   [ 100% ] 012/077 VUs  3h00m00.0s/3h0m0s  50.00 iters/s
+
+
+  █ THRESHOLDS 
+
+    dropped_iterations
+    ✗ 'count<1' count=27
+
+    http_req_duration
+    ✓ 'p(95)<1000' p(95)=256.18ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 539974 49.996506/s
+    checks_succeeded...: 99.99% 539955 out of 539974
+    checks_failed......: 0.00%  19 out of 539974
+
+    ✗ status is accepted
+      ↳  99% — ✓ 539955 / ✗ 19
+
+    HTTP
+    http_req_duration..............: avg=249ms    min=227.85ms med=240.87ms max=19.37s p(90)=249.74ms p(95)=256.18ms
+      { expected_response:true }...: avg=248.33ms min=227.85ms med=240.87ms max=11.27s p(90)=249.73ms p(95)=256.17ms
+    http_req_failed................: 0.00%  19 out of 539974
+    http_reqs......................: 539974 49.996506/s
+
+    EXECUTION
+    dropped_iterations.............: 27     0.0025/s
+    iteration_duration.............: avg=249.23ms min=227.85ms med=240.91ms max=19.37s p(90)=249.79ms p(95)=256.35ms
+    iterations.....................: 539974 49.996506/s
+    vus............................: 12     min=10           max=72
+    vus_max........................: 77     min=50           max=77
+
+    NETWORK
+    data_received..................: 243 MB 23 kB/s
+    data_sent......................: 303 MB 28 kB/s
+
+
+
+
+running (3h00m00.2s), 000/077 VUs, 539974 complete and 0 interrupted iterations
+acceptance_ingest ✓ [ 100% ] 000/077 VUs  3h0m0s  50.00 iters/s
+time="2026-07-02T00:36:58+07:00" level=error msg="thresholds on metrics 'dropped_iterations' have been crossed"
