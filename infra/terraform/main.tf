@@ -28,13 +28,12 @@ locals {
 module "networking" {
   source = "./modules/networking"
 
-  project_name     = var.project_name
-  environment      = var.environment
-  aws_region       = var.aws_region
-  vpc_cidr         = var.vpc_cidr
-  az_count         = var.az_count
-  app_port         = var.app_port
-  ai_listener_port = var.ai_listener_port
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  vpc_cidr     = var.vpc_cidr
+  az_count     = var.az_count
+  app_port     = var.app_port
 }
 
 module "data" {
@@ -64,13 +63,11 @@ module "compute" {
   telemetry_api_image_tag  = var.telemetry_api_image_tag
   adot_collector_image_tag = var.adot_collector_image_tag
 
-  vpc_id            = module.networking.vpc_id
-  public_subnet_ids = module.networking.public_subnet_ids
-  alb_sg_id         = module.networking.alb_sg_id
-  vpc_link_sg_id    = module.networking.vpc_link_sg_id
+  vpc_id         = module.networking.vpc_id
+  alb_sg_id      = module.networking.alb_sg_id
+  vpc_link_sg_id = module.networking.vpc_link_sg_id
 
-  app_port         = var.app_port
-  ai_listener_port = var.ai_listener_port
+  app_port = var.app_port
 
   prediction_worker_image = var.prediction_worker_image_tag
   ai_engine_image         = var.ai_engine_image_tag
@@ -105,8 +102,8 @@ module "compute" {
   ai_engine_max_capacity         = 4
   ai_engine_autoscale_cpu_target = 70
 
-  domain_name  = var.domain_name
-  enable_https = var.enable_https
+  domain_name = var.domain_name
+  enable_acm  = var.enable_acm
 }
 
 

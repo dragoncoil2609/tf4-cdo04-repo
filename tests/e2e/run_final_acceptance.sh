@@ -11,7 +11,7 @@ require() {
   fi
 }
 
-require ALB_DNS_NAME
+require API_GATEWAY_BASE_URL
 require ECS_CLUSTER_NAME
 require TELEMETRY_API_SERVICE_NAME
 require PREDICTION_WORKER_SERVICE_NAME
@@ -20,16 +20,16 @@ require PREDICTION_QUEUE_URL
 require PREDICTION_QUEUE_DLQ_URL
 require DYNAMODB_AUDIT_TABLE
 
-resolve_alb_base_url() {
-  local endpoint="${ALB_BASE_URL:-${ALB_DNS_NAME}}"
+resolve_api_gateway_base_url() {
+  local endpoint="${API_GATEWAY_BASE_URL}"
   case "${endpoint}" in
     http://*|https://*) printf '%s\n' "${endpoint%/}" ;;
-    *) printf '%s\n' "${ALB_SCHEME:-http}://${endpoint%/}" ;;
+    *) printf '%s\n' "https://${endpoint%/}" ;;
   esac
 }
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
-ALB_BASE_URL="$(resolve_alb_base_url)"
+API_GATEWAY_BASE_URL="$(resolve_api_gateway_base_url)"
 mkdir -p evidence/logs
 
 log_step() {
@@ -79,14 +79,14 @@ fi
 if [[ "${SKIP_K6:-0}" != "1" ]]; then
   log_step "k6 50 RPS acceptance"
   k6 run tests/k6/acceptance_ingest.js \
-    -e TELEMETRY_API_HOST="${ALB_BASE_URL}" \
+    -e TELEMETRY_API_HOST="${API_GATEWAY_BASE_URL}" \
     -e RATE=50 \
     -e DURATION="${ACCEPTANCE_K6_DURATION:-10m}" \
     --summary-export evidence/logs/acceptance-50rps-summary.json
 
   log_step "k6 100 RPS acceptance"
   k6 run tests/k6/acceptance_ingest.js \
-    -e TELEMETRY_API_HOST="${ALB_BASE_URL}" \
+    -e TELEMETRY_API_HOST="${API_GATEWAY_BASE_URL}" \
     -e RATE=100 \
     -e DURATION="${ACCEPTANCE_K6_DURATION:-10m}" \
     --summary-export evidence/logs/acceptance-100rps-summary.json

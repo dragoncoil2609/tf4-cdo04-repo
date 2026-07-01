@@ -11,18 +11,18 @@ require() {
   fi
 }
 
-require ALB_DNS_NAME
+require API_GATEWAY_BASE_URL
 
-resolve_alb_base_url() {
-  local endpoint="${ALB_BASE_URL:-${ALB_DNS_NAME}}"
+resolve_api_gateway_base_url() {
+  local endpoint="${API_GATEWAY_BASE_URL}"
   case "${endpoint}" in
     http://*|https://*) printf '%s\n' "${endpoint%/}" ;;
-    *) printf '%s\n' "${ALB_SCHEME:-http}://${endpoint%/}" ;;
+    *) printf '%s\n' "https://${endpoint%/}" ;;
   esac
 }
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
-BASE_URL="$(resolve_alb_base_url)"
+BASE_URL="$(resolve_api_gateway_base_url)"
 OUT="${OUT:-evidence/logs/security-probes.json}"
 mkdir -p "$(dirname "${OUT}")"
 
@@ -106,11 +106,7 @@ PY
   printf '{"generated_at":"%s","base_url":"%s","probes":[' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASE_URL}"
   run_probe "public_metrics_blocked" "not_200" "GET" "/metrics"
   printf ','
-  run_probe "public_predict_blocked" "reject" "POST" "/v1/predict"
-  if [[ -n "${AI_API_GATEWAY_ENDPOINT:-}" ]]; then
-    printf ','
-    run_probe "unsigned_ai_api_health_denied" "403" "GET" "/health" "" "" "valid" "${AI_API_GATEWAY_ENDPOINT%/}"
-  fi
+  run_probe "unsigned_predict_requires_iam" "403" "POST" "/v1/predict" '{"signal_window":[],"context":{"deployment_version":"security","time_range":{"start_ts":"2026-06-30T00:00:00Z","end_ts":"2026-06-30T02:00:00Z"}}}'
   if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
     printf ','
     run_probe "missing_auth_token" "reject" "POST" "/v1/ingest" "${missing_tenant_body}" "tenant-a" "none"

@@ -65,6 +65,8 @@
 
 ## Networking
 
+> **CDO-04 adaptation (2026-07-01)**: CDO-04 deploys an HTTP API Gateway with `AWS_IAM` in front of the ALB to enforce SigV4. Worker calls the public `execute-api` endpoint (ARN-based SigV4) through existing NAT Gateway, then API Gateway routes via VPC Link to the same ALB restricted listener and AI Engine target group. The ALB is reused for both public telemetry ingest and restricted AI serving; no second ALB is added. ECS Service Connect is kept as rollback/fallback in migration. The internal ALB and private DNS model described below remains the AI team's reference topology; CDO-04 adapts it through API Gateway Path A.
+
 | Aspect | Configuration |
 |---|---|
 | **Subnet type** | private |

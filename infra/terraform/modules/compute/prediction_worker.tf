@@ -105,7 +105,7 @@ resource "aws_iam_policy" "prediction_worker_task_policy" {
         Action = [
           "execute-api:Invoke"
         ]
-        Resource = "${aws_apigatewayv2_api.ai_engine.execution_arn}/*/POST/v1/predict"
+        Resource = "${aws_apigatewayv2_api.main.execution_arn}/*/POST/v1/predict"
       },
     ]
   })
@@ -183,7 +183,7 @@ resource "aws_ecs_task_definition" "prediction_worker" {
         },
         {
           name  = "AI_ENGINE_ENDPOINT"
-          value = "${aws_apigatewayv2_api.ai_engine.api_endpoint}/v1/predict"
+          value = "${aws_apigatewayv2_api.main.api_endpoint}/v1/predict"
         },
         {
           name  = "AI_TIMEOUT_SECONDS"

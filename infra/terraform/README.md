@@ -82,7 +82,7 @@ the expected inputs and outputs at each module call site.
 |---|---|
 | `networking` | VPC, public/private subnets (2 AZs), 1 NAT Gateway, IGW, S3 + DynamoDB Gateway Endpoints, ALB + ECS + Worker + AI Engine security groups |
 | `data` | AMP workspace, DynamoDB audit + policy tables, SQS prediction queue + DLQ, S3 evidence bucket (KMS key), Secrets Manager, SNS alert topic |
-| `compute` | ECR repos, ECS cluster, 3 Fargate services (API, Worker, AI Engine), ADOT Collector sidecar in telemetry API task, public ALB, restricted AI ALB listener, API Gateway HTTP API/VPC Link, ECS Service Connect fallback, EventBridge Scheduler |
+| `compute` | ECR repos, ECS cluster, 3 Fargate services (API, Worker, AI Engine), ADOT Collector sidecar in telemetry API task, API Gateway HTTP API/VPC Link, internal ALB, ECS Service Connect fallback, EventBridge Scheduler |
 | `observability` | CloudWatch alarms (ALB 5xx/latency/unhealthy, ECS CPU/Memory, SQS depth/age/DLQ, DynamoDB throttles/errors), CloudWatch dashboard, SNS topic, AWS Budget |
 
 ## Variables
@@ -94,8 +94,7 @@ the expected inputs and outputs at each module call site.
 | `aws_region` | No | `us-east-1` | Deploy region |
 | `vpc_cidr` | No | `10.0.0.0/16` | VPC CIDR |
 | `az_count` | No | `2` | Min 2 for ALB |
-| `allowed_ingress_cidrs` | **Yes** | -- | CIDRs for public ALB; no unsafe open default |
-| `acm_certificate_arn` | No | `""` | Required for non-sandbox HTTPS; sandbox may use HTTP |
+| `enable_acm` | No | `true` | Keep ACM certificate managed for future API Gateway custom domain |
 | `telemetry_api_image_tag` | No | `MOCK_PLACEHOLDER...` | ECR URI after CI build |
 | `prediction_worker_image_tag` | No | `MOCK_PLACEHOLDER...` | ECR URI after CI build |
 | `ai_engine_image_tag` | No | `MOCK_PLACEHOLDER...` | ECR URI after CI build |
@@ -117,7 +116,7 @@ the expected inputs and outputs at each module call site.
   no custom image build or SSM parameter is required.
   A **standalone ADOT ECS service** with Service Connect alias `adot-collector`
   and OTLP ingress (gRPC 4317 / HTTP 4318) is deferred post-MVP.
-- **Path A Worker -> AI**: Worker private subnet egresses through existing NAT Gateway to API Gateway `execute-api`; API Gateway HTTP API enforces `AWS_IAM`/SigV4, then uses VPC Link to the same ALB restricted listener `:8443` and AI target group.
+- **Path A Worker -> AI**: Worker private subnet egresses through existing NAT Gateway to API Gateway `execute-api`; API Gateway HTTP API enforces `AWS_IAM`/SigV4, then uses VPC Link to the internal ALB listener `:80` and AI target group.
 - **ECS Service Connect** remains enabled for Worker -> AI rollback/fallback during migration.
 - **Single NAT Gateway** in the first public AZ to minimize cost.
 - **S3 and DynamoDB Gateway VPC Endpoints** (free tier) to avoid NAT data
@@ -126,7 +125,7 @@ the expected inputs and outputs at each module call site.
 - **ECS rolling deployment** with circuit breaker for API, Worker, and AI Engine.
   Blue/green via CodeDeploy is post-MVP.
 - **HTTPS via existing ACM certificate** for non-sandbox; cert must already
-  exist in `us-east-1`. Terraform does NOT create Route53 or ACM resources.
+  exist in `us-east-1`. Terraform manages ACM certificate only; Route53/Name.com DNS remains manual.
 - **Budget**: Default $200/month via `budget_limit`, alerts to `alert_email`.
 
 ## SNS email confirmation
@@ -143,7 +142,6 @@ Full output list is in `outputs.tf`. Key outputs for consumers:
 |---|---|
 | `alb_dns_name` | Public ALB DNS for `/v1/ingest` |
 | `ai_api_gateway_endpoint` | SigV4-protected API Gateway endpoint for Worker -> AI |
-| `ai_restricted_listener_arn` | ALB `:8443` listener used by API Gateway VPC Link |
 | `amp_remote_write_endpoint` | AMP remote write endpoint (ADOT collector target) |
 | `amp_query_endpoint` | AMP query endpoint (Prediction Worker PromQL) |
 | `prediction_queue_url` | SQS prediction queue URL |

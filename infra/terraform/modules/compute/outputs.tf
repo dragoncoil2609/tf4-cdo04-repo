@@ -28,12 +28,12 @@ output "service_connect_namespace_arn" {
 
 output "alb_arn" {
   description = "ALB ARN"
-  value       = aws_lb.public.arn
+  value       = aws_lb.main.arn
 }
 
 output "alb_arn_suffix" {
   description = "ALB ARN suffix for CloudWatch dimensions"
-  value       = aws_lb.public.arn_suffix
+  value       = aws_lb.main.arn_suffix
 }
 
 output "telemetry_api_target_group_arn_suffix" {
@@ -47,13 +47,13 @@ output "ai_engine_target_group_arn_suffix" {
 }
 
 output "alb_dns_name" {
-  description = "ALB public DNS name"
-  value       = aws_lb.public.dns_name
+  description = "ALB DNS name (internal)"
+  value       = aws_lb.main.dns_name
 }
 
 output "alb_zone_id" {
   description = "ALB hosted zone ID"
-  value       = aws_lb.public.zone_id
+  value       = aws_lb.main.zone_id
 }
 
 output "alb_listener_arn" {
@@ -61,29 +61,29 @@ output "alb_listener_arn" {
   value       = aws_lb_listener.http.arn
 }
 
-output "ai_restricted_listener_arn" {
-  description = "Restricted ALB HTTPS listener ARN for AI API Gateway integration"
-  value       = aws_lb_listener.ai_restricted_https.arn
+output "api_gateway_base_url" {
+  description = "API Gateway public base URL for unified API"
+  value       = aws_apigatewayv2_api.main.api_endpoint
 }
 
 output "ai_api_gateway_endpoint" {
-  description = "API Gateway endpoint for SigV4-protected AI Engine calls"
-  value       = aws_apigatewayv2_api.ai_engine.api_endpoint
+  description = "API Gateway endpoint for unified API"
+  value       = aws_apigatewayv2_api.main.api_endpoint
 }
 
 output "ai_api_gateway_execution_arn" {
-  description = "API Gateway execution ARN for AI Engine invoke policy"
-  value       = aws_apigatewayv2_api.ai_engine.execution_arn
+  description = "API Gateway execution ARN"
+  value       = aws_apigatewayv2_api.main.execution_arn
 }
 
 output "acm_certificate_arn" {
-  description = "ACM SSL certificate ARN"
-  value       = aws_acm_certificate.cert.arn
+  description = "ACM SSL certificate ARN (empty string if enable_acm=false)"
+  value       = var.enable_acm ? aws_acm_certificate.cert[0].arn : ""
 }
 
 output "acm_domain_validation_options" {
   description = "Domain validation options for DNS configuration"
-  value       = aws_acm_certificate.cert.domain_validation_options
+  value       = var.enable_acm ? aws_acm_certificate.cert[0].domain_validation_options : []
 }
 
 # ── Telemetry API Service ─────────────────────────────────────────────────────

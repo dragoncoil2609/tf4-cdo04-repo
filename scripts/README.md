@@ -6,8 +6,10 @@ Helper scripts for local checks and CI post-deploy smoke tests.
 
 Runs after Terraform apply in CI. It checks:
 
-- ALB `/health`
+- API Gateway `/health`
 - `POST /v1/ingest`
+- unsigned `POST /v1/predict` is denied by IAM auth
+- signed `POST /v1/predict` reaches AI Engine when curl SigV4 is available
 - ECS service stability
 - prediction SQS queue depth
 - prediction DLQ depth
@@ -15,7 +17,7 @@ Runs after Terraform apply in CI. It checks:
 Required env vars:
 
 ```bash
-ALB_DNS_NAME=...
+API_GATEWAY_BASE_URL=...
 ECS_CLUSTER_NAME=...
 TELEMETRY_API_SERVICE_NAME=...
 PREDICTION_WORKER_SERVICE_NAME=...

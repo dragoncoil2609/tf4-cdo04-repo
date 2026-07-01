@@ -262,6 +262,17 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
+    sid     = "AllowSmokeInvokeApiGatewayRoutes"
+    effect  = "Allow"
+    actions = ["execute-api:Invoke"]
+
+    resources = [
+      "arn:aws:execute-api:us-east-1:${data.aws_caller_identity.current.account_id}:*/*/GET/health",
+      "arn:aws:execute-api:us-east-1:${data.aws_caller_identity.current.account_id}:*/*/POST/v1/predict"
+    ]
+  }
+
+  statement {
     sid    = "AllowECRPushAccess"
     effect = "Allow"
 

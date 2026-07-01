@@ -69,25 +69,14 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "public_subnet_ids" {
-  description = "List of public subnet IDs for ALB"
-  type        = list(string)
-}
-
 variable "alb_sg_id" {
-  description = "Security group ID for the public ALB"
+  description = "Security group ID for the internal ALB"
   type        = string
 }
 
 variable "vpc_link_sg_id" {
   description = "Security group ID for API Gateway VPC Link ENIs"
   type        = string
-}
-
-variable "ai_listener_port" {
-  description = "Restricted ALB listener port for API Gateway to AI Engine"
-  type        = number
-  default     = 8443
 }
 
 variable "app_port" {
@@ -248,7 +237,8 @@ variable "ai_engine_secret_arns" {
   default     = ["*"]
 }
 
-variable "enable_https" {
-  description = "Bật cấu hình HTTPS cho ALB"
+variable "enable_acm" {
+  description = "Keep ACM certificate managed for future API Gateway custom domain"
   type        = bool
+  default     = true
 }

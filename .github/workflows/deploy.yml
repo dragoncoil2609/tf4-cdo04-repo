@@ -239,7 +239,7 @@ jobs:
         id: tf-outputs
         if: github.event_name == 'push'
         run: |
-          echo "alb_dns_name=$(terraform -chdir=infra/terraform output -raw alb_dns_name)" >> "$GITHUB_OUTPUT"
+          echo "api_gateway_base_url=$(terraform -chdir=infra/terraform output -raw api_gateway_base_url)" >> "$GITHUB_OUTPUT"
           echo "ecs_cluster_name=$(terraform -chdir=infra/terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
           echo "telemetry_api_service_name=$(terraform -chdir=infra/terraform output -raw telemetry_api_service_name)" >> "$GITHUB_OUTPUT"
           echo "prediction_worker_service_name=$(terraform -chdir=infra/terraform output -raw prediction_worker_service_name)" >> "$GITHUB_OUTPUT"
@@ -253,14 +253,11 @@ jobs:
           echo "::add-mask::${tenant_ingest_token}"
           echo "tenant_ingest_token=${tenant_ingest_token}" >> "$GITHUB_OUTPUT"
 
-      # Chạy Smoke Test sau khi deploy hạ tầng thành công (CPOA-78)
-      # ALB_BASE_URL dùng tên miền thực (xbrain26hackathon269.software) thay vì raw ALB DNS
-      # để tránh SSL cert mismatch (ACM cert chỉ valid cho custom domain, không valid cho *.elb.amazonaws.com)
+      # Smoke Test sau deploy — endpoint duy nhất là API Gateway (không dùng ALB)
       - name: Run Post-Apply Smoke Test
         if: github.event_name == 'push'
         env:
-          ALB_BASE_URL: https://xbrain26hackathon269.software
-          ALB_DNS_NAME: ${{ steps.tf-outputs.outputs.alb_dns_name }}
+          API_GATEWAY_BASE_URL: ${{ steps.tf-outputs.outputs.api_gateway_base_url }}
           ECS_CLUSTER_NAME: ${{ steps.tf-outputs.outputs.ecs_cluster_name }}
           TELEMETRY_API_SERVICE_NAME: ${{ steps.tf-outputs.outputs.telemetry_api_service_name }}
           PREDICTION_WORKER_SERVICE_NAME: ${{ steps.tf-outputs.outputs.prediction_worker_service_name }}
