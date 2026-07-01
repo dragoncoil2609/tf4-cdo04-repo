@@ -1,17 +1,56 @@
 # -----------------------------------------------------------------------------
-# CDO-04 Observability Module 
+# CDO-04 Observability Module -- Operational Alerting, Scaling & Auditing
 # -----------------------------------------------------------------------------
 
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
-  # Danh sách target groups cho ALB widgets
+  #  Build alarm action lists, conditionally including scaling policy ARNs.
+  scoped_alarm_actions = compact([
+    aws_sns_topic.operational_alerts.arn,
+  ])
+
+  telemetry_api_p99_actions = compact([
+    aws_sns_topic.operational_alerts.arn,
+    var.telemetry_api_alb_p99_scale_out_policy_arn,
+  ])
+
+  prediction_scale_out_actions = compact([
+    aws_sns_topic.operational_alerts.arn,
+    var.prediction_worker_scale_out_policy_arn,
+  ])
+
+  prediction_scale_in_actions = compact([
+    var.prediction_worker_scale_in_policy_arn,
+  ])
+
+  ai_latency_scale_out_actions = compact([
+    aws_sns_topic.operational_alerts.arn,
+    var.ai_engine_latency_scale_out_policy_arn,
+  ])
+
+  # Shared ECS dimensions used across alarms
+  telemetry_api_ecs_dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = var.telemetry_api_service_name
+  }
+
+  ai_engine_ecs_dimensions = {
+    ClusterName = var.ecs_cluster_name
+    ServiceName = var.ai_engine_service_name
+  }
+
+  ai_sc_dimensions = {
+    ClusterName         = var.ecs_cluster_name
+    ServiceName         = var.ai_engine_service_name
+    TargetDiscoveryName = "ai-engine"
+  }
+
+  #  Danh sách target groups & ECS services cho ALB widgets
   alb_target_groups = ["ledger-tg", "payment-tg", "kyc-tg"]
+  ecs_services      = ["ledger-service", "payment-gateway", "kyc-worker"]
 
-  # Danh sách ECS services
-  ecs_services = ["ledger-service", "payment-gateway", "kyc-worker"]
-
-  # ALB metrics cho từng target group — Đã vá lỗi đồng bộ độ dài vế true bằng cách thêm {}
+  # ALB metrics cho từng target group — Đã đồng bộ độ dài tuple chuẩn hóa 100%
   alb_request_metrics = [
     for idx, tg in local.alb_target_groups : (
       idx == 0
@@ -36,13 +75,33 @@ locals {
     )
   ]
 
-  # ECS metrics (CPU + Memory) cho từng service
+  #  ECS metrics (CPU + Memory) cho từng service
   ecs_metrics = flatten([
     for idx, svc in local.ecs_services : [
       ["AWS/ECS", "CPUUtilization", "ServiceName", svc, "ClusterName", var.ecs_cluster_name],
       [".", "MemoryUtilization", ".", svc, ".", var.ecs_cluster_name, { yAxis = "right" }],
     ]
   ])
+}
+
+# -----------------------------------------------------------------------------
+# CDO-04 Observability Module -- Operational SNS Alert Channel (CPOA-88/91)
+# -----------------------------------------------------------------------------
+
+resource "aws_sns_topic" "operational_alerts" {
+  name = "${var.project_name}-operational-alerts-${var.environment}"
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_sns_topic_subscription" "operational_email" {
+  topic_arn = aws_sns_topic.operational_alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }
 
 # -----------------------------------------------------------------------------
@@ -197,46 +256,23 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
 }
 
 # -----------------------------------------------------------------------------
-# CDO-04 Observability Module -- SNS Alert Channel Wiring (CPOA-91)
-# -----------------------------------------------------------------------------
-
-resource "aws_sns_topic" "observability_alerts" {
-  name = "${local.name_prefix}-observability-alerts"
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    ManagedBy   = "terraform"
-  }
-}
-
-resource "aws_sns_topic_subscription" "alert_email" {
-  topic_arn  = aws_sns_topic.observability_alerts.arn
-  protocol   = "email"
-  endpoint   = var.alert_email
-  depends_on = [aws_sns_topic.observability_alerts]
-}
-
-# -----------------------------------------------------------------------------
-# CDO-04 Observability Module -- CloudWatch Metric Alarms (CPOA-90)
+# CDO-04 Observability Module -- Metric Alarms (CPOA-90)
+# Các cảnh báo tĩnh được nối chung vào kênh nhận cảnh báo `operational_alerts` của Vinh
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "ai_5xx_alarm" {
   alarm_name          = "${local.name_prefix}-AI-5xx-High"
   comparison_operator = "GreaterThanThreshold"
-
   evaluation_periods  = 2
   datapoints_to_alarm = 2
+  metric_name         = "FailureCount"
+  namespace           = "Custom/AIEngine"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 10
 
-  metric_name = "FailureCount"
-  namespace   = "Custom/AIEngine"
-  period      = 60
-  statistic   = "Sum"
-  threshold   = 10
-
-  alarm_actions = [aws_sns_topic.observability_alerts.arn]
-  ok_actions    = [aws_sns_topic.observability_alerts.arn]
-
+  alarm_actions = [aws_sns_topic.operational_alerts.arn]
+  ok_actions    = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data = "notBreaching"
 
   dimensions = {
@@ -258,23 +294,6 @@ resource "aws_cloudwatch_metric_alarm" "ai_5xx_alarm" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# CDO-04 Observability Module -- Additional Alarms
-# TASK: CPOA-103 | CDO-W12-058 - Retention policies
-# OWNER: Tạ Hoàng Huy
-# -----------------------------------------------------------------------------
-
-resource "aws_cloudwatch_log_group" "ai_engine_audit" {
-  name              = "/ecs/${var.project_name}-${var.environment}-ai-engine-audit"
-  retention_in_days = 365
-  kms_key_id        = var.kms_key_arn
-
-  tags = merge(var.tags, {
-    Name    = "${var.project_name}-${var.environment}-ai-engine-audit-logs"
-    Purpose = "ai-engine-audit-logs"
-  })
-}
-
 resource "aws_cloudwatch_metric_alarm" "dlq_depth_alarm" {
   alarm_name          = "${local.name_prefix}-DLQ-Depth-High"
   comparison_operator = "GreaterThanThreshold"
@@ -286,8 +305,8 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth_alarm" {
   statistic           = "Maximum"
   threshold           = 0 
 
-  alarm_actions      = [aws_sns_topic.observability_alerts.arn]
-  ok_actions         = [aws_sns_topic.observability_alerts.arn]
+  alarm_actions      = [aws_sns_topic.operational_alerts.arn]
+  ok_actions         = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data = "notBreaching"
 
   dimensions = {
@@ -313,15 +332,14 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx_alarm" {
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   datapoints_to_alarm = 2
-  
   metric_name         = "HTTPCode_ELB_5XX_Count"
   namespace           = "AWS/ApplicationELB"
   period              = 60
   statistic           = "Sum"
   threshold           = 20
 
-  alarm_actions      = [aws_sns_topic.observability_alerts.arn]
-  ok_actions         = [aws_sns_topic.observability_alerts.arn]
+  alarm_actions      = [aws_sns_topic.operational_alerts.arn]
+  ok_actions         = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data = "notBreaching"
 
   dimensions = {
@@ -340,4 +358,20 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx_alarm" {
     Environment = var.environment
     ManagedBy   = "terraform"
   }
+}
+
+# -----------------------------------------------------------------------------
+# TASK: CPOA-103 | CDO-W12-058 - Retention policies
+# OWNER: Tạ Hoàng Huy
+# -----------------------------------------------------------------------------
+
+resource "aws_cloudwatch_log_group" "ai_engine_audit" {
+  name              = "/ecs/${var.project_name}-${var.environment}-ai-engine-audit"
+  retention_in_days = 365
+  kms_key_id        = var.kms_key_arn
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-${var.environment}-ai-engine-audit-logs"
+    Purpose = "ai-engine-audit-logs"
+  })
 }
