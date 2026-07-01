@@ -158,13 +158,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 1. Build image locally so Trivy can scan it
+       # 1. Build image locally so Trivy can scan it
       - name: Build Image locally for scanning
         uses: docker/build-push-action@v5
         with:
           context: ./src/${{ matrix.service }}
           load: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/foresight-lens/${{ matrix.service }}:${{ github.sha }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/foresight-lens/${{ matrix.service }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/foresight-lens/${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -185,7 +187,9 @@ jobs:
         with:
           context: ./src/${{ matrix.service }}
           push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/foresight-lens/${{ matrix.service }}:${{ github.sha }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/foresight-lens/${{ matrix.service }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/foresight-lens/${{ matrix.service }}:latest
           cache-from: type=gha
 
   # Job 4: Terraform Plan & Apply
