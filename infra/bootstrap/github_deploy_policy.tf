@@ -44,7 +44,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "scheduler:List*",
       "application-autoscaling:Describe*",
       "ecr:Describe*",
-      "ecr:Get*"
+      "ecr:Get*",
+      "apigateway:GET"
     ]
 
     resources = ["*"]
@@ -61,6 +62,8 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "ec2:CreateRoute",
       "ec2:CreateInternetGateway",
       "ec2:AttachInternetGateway",
+      "ec2:AllocateAddress",
+      "ec2:ReleaseAddress",
       "ec2:CreateNatGateway",
       "ec2:CreateTags",
       "ec2:CreateSecurityGroup",
@@ -103,7 +106,6 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "s3:PutPublicAccessBlock",
 
       "kms:CreateKey",
-      "kms:CreateAlias",
       "kms:TagResource",
 
       "secretsmanager:CreateSecret",
@@ -254,6 +256,15 @@ data "aws_iam_policy_document" "github_deploy_policy" {
     actions = [
       "ssm:*",
       "servicediscovery:*",
+      "apigateway:GET",
+      "apigateway:POST",
+      "apigateway:PUT",
+      "apigateway:PATCH",
+      "apigateway:DELETE",
+      "apigateway:TagResource",
+      "apigateway:UntagResource",
+      "kms:CreateAlias",
+      "kms:DeleteAlias",
       "ecs:DeregisterTaskDefinition",
       "cloudwatch:*",
       "sns:*",
@@ -308,7 +319,9 @@ data "aws_iam_policy_document" "github_deploy_policy" {
       "budgets:ViewBudget",
       "budgets:DescribeBudget",
       "budgets:DescribeBudgets",
-      "budgets:DescribeBudgetActionsForBudget"
+      "budgets:DescribeBudgetActionsForBudget",
+      "budgets:TagResource",
+      "budgets:UntagResource"
     ]
 
     resources = ["*"]
