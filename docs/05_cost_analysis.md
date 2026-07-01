@@ -45,7 +45,7 @@ All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service t
 | **Full always-on total** |  | Network path uses 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB uses AMP; Worker → AI uses API Gateway HTTP API + VPC Link + internal ALB | **~$158.33** |
 | **+20% ops buffer** |  | Buffer for operational variance, logs, small request deltas and API Gateway request growth | **~$190.00** |
 
-> Pricing note: AWS Pricing MCP facts used here for `us-east-1`: Fargate x86 $0.04048/vCPU-hour + $0.004445/GB-hour; ALB $0.0225/hour + $0.008/LCU-hour; NAT $0.045/hour + $0.045/GB. AMP pricing is usage-based: first 40M ingested samples/month and first 10GB storage are effectively enough for demo volume; query samples are billed from usage but ~21.8M/month is about $0.0022 and rounds to $0.00. These are capstone estimates to defend budget, not a replacement for AWS Cost Explorer.
+> Ghi chú pricing: AWS Pricing MCP facts được dùng cho `us-east-1`: Fargate x86 $0.04048/vCPU-hour + $0.004445/GB-hour; ALB $0.0225/hour + $0.008/LCU-hour; NAT $0.045/hour + $0.045/GB. AMP pricing dạng usage-based: 40M ingested samples/month đầu tiên và 10GB storage đầu đủ cho demo volume; query samples billed theo usage nhưng ~21.8M/month khoảng $0.0022 và làm tròn về $0.00. Đây là capstone estimate để defend budget, không thay thế AWS Cost Explorer.
 
 ### 1.3 Budget fit
 
@@ -55,7 +55,7 @@ All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service t
 | Same estimate + 20% ops buffer | **~$190.00** | Still under hard $200 budget by about **$10.00** |
 | Service Connect proxy upsize sensitivity | Variable | If proxy sidecar forces task-size increases, re-estimate Fargate compute before claiming the buffered budget |
 
-Final strategy: keep ECS Fargate x86 as accepted decision, keep prediction cadence at 5 minutes, enforce PromQL query scoping, control metric cardinality, keep logs retention fixed and keep audit/fallback active. ARM64/Graviton remains a future optimization, not the accepted decision; the full x86 design fits the hard $200 target before and after the 20% buffer if no Service Connect proxy upsize is required.
+Chiến lược final: giữ ECS Fargate x86 làm accepted decision, giữ prediction cadence 5 phút, enforce PromQL query scoping, kiểm soát metric cardinality, cố định logs retention và giữ audit/fallback active. ARM64/Graviton là future optimization, không phải accepted decision; full x86 design vẫn fit hard $200 target trước và sau 20% buffer nếu Service Connect proxy không buộc upsize Fargate task.
 
 ---
 
@@ -104,13 +104,13 @@ Runtime AMP PromQL queries must always filter by `tenant_id`, `service_id`, metr
 
 ### 2.3 50k events/sec caveat
 
-The AI Telemetry Contract mentions a **50,000 events/sec peak** design ceiling. For AMP, this must be translated into Prometheus samples/sec:
+AI Telemetry Contract đề cập **50,000 events/sec peak** design ceiling. Với AMP, con số này cần được dịch sang Prometheus samples/sec:
 
 ```text
 samples/sec = events/sec × số sample phát sinh trên mỗi event
 ```
 
-Therefore the ceiling is viable only if:
+Do đó ceiling khả thi chỉ khi:
 
 - samples/event is bounded;
 - labels are bounded and low-cardinality;
@@ -201,7 +201,7 @@ resource "aws_budgets_budget" "platform_budget" {
 
 ### 4.1 Scope
 
-This section follows `02_infra_design.md`: AI Engine is internal in the same VPC/ECS platform, but Path A puts API Gateway in front to enforce SigV4.
+Phần này theo `02_infra_design.md`: AI Engine là nội bộ trong cùng VPC/ECS platform, nhưng Path A đặt API Gateway phía trước để enforce SigV4.
 
 ```text
 Region: us-east-1
@@ -219,16 +219,16 @@ AWS API traffic model: ~12GB/month
 | 2 NAT Gateways + S3/DynamoDB Gateway Endpoints | Higher fixed cost | Production HA hardening option |
 | Full Interface VPCE no-NAT | Higher fixed endpoint cost at demo traffic | Security-first hardening option, not MVP |
 
-Final decision: **1 NAT Gateway theo một AZ + S3/DynamoDB Gateway Endpoints**. This is not the strongest private-only posture, but it is the best cost-security fit for capstone traffic. S3 and DynamoDB paths stay on Gateway Endpoints; remaining AWS API traffic, including AMP MVP access, can go through NAT with IAM least privilege and HTTPS-only egress where possible.
+Final decision: **1 NAT Gateway theo một AZ + S3/DynamoDB Gateway Endpoints**. Đây không phải private-only posture mạnh nhất, nhưng là best cost-security fit cho capstone traffic. S3 và DynamoDB vẫn đi qua Gateway Endpoints; AWS API traffic còn lại, gồm AMP MVP access, có thể qua NAT với IAM least privilege và HTTPS-only egress nếu có thể.
 
 ### 4.3 PrivateLink hardening path
 
-Production hardening path:
+Hướng hardening cho production:
 
-1. Keep S3 + DynamoDB Gateway Endpoints.
-2. Add `aps-workspaces` interface endpoint for AMP remote_write/query if private-only AMP data-plane access is required.
-3. If removing NAT, add STS regional endpoint plus ECR API/Docker, CloudWatch Logs, Secrets Manager, KMS, SQS, SNS and other runtime endpoints by priority.
-4. Remove NAT only after every runtime AWS API path has an endpoint.
+1. Giữ S3 + DynamoDB Gateway Endpoints.
+2. Thêm `aps-workspaces` interface endpoint cho AMP remote_write/query nếu cần private-only AMP data-plane access.
+3. Nếu bỏ NAT, thêm STS regional endpoint cùng ECR API/Docker, CloudWatch Logs, Secrets Manager, KMS, SQS, SNS và các runtime endpoints khác theo mức ưu tiên.
+4. Chỉ bỏ NAT sau khi mọi runtime AWS API path đều có endpoint.
 
 ---
 
@@ -270,22 +270,22 @@ Not applied:
 
 ## 7. Production recommendations
 
-- **Keep AMP label discipline strict**: tenant/service/env/region labels are fine; request/user/trace/prediction IDs are not labels.
-- **Use collector-managed remote_write** where possible. Direct app remote_write must implement protobuf, Snappy, SigV4, batching, retry/backoff and request-size control.
-- **Add AMP PrivateLink later** only if security/compliance requires private-only data-plane access.
-- **Move to ARM64/Graviton** only after all images and dependencies support it; not the accepted decision today.
-- **Tune CloudWatch logs/custom metrics** aggressively; logs and custom metrics are easy to overproduce during load testing.
+- **Giữ kỷ luật AMP label strict**: tenant/service/env/region labels ổn; request/user/trace/prediction IDs không phải labels.
+- **Dùng collector-managed remote_write** nếu có thể. Direct app remote_write phải implement protobuf, Snappy, SigV4, batching, retry/backoff và request-size control.
+- **Thêm AMP PrivateLink sau** chỉ khi security/compliance yêu cầu private-only data-plane access.
+- **Move to ARM64/Graviton** chỉ sau khi tất cả images và dependencies hỗ trợ; không phải accepted decision hiện tại.
+- **Tune CloudWatch logs/custom metrics** mạnh tay; logs và custom metrics dễ overproduce trong load testing.
 
 ---
 
 ## 8. Final cost evidence gate
 
-Runtime cost evidence is generated during final acceptance:
+Runtime cost evidence được tạo trong final acceptance:
 
 - `evidence/logs/cost-explorer-final.json`
 - `evidence/logs/budget-final.json`
 
-Current final test evidence focuses on live ingest/AI path. Cost Explorer same-day actuals remain delayed supporting evidence only; budget/circuit-breaker configuration plus the sizing model above remain the cost proof.
+Current final test evidence tập trung vào live ingest/AI path. Cost Explorer same-day actuals vẫn là delayed supporting evidence; budget/circuit-breaker configuration cùng sizing model trên là cost proof chính.
 
 Pass rule:
 
@@ -297,11 +297,11 @@ Pass rule:
 | Actual snapshot | no unexpected sandbox spike during test window |
 | Circuit breaker | budget policy and scale-down runbook documented |
 
-Cost Explorer same-day or 7-day sandbox actuals are supporting evidence only. They do **not** prove full-month operating cost. Final defense uses the design estimate in this document plus Budget API/circuit-breaker evidence from the current acceptance run.
+Cost Explorer same-day hoặc 7-day sandbox actuals chỉ là supporting evidence. Chúng **không** chứng minh full-month operating cost. Final defense dùng design estimate trong tài liệu này cộng Budget API/circuit-breaker evidence từ current acceptance run.
 
 ## 9. Final defense statement
 
-All-ECS Fargate is not the cheapest possible option, but it is the most consistent option for this CDO platform. The platform must run Telemetry API, Prediction Worker and AI Engine Service as deployable workloads with health checks, CloudWatch logs, task roles, autoscaling and rollback. AI serving stays private behind API Gateway HTTP API `AWS_IAM`, VPC Link, and the internal ALB listener `:80`; ECS Service Connect remains migration fallback. The final TSDB choice is **Amazon Managed Service for Prometheus (AMP) in `us-east-1`**, replacing fixed-cost Timestream for InfluxDB. The accepted full-month x86 design with public ingest ALB plus API Gateway Path A is **~$158.33/month**; with 20% buffer it is **~$190.00/month**, still under the $200/month target. The key operating guardrails are PromQL scoping, bounded label cardinality, bounded samples/event, fixed log retention, API Gateway auth probes and keeping audit/fallback active even when reducing non-critical load.
+All-ECS Fargate không phải cheapest option, nhưng là option nhất quán nhất cho CDO platform. Platform phải chạy Telemetry API, Prediction Worker và AI Engine Service dưới dạng deployable workloads với health checks, CloudWatch logs, task roles, autoscaling và rollback. AI serving private sau API Gateway HTTP API `AWS_IAM`, VPC Link, và internal ALB listener `:80`; ECS Service Connect là migration fallback. TSDB final choice là **Amazon Managed Service for Prometheus (AMP) tại `us-east-1`**, thay thế fixed-cost Timestream for InfluxDB. Full-month x86 design với API Gateway public front door, internal ALB và API Gateway Path A là **~$158.33/month**; với 20% buffer là **~$190.00/month**, vẫn dưới $200/month target. Key operating guardrails gồm PromQL scoping, bounded label cardinality, bounded samples/event, fixed log retention, API Gateway auth probes và giữ audit/fallback active kể cả khi giảm non-critical load.
 
 ## Related documents
 
