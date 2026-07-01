@@ -118,3 +118,13 @@ variable "kms_key_arn" {
   description = "KMS Key ARN for CloudWatch Logs encryption"
   type        = string
 }
+
+# =============================================================================
+# Khai báo các biến phục vụ bộ khung Dashboard & Alarms (CPOA-89/90)
+# =============================================================================
+
+variable "runbook_url" {
+  description = "URL link tới tài liệu hướng dẫn vận hành SRE khi có cảnh báo kích hoạt"
+  type        = string
+  default     = "https://github.com/dragoncoil2609/tf4-cdo04-repo/blob/main/docs/misc/cost_guard_runbook.md"
+}
