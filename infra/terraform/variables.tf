@@ -79,7 +79,7 @@ variable "app_port" {
 variable "alert_email" {
   description = "SNS notification email for budgets"
   type        = string
-  default     = "cdo04-alerts@internal.local"
+  default     = "ngonguyentruongan2907@gmail.com"
 }
 
 variable "domain_name" {

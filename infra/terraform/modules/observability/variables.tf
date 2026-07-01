@@ -31,7 +31,7 @@ variable "tags" {
 variable "alert_email" {
   description = "Email endpoint for budget/cost alerts"
   type        = string
-  default     = "cdo04-alerts@internal.local"
+  default     = "ngonguyentruongan2907@gmail.com"
 }
 
 variable "ecs_cluster_name" {
