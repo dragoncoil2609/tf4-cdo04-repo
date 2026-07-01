@@ -231,6 +231,37 @@ data "aws_iam_policy_document" "github_deploy_policy" {
   }
 
   statement {
+    sid     = "AllowCreateAPIGatewayServiceLinkedRole"
+    effect  = "Allow"
+    actions = ["iam:CreateServiceLinkedRole"]
+
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["ops.apigateway.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid    = "AllowAPIGatewayLogDelivery"
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogDelivery",
+      "logs:GetLogDelivery",
+      "logs:UpdateLogDelivery",
+      "logs:DeleteLogDelivery",
+      "logs:ListLogDeliveries",
+      "logs:PutResourcePolicy",
+      "logs:DescribeResourcePolicies"
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "AllowECRPushAccess"
     effect = "Allow"
 
