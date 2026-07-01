@@ -190,20 +190,8 @@ Latest good records are documented in `docs/07_test_eval_report.md`.
 | `queue_depth` | `region`, `queue_name` |
 | `cache_hit_rate_pct` | `region`, `cache_type` |
 
-## 9. Stress diagnostics
 
-Keep these scripts for ceiling/failure analysis only:
-
-```bash
-k6 run tests/k6/sc01_gradual_drift.js -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software
-k6 run tests/k6/sc02_spike.js -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software
-k6 run tests/k6/sc03_slow_leak.js -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software
-k6 run tests/k6/sc04_noisy_baseline.js -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software
-```
-
-They are not final acceptance proof.
-
-## 10. Scope boundaries
+## 9. Scope boundaries
 
 Not faked:
 

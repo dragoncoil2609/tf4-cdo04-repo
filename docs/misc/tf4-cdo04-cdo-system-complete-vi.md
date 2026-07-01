@@ -934,10 +934,10 @@ Additional pass criteria:
 
 | Scenario | Service | Expected | Script |
 |---|---|---|---|
-| Gradual drift | `ledger` | anomaly | `tests/k6/sc01_gradual_drift.js` |
-| Sudden spike | `payment-gw` | anomaly | `tests/k6/sc02_spike.js` |
-| Slow leak | `fraud-detector` | anomaly | `tests/k6/sc03_slow_leak.js` |
-| Noisy baseline | `fraud-detector` | no anomaly / low severity | `tests/k6/sc04_noisy_baseline.js` |
+| Gradual drift | `ledger` | anomaly | `tests/e2e/tf4_scenario_matrix.sh` |
+| Sudden spike | `payment-gw` | anomaly | `tests/e2e/tf4_scenario_matrix.sh` |
+| Slow leak | `fraud-detector` | anomaly | `tests/e2e/tf4_scenario_matrix.sh` |
+| Noisy baseline | `fraud-detector` | no anomaly / low severity | `tests/e2e/tf4_scenario_matrix.sh` |
 
 ### 8.5 Unit test map
 
@@ -1128,7 +1128,7 @@ DRY_RUN=false
 | `note/*.json` IAM/budget/state policies | Reference policies likely migrated into Terraform | Archive/delete after verify |
 | `tests/__pycache__/test_basic.cpython-314-pytest-9.1.1.pyc` | Python cache without source | Delete |
 | `tests/test_basic.py` if present | `assert True` placeholder per docs agent | Delete/replace |
-| `tests/k6/sc02_spike.js` | May call `/v1/telemetry` and expect old status | Update to `/v1/ingest`, expect 201/202 |
+| Old `tests/k6/sc01_*`–`sc04_*` scripts | Diagnostic-only high-RPS scripts, not final acceptance evidence | Deleted; scenario coverage is `tests/e2e/tf4_scenario_matrix.sh` |
 | `infra/terraform/README.md` | Variables and service choices stale | Rewrite |
 | `infra/terraform/modules/observability/cost_dashboard.tf` | Text may mention Timestream after AMP migration | Update labels |
 | `contracts/telemetry-contract.md` | Mentions Timestream/Managed Prometheus alternatives and old cost model | Add final AMP addendum inline |
