@@ -108,12 +108,9 @@ jobs:
 
       - name: Terraform Init
         run: |
-          case "${{ github.base_ref }}" in
-            main) state_key="tf4-cdo04/prod/terraform.tfstate" ;;
-            develop) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
-            *) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
-          esac
-          terraform -chdir=infra/terraform init -backend-config="key=${state_key}"
+          state_key="tf4-cdo04/sandbox/terraform.tfstate"
+          echo "Terraform backend key: ${state_key}"
+          terraform -chdir=infra/terraform init -reconfigure -backend-config="key=${state_key}"
 
       - name: Terraform Plan
         run: |
@@ -218,12 +215,9 @@ jobs:
 
       - name: Terraform Init
         run: |
-          case "${{ github.ref_name }}" in
-            main) state_key="tf4-cdo04/prod/terraform.tfstate" ;;
-            develop) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
-            *) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
-          esac
-          terraform -chdir=infra/terraform init -backend-config="key=${state_key}"
+          state_key="tf4-cdo04/sandbox/terraform.tfstate"
+          echo "Terraform backend key: ${state_key}"
+          terraform -chdir=infra/terraform init -reconfigure -backend-config="key=${state_key}"
 
       - name: Terraform Plan
         run: |
