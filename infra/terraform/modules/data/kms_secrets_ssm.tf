@@ -7,8 +7,8 @@
 # - Secrets Manager secret containers for sensitive values.
 #
 # Important:
-# - Do NOT store real secret values in Terraform.
-# - Secret values should be inserted manually through AWS Console/CLI after apply.
+# - Demo tenant ingest token is Terraform-managed for k6/default demo workflow.
+# - This token is stored in Terraform state by explicit project choice.
 # -----------------------------------------------------------------------------
 
 data "aws_caller_identity" "current" {}
@@ -132,19 +132,28 @@ resource "aws_ssm_parameter" "baseline_s3_prefix" {
 }
 
 # -----------------------------------------------------------------------------
-# Secrets Manager -- secret containers only
-# Real values must be added manually after apply.
+# Secrets Manager -- tenant ingest token is Terraform-managed for demo/k6 flow.
 # -----------------------------------------------------------------------------
+
+resource "random_password" "tenant_ingest_token" {
+  length  = 64
+  special = false
+}
 
 resource "aws_secretsmanager_secret" "tenant_ingest_token" {
   name        = "${var.project_name}/${var.environment}/tenant-ingest-token"
-  description = "Tenant ingest token for demo/API auth. Value is managed outside Terraform."
+  description = "Tenant ingest token for demo/API auth. Value is managed by Terraform for k6 demo workflow."
   kms_key_id  = aws_kms_key.project.arn
 
   tags = merge(var.tags, {
     Name    = "${var.project_name}-${var.environment}-tenant-ingest-token"
     Purpose = "ingest-auth-secret"
   })
+}
+
+resource "aws_secretsmanager_secret_version" "tenant_ingest_token" {
+  secret_id     = aws_secretsmanager_secret.tenant_ingest_token.id
+  secret_string = random_password.tenant_ingest_token.result
 }
 
 resource "aws_secretsmanager_secret" "slack_webhook_url" {

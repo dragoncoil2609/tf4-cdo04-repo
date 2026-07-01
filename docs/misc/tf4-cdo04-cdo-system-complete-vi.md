@@ -583,8 +583,8 @@ KMS/SSM/Secrets:
   - `/<project>/<env>/ai/predict_path`
   - `/<project>/<env>/prediction/lookback_window_minutes`
   - `/<project>/<env>/ai/baseline_s3_prefix`
-- Secrets Manager, KMS encrypted, values managed outside Terraform:
-  - `tf4-cdo04/<env>/tenant-ingest-token` — wired to Telemetry API through ECS `secrets` as `TENANT_INGEST_TOKEN`; `/v1/ingest` enforces `Authorization: Bearer <token>` when configured.
+- Secrets Manager, KMS encrypted:
+  - `tf4-cdo04/<env>/tenant-ingest-token` — Terraform generates value with `random_password`, stores secret version in Secrets Manager, and exposes sensitive output for k6/default demo workflow. Token is stored in Terraform state by explicit project choice. ECS wires it to Telemetry API through `secrets` as `TENANT_INGEST_TOKEN`; `/v1/ingest` enforces `Authorization: Bearer <token>` when configured.
   - `tf4-cdo04/<env>/slack-webhook-url` — future optional Slack path; MVP uses SNS email.
   - `tf4-cdo04/<env>/ai-sigv4-config` — future AI auth hardening config; Worker -> AI remains IAM SigV4 intent and SYS-09 caveat until verifier exists.
 
@@ -880,6 +880,8 @@ Contract says IAM SigV4. Worker sends SigV4-style auth intent, but AI Engine app
 Final evidence was collected with direct focused commands, not full all-in-one matrix runner:
 
 ```bash
+export TENANT_INGEST_TOKEN="$(terraform -chdir=infra/terraform output -raw tenant_ingest_token)"
+
 k6 run tests/k6/acceptance_ingest.js \
   -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software \
   -e TENANT_ID=demo-tenant-001 \
