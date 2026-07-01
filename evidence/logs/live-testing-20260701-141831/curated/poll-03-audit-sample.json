@@ -1,0 +1,247 @@
+{
+  "source": "evidence/logs/live-testing-20260701-141831/poll-03/audit-latest.json",
+  "Count": 30,
+  "ScannedCount": 30,
+  "Items": [
+    {
+      "prediction_source": {
+        "S": "AI_ENGINE"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "d6a02d02-cdad-4782-b4c1-953f106d2baa"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T15:52:34.654374+00:00"
+      },
+      "score": {
+        "N": "0.75"
+      },
+      "recommendation_evidence": {
+        "S": "https://dashboard.internal/metrics/ledger/memory_usage_percent"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "reasoning": {
+        "S": "Sustained under-utilisation; scale down to right-size cost. (service=ledger, EWMA=2.17x control limit)"
+      },
+      "severity": {
+        "N": "0.72"
+      },
+      "service_name": {
+        "S": "ledger"
+      },
+      "decision": {
+        "S": "SCALE_DOWN"
+      },
+      "recommendation_action": {
+        "S": "SCALE_DOWN"
+      },
+      "recommendation_from_to": {
+        "S": "Current -> -1 Task"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782921154"
+      },
+      "recommendation_confidence": {
+        "N": "0.75"
+      },
+      "ai_status_code": {
+        "N": "200"
+      },
+      "evidence_status": {
+        "S": "partial_window"
+      },
+      "service_id": {
+        "S": "ledger"
+      },
+      "audit_id": {
+        "S": "ad796323-63bc-4cc7-a380-fb8821c5479b"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "ai_latency_ms": {
+        "N": "50"
+      },
+      "expires_at_epoch": {
+        "N": "1790697154"
+      },
+      "recommendation_target": {
+        "S": "ledger ECS Service"
+      },
+      "service_time": {
+        "S": "2026-07-01T15:52:34.654374+00:00"
+      }
+    },
+    {
+      "prediction_source": {
+        "S": "AI_ENGINE"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "57180922-0136-483d-acb3-2827e7b26a14"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T15:52:32.699799+00:00"
+      },
+      "score": {
+        "N": "0.75"
+      },
+      "recommendation_evidence": {
+        "S": "https://dashboard.internal/metrics/payment-gw/cpu_usage_percent"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "reasoning": {
+        "S": "Sustained under-utilisation; scale down to right-size cost. (service=payment-gw, EWMA=6.36x control limit)"
+      },
+      "severity": {
+        "N": "1"
+      },
+      "service_name": {
+        "S": "payment-gw"
+      },
+      "decision": {
+        "S": "SCALE_DOWN"
+      },
+      "recommendation_action": {
+        "S": "SCALE_DOWN"
+      },
+      "recommendation_from_to": {
+        "S": "Current -> -1 Task"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782921152"
+      },
+      "recommendation_confidence": {
+        "N": "0.75"
+      },
+      "ai_status_code": {
+        "N": "200"
+      },
+      "evidence_status": {
+        "S": "partial_window"
+      },
+      "service_id": {
+        "S": "payment-gw"
+      },
+      "audit_id": {
+        "S": "0e7547d4-5ffe-4647-bfb8-aa1eeec51481"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "ai_latency_ms": {
+        "N": "70"
+      },
+      "expires_at_epoch": {
+        "N": "1790697152"
+      },
+      "recommendation_target": {
+        "S": "payment-gw ECS Service"
+      },
+      "service_time": {
+        "S": "2026-07-01T15:52:32.699799+00:00"
+      }
+    },
+    {
+      "prediction_source": {
+        "S": "AI_ENGINE"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "ff4adae7-66bb-4f3d-bb53-265bfbe29f28"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T15:52:31.765467+00:00"
+      },
+      "score": {
+        "N": "0.75"
+      },
+      "recommendation_evidence": {
+        "S": "https://dashboard.internal/metrics/fraud-detector/cpu_usage_percent"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "reasoning": {
+        "S": "Sustained under-utilisation; scale down to right-size cost. (service=fraud-detector, EWMA=2.00x control limit)"
+      },
+      "severity": {
+        "N": "0.67"
+      },
+      "service_name": {
+        "S": "fraud-detector"
+      },
+      "decision": {
+        "S": "SCALE_DOWN"
+      },
+      "recommendation_action": {
+        "S": "SCALE_DOWN"
+      },
+      "recommendation_from_to": {
+        "S": "Current -> -1 Task"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782921151"
+      },
+      "recommendation_confidence": {
+        "N": "0.75"
+      },
+      "ai_status_code": {
+        "N": "200"
+      },
+      "evidence_status": {
+        "S": "partial_window"
+      },
+      "service_id": {
+        "S": "fraud-detector"
+      },
+      "audit_id": {
+        "S": "d2658782-5397-40f4-b741-e52fa28964b0"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "ai_latency_ms": {
+        "N": "53"
+      },
+      "expires_at_epoch": {
+        "N": "1790697151"
+      },
+      "recommendation_target": {
+        "S": "fraud-detector ECS Service"
+      },
+      "service_time": {
+        "S": "2026-07-01T15:52:31.765467+00:00"
+      }
+    }
+  ]
+}

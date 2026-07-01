@@ -178,7 +178,7 @@ Queue depth and DLQ:
 ```bash
 QUEUE_NAME=$(terraform output -raw prediction_queue_name)
 aws sqs get-queue-attributes --queue-url "https://sqs.us-east-1.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/$QUEUE_NAME" \
-  --attribute-names ApproximateNumberOfMessages ApproximateAgeOfOldestMessage
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
 
 DLQ_NAME=$(terraform output -raw prediction_queue_dlq_name)
 aws sqs get-queue-attributes --queue-url "https://sqs.us-east-1.amazonaws.com/$(aws sts get-caller-identity --query Account --output text)/$DLQ_NAME" \

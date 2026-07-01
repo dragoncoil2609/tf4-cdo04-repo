@@ -1,0 +1,247 @@
+{
+  "source": "evidence/logs/live-testing-20260701-141831/poll-05/audit-latest.json",
+  "Count": 30,
+  "ScannedCount": 30,
+  "Items": [
+    {
+      "prediction_source": {
+        "S": "AI_ENGINE"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "951248de-93cf-4d70-8b0a-79b2aa98b1e1"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T16:42:34.673555+00:00"
+      },
+      "score": {
+        "N": "0.99"
+      },
+      "recommendation_evidence": {
+        "S": "https://dashboard.internal/metrics/ledger/cpu"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "reasoning": {
+        "S": "CPU drift detected. Scale out ECS service. (service=ledger, EWMA=6.49x control limit)"
+      },
+      "severity": {
+        "N": "1"
+      },
+      "service_name": {
+        "S": "ledger"
+      },
+      "decision": {
+        "S": "SCALE_UP"
+      },
+      "recommendation_action": {
+        "S": "SCALE_UP"
+      },
+      "recommendation_from_to": {
+        "S": "Current -> +2 Tasks"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782924154"
+      },
+      "recommendation_confidence": {
+        "N": "0.99"
+      },
+      "ai_status_code": {
+        "N": "200"
+      },
+      "evidence_status": {
+        "S": "complete_window"
+      },
+      "service_id": {
+        "S": "ledger"
+      },
+      "audit_id": {
+        "S": "6c0d8f9a-50ef-40b7-beda-5930c2cdc168"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "ai_latency_ms": {
+        "N": "51"
+      },
+      "expires_at_epoch": {
+        "N": "1790700154"
+      },
+      "recommendation_target": {
+        "S": "ledger ECS Service"
+      },
+      "service_time": {
+        "S": "2026-07-01T16:42:34.673555+00:00"
+      }
+    },
+    {
+      "prediction_source": {
+        "S": "AI_ENGINE"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "1bddb6c7-0a46-418e-b949-4d3d3acf6d64"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T16:42:32.701400+00:00"
+      },
+      "score": {
+        "N": "0.84"
+      },
+      "recommendation_evidence": {
+        "S": "https://dashboard.internal/metrics/payment-gw/cpu"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "reasoning": {
+        "S": "CPU drift detected. Scale out ECS service. (service=payment-gw, EWMA=2.57x control limit)"
+      },
+      "severity": {
+        "N": "0.86"
+      },
+      "service_name": {
+        "S": "payment-gw"
+      },
+      "decision": {
+        "S": "SCALE_UP"
+      },
+      "recommendation_action": {
+        "S": "SCALE_UP"
+      },
+      "recommendation_from_to": {
+        "S": "Current -> +2 Tasks"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782924152"
+      },
+      "recommendation_confidence": {
+        "N": "0.84"
+      },
+      "ai_status_code": {
+        "N": "200"
+      },
+      "evidence_status": {
+        "S": "complete_window"
+      },
+      "service_id": {
+        "S": "payment-gw"
+      },
+      "audit_id": {
+        "S": "7a741ac8-3bac-4ca1-8305-01706b51c8c8"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "ai_latency_ms": {
+        "N": "62"
+      },
+      "expires_at_epoch": {
+        "N": "1790700152"
+      },
+      "recommendation_target": {
+        "S": "payment-gw ECS Service"
+      },
+      "service_time": {
+        "S": "2026-07-01T16:42:32.701400+00:00"
+      }
+    },
+    {
+      "prediction_source": {
+        "S": "AI_ENGINE"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "f8549e8e-8dc8-4578-9084-22cf448ef91b"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T16:42:31.777596+00:00"
+      },
+      "score": {
+        "N": "0.99"
+      },
+      "recommendation_evidence": {
+        "S": "https://dashboard.internal/metrics/fraud-detector/cpu"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "reasoning": {
+        "S": "CPU drift detected. Scale out ECS service. (service=fraud-detector, EWMA=5.02x control limit)"
+      },
+      "severity": {
+        "N": "1"
+      },
+      "service_name": {
+        "S": "fraud-detector"
+      },
+      "decision": {
+        "S": "SCALE_UP"
+      },
+      "recommendation_action": {
+        "S": "SCALE_UP"
+      },
+      "recommendation_from_to": {
+        "S": "Current -> +2 Tasks"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782924151"
+      },
+      "recommendation_confidence": {
+        "N": "0.99"
+      },
+      "ai_status_code": {
+        "N": "200"
+      },
+      "evidence_status": {
+        "S": "complete_window"
+      },
+      "service_id": {
+        "S": "fraud-detector"
+      },
+      "audit_id": {
+        "S": "20521682-f8ce-47ea-8cc2-8e7691d11f12"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "ai_latency_ms": {
+        "N": "69"
+      },
+      "expires_at_epoch": {
+        "N": "1790700151"
+      },
+      "recommendation_target": {
+        "S": "fraud-detector ECS Service"
+      },
+      "service_time": {
+        "S": "2026-07-01T16:42:31.777596+00:00"
+      }
+    }
+  ]
+}

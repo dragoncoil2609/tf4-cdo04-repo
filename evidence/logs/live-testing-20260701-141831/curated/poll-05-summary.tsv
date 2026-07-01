@@ -1,0 +1,22 @@
+key	value
+poll	poll-05
+timestamp	2026-07-01T16:23:13Z
+k6_status	running (1h46m15.0s), 012/059 VUs, 318729 complete and 0 interrupted iterations
+ecs_bad_count	0
+sqs-main_visible	0
+sqs-main_inflight	0
+sqs-dlq_visible	652
+sqs-dlq_inflight	0
+amp_present	21
+amp_missing	0
+log_error_events	0
+audit_count	30
+audit_row	ledger|AI_ENGINE|partial_window|200|2026-07-01T16:22:34.678162+00:00
+audit_row	payment-gw|AI_ENGINE|partial_window|200|2026-07-01T16:22:32.673389+00:00
+audit_row	fraud-detector|AI_ENGINE|partial_window|200|2026-07-01T16:22:31.820981+00:00
+audit_row	ledger|AI_ENGINE|partial_window|200|2026-07-01T16:17:34.654113+00:00
+audit_row	payment-gw|AI_ENGINE|partial_window|200|2026-07-01T16:17:32.694383+00:00
+audit_row	fraud-detector|AI_ENGINE|partial_window|200|2026-07-01T16:17:31.772793+00:00
+audit_row	ledger|AI_ENGINE|partial_window|200|2026-07-01T16:12:34.730399+00:00
+audit_row	payment-gw|AI_ENGINE|partial_window|200|2026-07-01T16:12:32.696313+00:00
+audit_row	fraud-detector|AI_ENGINE|partial_window|200|2026-07-01T16:12:31.767989+00:00

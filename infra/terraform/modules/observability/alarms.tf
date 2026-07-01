@@ -18,6 +18,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_cpu" {
   threshold           = 70
   alarm_description   = "Telemetry API ECS CPU utilization exceeds 70%"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.telemetry_api_ecs_dimensions
@@ -35,6 +36,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_memory" {
   threshold           = 75
   alarm_description   = "Telemetry API ECS memory utilization exceeds 75%"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.telemetry_api_ecs_dimensions
@@ -53,6 +55,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_alb_p99" {
   threshold           = 0.8
   alarm_description   = "ALB p99 TargetResponseTime exceeds 0.8s for Telemetry API"
   alarm_actions       = local.telemetry_api_p99_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = {
@@ -69,6 +72,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_alb_5xx_rate" {
   threshold           = 1
   alarm_description   = "ALB 5xx error rate exceeds 1% for Telemetry API"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   metric_query {
@@ -123,6 +127,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_running_tasks" {
   threshold           = 1
   alarm_description   = "Telemetry API running task count is below 1 (MVP single writer)"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "breaching"
 
   dimensions = local.telemetry_api_ecs_dimensions
@@ -144,6 +149,7 @@ resource "aws_cloudwatch_metric_alarm" "prediction_queue_age" {
   threshold           = 120
   alarm_description   = "SQS prediction queue age exceeds 120 seconds"
   alarm_actions       = local.prediction_scale_out_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = {
@@ -163,6 +169,7 @@ resource "aws_cloudwatch_metric_alarm" "prediction_queue_visible_high" {
   threshold           = 20
   alarm_description   = "SQS prediction queue visible messages exceed 20 for 5 minutes"
   alarm_actions       = local.prediction_scale_out_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = {
@@ -189,25 +196,6 @@ resource "aws_cloudwatch_metric_alarm" "prediction_queue_idle" {
   }
 }
 
-# DLQ visible > 0 -- SNS
-resource "aws_cloudwatch_metric_alarm" "prediction_dlq_visible" {
-  alarm_name          = "${var.project_name}-prediction-dlq-visible-${var.environment}"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  namespace           = "AWS/SQS"
-  period              = 300
-  statistic           = "Maximum"
-  threshold           = 0
-  alarm_description   = "SQS prediction DLQ has visible messages"
-  alarm_actions       = local.scoped_alarm_actions
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    QueueName = var.prediction_queue_dlq_name
-  }
-}
-
 # Worker running tasks < 1 -- SNS
 resource "aws_cloudwatch_metric_alarm" "prediction_worker_running_tasks" {
   alarm_name          = "${var.project_name}-prediction-worker-running-tasks-${var.environment}"
@@ -220,6 +208,7 @@ resource "aws_cloudwatch_metric_alarm" "prediction_worker_running_tasks" {
   threshold           = 1
   alarm_description   = "Prediction Worker running task count is below 1"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "breaching"
 
   dimensions = {
@@ -244,6 +233,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_engine_cpu" {
   threshold           = 70
   alarm_description   = "AI Engine ECS CPU utilization exceeds 70%"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.ai_engine_ecs_dimensions
@@ -277,6 +267,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_sc_requests_high" {
   threshold           = 5000
   alarm_description   = "AI Engine Service Connect request count is elevated"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.ai_sc_dimensions
@@ -294,6 +285,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_sc_5xx" {
   threshold           = 0
   alarm_description   = "AI Engine Service Connect returning 5xx responses"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.ai_sc_dimensions
@@ -307,6 +299,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_sc_5xx_rate" {
   threshold           = 1
   alarm_description   = "AI Engine Service Connect 5xx error rate exceeds 1%"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   metric_query {
@@ -355,6 +348,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_sc_p95_latency" {
   threshold           = 350
   alarm_description   = "AI Engine Service Connect p95 latency exceeds 350ms"
   alarm_actions       = local.ai_latency_scale_out_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.ai_sc_dimensions
@@ -372,6 +366,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_sc_p99_latency" {
   threshold           = 500
   alarm_description   = "AI Engine Service Connect p99 latency exceeds 500ms"
   alarm_actions       = local.ai_latency_scale_out_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = local.ai_sc_dimensions
@@ -389,6 +384,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_engine_running_tasks" {
   threshold           = 2
   alarm_description   = "AI Engine running task count is below 2"
   alarm_actions       = local.scoped_alarm_actions
+  ok_actions          = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data  = "breaching"
 
   dimensions = local.ai_engine_ecs_dimensions
@@ -419,6 +415,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_cpu_high" {
   threshold           = 85
   alarm_description   = "Cảnh báo khi Telemetry API CPU utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
   alarm_actions       = [aws_sns_topic.budget_alert.arn]
+  ok_actions          = [aws_sns_topic.budget_alert.arn]
 
   dimensions = {
     ClusterName = var.ecs_cluster_name
@@ -437,6 +434,7 @@ resource "aws_cloudwatch_metric_alarm" "telemetry_api_memory_high" {
   threshold           = 85
   alarm_description   = "Cảnh báo khi Telemetry API Memory utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
   alarm_actions       = [aws_sns_topic.budget_alert.arn]
+  ok_actions          = [aws_sns_topic.budget_alert.arn]
 
   dimensions = {
     ClusterName = var.ecs_cluster_name
@@ -458,6 +456,7 @@ resource "aws_cloudwatch_metric_alarm" "worker_cpu_high" {
   threshold           = 85
   alarm_description   = "Cảnh báo khi Prediction Worker CPU utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
   alarm_actions       = [aws_sns_topic.budget_alert.arn]
+  ok_actions          = [aws_sns_topic.budget_alert.arn]
 
   dimensions = {
     ClusterName = var.ecs_cluster_name
@@ -476,6 +475,7 @@ resource "aws_cloudwatch_metric_alarm" "worker_memory_high" {
   threshold           = 85
   alarm_description   = "Cảnh báo khi Prediction Worker Memory utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
   alarm_actions       = [aws_sns_topic.budget_alert.arn]
+  ok_actions          = [aws_sns_topic.budget_alert.arn]
 
   dimensions = {
     ClusterName = var.ecs_cluster_name
@@ -497,6 +497,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_cpu_high" {
   threshold           = 85
   alarm_description   = "Cảnh báo khi AI Engine CPU utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
   alarm_actions       = [aws_sns_topic.budget_alert.arn]
+  ok_actions          = [aws_sns_topic.budget_alert.arn]
 
   dimensions = {
     ClusterName = var.ecs_cluster_name
@@ -515,6 +516,7 @@ resource "aws_cloudwatch_metric_alarm" "ai_memory_high" {
   threshold           = 85
   alarm_description   = "Cảnh báo khi AI Engine Memory utilization vượt quá 85% trong 1 phút do Tạ Hoàng Huy thiết lập."
   alarm_actions       = [aws_sns_topic.budget_alert.arn]
+  ok_actions          = [aws_sns_topic.budget_alert.arn]
 
   dimensions = {
     ClusterName = var.ecs_cluster_name

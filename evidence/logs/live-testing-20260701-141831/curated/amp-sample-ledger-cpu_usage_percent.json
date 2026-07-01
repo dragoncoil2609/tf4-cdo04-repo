@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"cpu_usage_percent","instance":"localhost:8080","job":"telemetry-api","region":"us-east-1","service_id":"ledger","tenant_id":"demo-tenant-001"},"value":[1782927507,"42"]}]}}

@@ -2,94 +2,173 @@
 
 Runtime evidence artifacts are stored under `evidence/logs/`.
 
+## Folder policy
+
+```text
+evidence/logs/live-testing-20260701-141831/curated/  # final pass evidence
+evidence/logs/diagnostic/                            # non-final troubleshooting context
+```
+
+Everything else in `evidence/logs/` should be treated as noise unless this README lists it.
+
 ## Final evidence status
 
 **Status:** accepted for capstone demo / mentor review with documented k6 caveat.
 
+Latest curated live run:
+
+```text
+evidence/logs/live-testing-20260701-141831/curated/
+```
+
 Core pass evidence:
 
 ```text
-Custom HTTPS domain works.
+API Gateway AWS_IAM public ingress works.
 Telemetry ingest works for tenant demo-tenant-001.
 3 services covered: ledger, payment-gw, fraud-detector.
-Worker reaches AI Engine from AMP signal windows.
-Audit table contains AI_ENGINE + complete_window + ai_status_code=200 records.
-3h 50 RPS ingest run sustained target load with p95 257 ms and 99.9998% accepted responses.
+Worker reads AMP windows and reaches AI Engine.
+DynamoDB audit contains AI_ENGINE + complete_window + ai_status_code=200 records.
+3h 50 RPS ingest run sustained target load with p95 256.19 ms.
 ```
 
 Caveat:
 
 ```text
-3h k6 run had 5 dropped_iterations and 1 failed request out of 539,995 requests.
-Project owner accepted this as pass for demo. Keep caveat visible; do not call it strict zero-drop k6 pass.
+3h k6 run exited 99 because strict dropped_iterations count<1 threshold failed.
+Observed 27 dropped iterations and 19 failed requests out of 539,974 requests.
+Failure rate stayed 0.0035%, below the k6 http_req_failed < 1% threshold.
+Do not call it a strict zero-drop k6 pass.
 ```
 
 ## Primary evidence files
 
 | Purpose | File |
 |---|---|
-| 2m 50 RPS smoke summary | `evidence/logs/acceptance-50rps-2m-final-summary.json` |
-| 3h 50 RPS final summary | `evidence/logs/acceptance-50rps-3h-final-summary.json` |
-| 3h run log | `evidence/logs/acceptance-50rps-3h-domain-demo-tenant.log` |
-| Prediction worker CloudWatch export | `evidence/logs/prediction-worker-recent.json` |
-| AI Engine CloudWatch export | `evidence/logs/ai-engine-recent.json` |
-| DynamoDB audit scan | `evidence/logs/audit-recent-scan.json` |
+| Curated evidence index | `evidence/logs/live-testing-20260701-141831/curated/README.md` |
+| 2m 50 RPS smoke summary | `evidence/logs/live-testing-20260701-141831/curated/k6-50rps-2m-summary.json` |
+| 3h 50 RPS final summary | `evidence/logs/live-testing-20260701-141831/curated/k6-50rps-3h-summary.json` |
+| Trimmed 3h k6 final log | `evidence/logs/live-testing-20260701-141831/curated/k6-50rps-3h-log-thresholds.txt` |
+| SigV4 smoke proof | `evidence/logs/live-testing-20260701-141831/curated/preflight-post-apply-smoke-signed.log` |
+| ECS stable before load | `evidence/logs/live-testing-20260701-141831/curated/preflight-ecs-stable-after-wait.json` |
+| Final poll summary | `evidence/logs/live-testing-20260701-141831/curated/poll-final-summary.tsv` |
+| DynamoDB audit samples | `evidence/logs/live-testing-20260701-141831/curated/poll-*-audit-sample.json` |
+| AMP samples | `evidence/logs/live-testing-20260701-141831/curated/amp-sample-*.json` |
 | Test evaluation report | `docs/07_test_eval_report.md` |
+
+## Preflight result
+
+Source: `preflight-post-apply-smoke-signed.log`
+
+```text
+/health: 200
+unsigned POST /v1/ingest: 403
+signed POST /v1/ingest: 201
+unsigned POST /v1/predict: 403
+signed POST /v1/predict: 200
+AMP query endpoint: reachable
+ECS services: stable after wait
+DLQ baseline: 652 pre-existing messages
+```
 
 ## 2m smoke result
 
-Source: `acceptance-50rps-2m-final-summary.json`
+Source: `k6-50rps-2m-summary.json`
 
 ```text
-http_reqs: 6,001
-rate: 49.910/s
+http_reqs: 5,999
+rate: 49.894/s
 http_req_failed: 0
-p95 latency: 246.51 ms
-dropped_iterations: 0
-checks: 6,001 / 6,001
-```
-
-## 3h final load result
-
-Source: `acceptance-50rps-3h-final-summary.json`
-
-```text
-http_reqs: 539,995
-rate: 49.9986/s
-http_req_failed: 1 / 539,995 = 0.000185%
-p95 latency: 257.42 ms
-max latency: 2.08 s
-dropped_iterations: 5 / ~540,000 = 0.00093%
-checks: 539,994 / 539,995 = 99.9998%
+p95 latency: 258.94 ms
+dropped_iterations: 2
+checks: 5,999 / 5,999
 ```
 
 Interpretation:
 
 ```text
-Operationally passed for demo. Strict k6 zero-drop threshold failed; caveat documented.
+Application path passed. Strict zero-drop k6 threshold failed from 2 dropped iterations.
+```
+
+## 3h final load result
+
+Source: `k6-50rps-3h-summary.json`
+
+```text
+http_reqs: 539,974
+rate: 49.9965/s
+http_req_failed: 19 / 539,974 = 0.0035%
+p95 latency: 256.19 ms
+avg latency: 249.00 ms
+max latency: 19.38 s
+dropped_iterations: 27
+checks: 539,955 / 539,974 = 99.9965%
+```
+
+Interpretation:
+
+```text
+Operationally passed for demo. Strict zero-drop k6 threshold failed; caveat documented.
 ```
 
 ## AI path evidence
 
-Source: `audit-recent-scan.json`, `prediction-worker-recent.json`, `ai-engine-recent.json`.
+Source: `poll-final-summary.tsv` and `poll-final-audit-sample.json`.
 
-Latest good records include:
+Latest good records:
 
 ```text
-2026-06-30T17:52:32Z fraud-detector AI_ENGINE complete_window ai_status_code=200
-2026-06-30T17:52:33Z payment-gw     AI_ENGINE complete_window ai_status_code=200
-2026-06-30T17:52:34Z ledger         AI_ENGINE complete_window ai_status_code=200
-2026-06-30T17:57:31Z fraud-detector AI_ENGINE complete_window ai_status_code=200
-2026-06-30T17:57:32Z payment-gw     AI_ENGINE complete_window ai_status_code=200
-2026-06-30T17:57:34Z ledger         AI_ENGINE complete_window ai_status_code=200
+2026-07-01T17:37:31.904208+00:00 fraud-detector AI_ENGINE complete_window ai_status_code=200
+2026-07-01T17:37:32.860310+00:00 payment-gw     AI_ENGINE complete_window ai_status_code=200
+2026-07-01T17:37:34.677907+00:00 ledger         AI_ENGINE complete_window ai_status_code=200
 ```
 
-Summary:
+Evolution during run:
 
 ```text
-AI_ENGINE + complete_window + 200: 6 records
-AI_ENGINE + partial_window + 200: 3 records
-Services covered: ledger, payment-gw, fraud-detector
+poll-01: STATIC_THRESHOLD_FALLBACK partial_window ai_status_code=0
+poll-03: AI_ENGINE partial_window ai_status_code=200
+poll-05: AI_ENGINE complete_window ai_status_code=200
+final:   AI_ENGINE complete_window ai_status_code=200 for all 3 services
+```
+
+## Runtime health evidence
+
+Final poll:
+
+```text
+ECS bad services: 0
+SQS main: 0 visible / 0 inflight
+DLQ: 652 visible / 0 inflight, unchanged from baseline
+AMP: 20 present / 1 missing in final instant query
+DynamoDB audit count: 30 latest queried
+```
+
+Earlier polls showed AMP 21/21 present; final 20/21 is a point-in-time query caveat, not a worker failure.
+
+## Diagnostic evidence kept
+
+These files are kept for root-cause context, not final acceptance proof:
+
+```text
+evidence/logs/diagnostic/README.md
+evidence/logs/diagnostic/ai-engine-recent.json
+evidence/logs/diagnostic/audit-recent-scan.json
+evidence/logs/diagnostic/final-smoke.log
+evidence/logs/diagnostic/prediction-worker-recent.json
+```
+
+## Deleted noise
+
+Removed from `evidence/logs/`:
+
+```text
+acceptance-50rps-* old domain/insecure runs
+raw live-testing poll-* directories
+raw live-testing duplicate top-level files
+full k6-50rps-3h.log
+noisy CloudWatch tail/error/stderr captures
+credential/token files
 ```
 
 ## Telemetry path caveat
@@ -112,28 +191,23 @@ It does not prove AMP persisted 50 event samples/sec.
 Gauge + ADOT scrape is correct for 1-minute prediction buckets.
 ```
 
-## Superseded diagnostics
+## Log collection caveat
 
-These files are kept only as diagnostics and must not be used as final pass evidence:
-
-```text
-acceptance-50rps-*insecure*
-acceptance-50rps-*domain-multiservice*
-acceptance-50rps-*domain.log without demo tenant
-```
+CloudWatch tail/error artifacts from this live run did not contain useful service logs because collection failed/no useful content was produced. Do not claim CloudWatch log review as pass evidence for this run. Use k6 summaries, ECS service state, SQS depth, AMP responses, and DynamoDB audit records as proof.
 
 ## Final wording
 
 Use:
 
 ```text
-The final live run sustained 50 RPS for 3 hours over the custom HTTPS domain with 539,995 ingest requests, 99.9998% accepted responses, and p95 latency of 257 ms. Worker and audit evidence show AI_ENGINE complete-window predictions for all three services. Five k6 dropped iterations were observed and documented as an operationally negligible caveat.
+The final live run sustained 50 RPS for 3 hours through API Gateway AWS_IAM ingress with 539,974 ingest requests, p95 latency of 256 ms, and a 0.0035% failed-request rate. Worker and audit evidence show AI_ENGINE complete-window predictions for all three services. Twenty-seven k6 dropped iterations were observed and documented as the reason the strict zero-drop k6 threshold returned exit code 99.
 ```
 
 Do not use:
 
 ```text
 zero-drop strict k6 pass
+CloudWatch logs prove service health for this run
 AMP received 50 samples/sec
 Cost Explorer proves full-month actual spend from same-day data
 Cross-account tenant isolation tested

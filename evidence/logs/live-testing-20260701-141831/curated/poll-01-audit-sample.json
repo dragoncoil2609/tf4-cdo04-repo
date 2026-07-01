@@ -1,0 +1,193 @@
+{
+  "source": "evidence/logs/live-testing-20260701-141831/poll-01/audit-latest.json",
+  "Count": 30,
+  "ScannedCount": 30,
+  "Items": [
+    {
+      "service_name": {
+        "S": "ledger"
+      },
+      "prediction_source": {
+        "S": "STATIC_THRESHOLD_FALLBACK"
+      },
+      "decision": {
+        "S": "SCALE_UP"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "9368f523-76ac-4e5b-b464-93d0d0732a23"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782918154"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T15:02:34.614377+00:00"
+      },
+      "score": {
+        "N": "85"
+      },
+      "ai_status_code": {
+        "N": "0"
+      },
+      "evidence_status": {
+        "S": "partial_window"
+      },
+      "service_id": {
+        "S": "ledger"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "ai_latency_ms": {
+        "N": "0"
+      },
+      "expires_at_epoch": {
+        "N": "1790694154"
+      },
+      "reasoning": {
+        "S": "Data gap 72.7% too large. Triggered static fallback."
+      },
+      "severity": {
+        "N": "0.85"
+      },
+      "service_time": {
+        "S": "2026-07-01T15:02:34.614377+00:00"
+      }
+    },
+    {
+      "service_name": {
+        "S": "payment-gw"
+      },
+      "prediction_source": {
+        "S": "STATIC_THRESHOLD_FALLBACK"
+      },
+      "decision": {
+        "S": "SCALE_UP"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "04fd9895-41d9-41de-80c5-58dd1b5e4fa9"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782918152"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T15:02:32.624878+00:00"
+      },
+      "score": {
+        "N": "85"
+      },
+      "ai_status_code": {
+        "N": "0"
+      },
+      "evidence_status": {
+        "S": "partial_window"
+      },
+      "service_id": {
+        "S": "payment-gw"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "ai_latency_ms": {
+        "N": "0"
+      },
+      "expires_at_epoch": {
+        "N": "1790694152"
+      },
+      "reasoning": {
+        "S": "Data gap 72.7% too large. Triggered static fallback."
+      },
+      "severity": {
+        "N": "0.85"
+      },
+      "service_time": {
+        "S": "2026-07-01T15:02:32.624878+00:00"
+      }
+    },
+    {
+      "service_name": {
+        "S": "fraud-detector"
+      },
+      "prediction_source": {
+        "S": "STATIC_THRESHOLD_FALLBACK"
+      },
+      "decision": {
+        "S": "SCALE_UP"
+      },
+      "anomaly": {
+        "BOOL": true
+      },
+      "prediction_id": {
+        "S": "400a0943-a689-476b-86fa-1b49c04ff853"
+      },
+      "deployment_version": {
+        "S": "v1.0.0"
+      },
+      "prediction_status": {
+        "S": "complete"
+      },
+      "timestamp": {
+        "N": "1782918151"
+      },
+      "prediction_timestamp": {
+        "S": "2026-07-01T15:02:31.976402+00:00"
+      },
+      "score": {
+        "N": "85"
+      },
+      "ai_status_code": {
+        "N": "0"
+      },
+      "evidence_status": {
+        "S": "partial_window"
+      },
+      "service_id": {
+        "S": "fraud-detector"
+      },
+      "tenant_id": {
+        "S": "demo-tenant-001"
+      },
+      "baseline_version": {
+        "S": "v1.0.0"
+      },
+      "ai_latency_ms": {
+        "N": "0"
+      },
+      "expires_at_epoch": {
+        "N": "1790694151"
+      },
+      "reasoning": {
+        "S": "Data gap 72.7% too large. Triggered static fallback."
+      },
+      "severity": {
+        "N": "0.85"
+      },
+      "service_time": {
+        "S": "2026-07-01T15:02:31.976402+00:00"
+      }
+    }
+  ]
+}

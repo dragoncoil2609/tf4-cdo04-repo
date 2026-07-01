@@ -1,0 +1,26 @@
+[
+    {
+        "name": "tf4-cdo04-sandbox-telemetry-api",
+        "status": "ACTIVE",
+        "desired": 1,
+        "running": 1,
+        "pending": 0,
+        "deployments": 1
+    },
+    {
+        "name": "tf4-cdo04-sandbox-prediction-worker",
+        "status": "ACTIVE",
+        "desired": 1,
+        "running": 1,
+        "pending": 0,
+        "deployments": 1
+    },
+    {
+        "name": "tf4-cdo04-sandbox-ai-engine",
+        "status": "ACTIVE",
+        "desired": 2,
+        "running": 2,
+        "pending": 0,
+        "deployments": 1
+    }
+]

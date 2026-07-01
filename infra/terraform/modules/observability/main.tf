@@ -46,43 +46,45 @@ locals {
     TargetDiscoveryName = "ai-engine"
   }
 
-  # Danh sách target groups & ECS services cho ALB widgets
-  alb_target_groups = ["ledger-tg", "payment-tg", "kyc-tg"]
-  ecs_services      = ["ledger-service", "payment-gateway", "kyc-worker"]
+  # Danh sách target groups cho ALB widgets (full ARN suffix from compute outputs)
+  alb_target_groups = [
+    var.telemetry_api_target_group_arn_suffix,
+    var.ai_engine_target_group_arn_suffix,
+  ]
 
-  # ALB metrics cho từng target group — Đã đồng bộ độ dài tuple chuẩn hóa 100%
+  # ALB metrics cho từng target group — full ARN suffix (no extra targetgroup/ prefix)
   alb_request_metrics = [
     for idx, tg in local.alb_target_groups : (
       idx == 0
-      ? ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}", {}]
-      : [".", ".", ".", var.alb_arn_suffix, ".", "targetgroup/${tg}", { yAxis = "right" }]
+      ? ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", tg, {}]
+      : [".", ".", ".", var.alb_arn_suffix, ".", tg, { yAxis = "right" }]
     )
   ]
 
   alb_5xx_metrics = [
     for idx, tg in local.alb_target_groups : (
       idx == 0
-      ? ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}", {}]
-      : [".", ".", ".", var.alb_arn_suffix, ".", "targetgroup/${tg}", { yAxis = "right" }]
+      ? ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", tg, {}]
+      : [".", ".", ".", var.alb_arn_suffix, ".", tg, { yAxis = "right" }]
     )
   ]
 
   alb_latency_metrics = [
     for idx, tg in local.alb_target_groups : (
       idx == 0
-      ? ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", "targetgroup/${tg}", { stat = "p99" }]
-      : [".", ".", ".", var.alb_arn_suffix, ".", "targetgroup/${tg}", { stat = "p99", yAxis = "right" }]
+      ? ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", tg, { stat = "p99" }]
+      : [".", ".", ".", var.alb_arn_suffix, ".", tg, { stat = "p99", yAxis = "right" }]
     )
   ]
 
-  # ECS metrics (CPU + Memory) cho từng service - Cấu trúc mảng 2 cấp chuẩn hóa (Đã sửa lỗi)
+  # ECS metrics (CPU + Memory) cho từng service - sử dụng variables từ compute module
   ecs_metrics = [
-    ["AWS/ECS", "CPUUtilization", "ServiceName", "ledger-service", "ClusterName", var.ecs_cluster_name],
-    [".", "MemoryUtilization", ".", "ledger-service", ".", var.ecs_cluster_name, { yAxis = "right" }],
-    ["AWS/ECS", "CPUUtilization", "ServiceName", "payment-gateway", "ClusterName", var.ecs_cluster_name],
-    [".", "MemoryUtilization", ".", "payment-gateway", ".", var.ecs_cluster_name, { yAxis = "right" }],
-    ["AWS/ECS", "CPUUtilization", "ServiceName", "kyc-worker", "ClusterName", var.ecs_cluster_name],
-    [".", "MemoryUtilization", ".", "kyc-worker", ".", var.ecs_cluster_name, { yAxis = "right" }]
+    ["AWS/ECS", "CPUUtilization", "ServiceName", var.telemetry_api_service_name, "ClusterName", var.ecs_cluster_name],
+    [".", "MemoryUtilization", ".", var.telemetry_api_service_name, ".", var.ecs_cluster_name, { yAxis = "right" }],
+    ["AWS/ECS", "CPUUtilization", "ServiceName", var.worker_service_name, "ClusterName", var.ecs_cluster_name],
+    [".", "MemoryUtilization", ".", var.worker_service_name, ".", var.ecs_cluster_name, { yAxis = "right" }],
+    ["AWS/ECS", "CPUUtilization", "ServiceName", var.ai_engine_service_name, "ClusterName", var.ecs_cluster_name],
+    [".", "MemoryUtilization", ".", var.ai_engine_service_name, ".", var.ecs_cluster_name, { yAxis = "right" }]
   ]
 }
 

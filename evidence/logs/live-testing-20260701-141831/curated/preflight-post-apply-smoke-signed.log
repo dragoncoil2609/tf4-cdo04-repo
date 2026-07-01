@@ -1,0 +1,28 @@
+Waiting for ECS services to become stable
+Reading initial DLQ depth
+Prediction DLQ already has 652 message(s); smoke will fail only if it grows
+Checking https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com/health
+Health check passed
+Checking unsigned POST https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com/v1/ingest returns 403 (IAM auth)
+Unsigned POST /v1/ingest blocked as expected: HTTP 403
+Checking signed POST https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com/v1/ingest via SigV4
+Signed POST /v1/ingest passed: HTTP 201
+Checking https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com/metrics is not public
+Public /metrics blocked as expected: HTTP 404
+Checking unsigned POST https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com/v1/predict returns 403 (IAM auth)
+Unsigned POST /v1/predict blocked as expected: HTTP 403
+Checking signed POST https://jljhxtkm7f.execute-api.us-east-1.amazonaws.com/v1/predict via SigV4
+Signed POST /v1/predict passed: HTTP 200
+Checking AMP query endpoint
+AMP query endpoint reachable
+Checking ECS service stability
+---------------------------------------------------------------------------------------------------
+|                                        DescribeServices                                         |
++-------------+----------+---------------------------------------+----------+----------+----------+
+| deployments | desired  |                 name                  | pending  | running  | status   |
++-------------+----------+---------------------------------------+----------+----------+----------+
+|  2          |  1       |  tf4-cdo04-sandbox-telemetry-api      |  0       |  1       |  ACTIVE  |
+|  2          |  1       |  tf4-cdo04-sandbox-prediction-worker  |  0       |  1       |  ACTIVE  |
+|  2          |  2       |  tf4-cdo04-sandbox-ai-engine          |  0       |  2       |  ACTIVE  |
++-------------+----------+---------------------------------------+----------+----------+----------+
+ECS service stability check failed: 3 unstable service(s)
