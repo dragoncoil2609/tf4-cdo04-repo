@@ -19,21 +19,22 @@
 | Compute model | All core runtime on ECS Fargate Linux/x86 |
 | ECS services | Telemetry API, Prediction Worker, AI Engine Service |
 | Metric backend | Amazon Managed Service for Prometheus (AMP) |
-| AI serving | ECS Fargate service, private subnet, ECS Service Connect route `POST /v1/predict` |
+| AI serving | ECS Fargate service, private subnet, API Gateway HTTP API `AWS_IAM` → VPC Link → same ALB restricted listener `:8443` → AI target group; ECS Service Connect kept as rollback/fallback |
 | Prediction cadence | Every 5 minutes |
 | Telemetry frequency | Every 1 minute |
 | AI lookback window | Đúng/đủ 120 phút gần nhất |
 | Budget target | ≤ $200/month |
 
-All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service trong private subnet, expose bằng ECS Service Connect service name, có health check, scaling, ECS rolling deployment circuit breaker rollback và IAM task role rõ ràng. Route 53/private DNS không nằm trong MVP; Service Connect cung cấp private service discovery/load balancing cho Worker → AI. Lambda AI được giữ như future cost optimization only, không phải final decision.
+All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service trong private subnet, có health check, scaling, ECS rolling deployment circuit breaker rollback và IAM task role rõ ràng. Path A thêm API Gateway HTTP API làm SigV4 enforcement point cho Worker → AI, rồi dùng VPC Link tới same existing ALB restricted listener `:8443`. Service Connect giữ làm rollback/fallback trong migration. Lambda AI được giữ như future cost optimization only, không phải final decision.
 
 ### 1.2 us-east-1 + AMP aligned with `02_infra_design.md`
 
 | Component | AWS Service | Config | Estimate/month |
 |---|---|---|---:|
 | Core compute | ECS Fargate x86 | 5 tasks total: Telemetry API 2 + Prediction Worker 1 + AI Engine 2, each 0.5 vCPU / 1GB | **$90.10** |
-| Application Load Balancer | 1 ALB + 1 LCU | Public ingest ALB `/v1/ingest`; Worker → AI uses ECS Service Connect for private service routing | **$22.27** |
-| NAT Gateway | VPC | 1 NAT Gateway theo một AZ + ~12GB data processing | **$33.39** |
+| Application Load Balancer | 1 ALB + 1 LCU | Public ingest ALB `/v1/ingest` plus restricted `:8443` AI listener on same ALB; no second ALB | **$22.27** |
+| API Gateway HTTP API | HTTP API + VPC Link | `AWS_IAM`/SigV4 enforcement for Worker → AI; ~25,920 AI POST calls/month × (`$1/M` HTTP API requests + ~0.00012GB/request NAT data for full 120m payload) | **$0.17** |
+| NAT Gateway | VPC | 1 NAT Gateway theo một AZ + ~12GB base AWS API data processing; Worker private subnet uses NAT for outbound to public execute-api endpoint, with Path A request payload cost counted in API Gateway row | **$33.39** |
 | Amazon Managed Service for Prometheus | AMP workspace | Prometheus remote_write/query_range, 120-minute PromQL filtered window, 150-day default retention | **~$0.00** |
 | DynamoDB audit/policy | DynamoDB on-demand | ~26k prediction audit writes/month + service policy reads | **$0.10** |
 | EventBridge + SQS/DLQ | Managed orchestration | ~26k prediction jobs/month, ~3 SQS requests/job | **$0.05** |
@@ -41,8 +42,8 @@ All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service t
 | CloudWatch + SNS | Logs, metrics, dashboard, alarms, notifications | 14-day app logs; AI internal audit logs are KMS encrypted with 365-day retention | **$8.00** |
 | Secrets Manager + KMS | Config/encryption | Endpoint config, webhook/tenant secret, KMS keys | **$3.40** |
 | ECR | Private registry | Small images + lifecycle policy | **$0.50** |
-| **Full always-on total** |  | Network path uses 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB uses AMP; Worker → AI uses ECS Service Connect | **~$158.16** |
-| **+20% ops buffer** |  | Buffer for operational variance, logs, small request deltas and Service Connect proxy headroom | **~$189.79** |
+| **Full always-on total** |  | Network path uses 1 zonal NAT + S3/DynamoDB Gateway Endpoints; TSDB uses AMP; Worker → AI uses API Gateway HTTP API + VPC Link + same ALB restricted listener | **~$158.33** |
+| **+20% ops buffer** |  | Buffer for operational variance, logs, small request deltas and API Gateway request growth | **~$190.00** |
 
 > Pricing note: AWS Pricing MCP facts used here for `us-east-1`: Fargate x86 $0.04048/vCPU-hour + $0.004445/GB-hour; ALB $0.0225/hour + $0.008/LCU-hour; NAT $0.045/hour + $0.045/GB. AMP pricing is usage-based: first 40M ingested samples/month and first 10GB storage are effectively enough for demo volume; query samples are billed from usage but ~21.8M/month is about $0.0022 and rounds to $0.00. These are capstone estimates to defend budget, not a replacement for AWS Cost Explorer.
 
@@ -50,8 +51,8 @@ All-ECS được chọn vì CDO phải host AI Engine như ECS Fargate service t
 
 | Scope | Estimate/month | Budget fit |
 |---|---:|---|
-| 3 demo services full always-on x86 design with AMP and Service Connect | **~$158.16** | Under hard $200 budget by about **$41.84** |
-| Same estimate + 20% ops buffer | **~$189.79** | Still under hard $200 budget by about **$10.21** |
+| 3 demo services full always-on x86 design with AMP and API Gateway Path A | **~$158.33** | Under hard $200 budget by about **$41.67** |
+| Same estimate + 20% ops buffer | **~$190.00** | Still under hard $200 budget by about **$10.00** |
 | Service Connect proxy upsize sensitivity | Variable | If proxy sidecar forces task-size increases, re-estimate Fargate compute before claiming the buffered budget |
 
 Final strategy: keep ECS Fargate x86 as accepted decision, keep prediction cadence at 5 minutes, enforce PromQL query scoping, control metric cardinality, keep logs retention fixed and keep audit/fallback active. ARM64/Graviton remains a future optimization, not the accepted decision; the full x86 design fits the hard $200 target before and after the 20% buffer if no Service Connect proxy upsize is required.
@@ -96,8 +97,8 @@ Each prediction query ~= 7 metrics × 120 one-minute samples = 840 query samples
 | Monthly prediction cycles | ~25,920 |
 | AMP ingested samples/month | ~907,200 |
 | AMP worker query samples/month | ~21.8M |
-| Cost per prediction cycle | ~$158.16 / 25,920 = **~$0.0061/cycle** |
-| Cost per demo service | ~$158.16 / 3 = **~$52.72/service/month** |
+| Cost per prediction cycle | ~$158.33 / 25,920 = **~$0.0061/cycle** |
+| Cost per demo service | ~$158.33 / 3 = **~$52.78/service/month** |
 
 Runtime AMP PromQL queries must always filter by `tenant_id`, `service_id`, metric name and exact time window to avoid query latency and cost spikes. During testing, use query stats/metadata where possible to watch query samples processed.
 
@@ -200,13 +201,13 @@ resource "aws_budgets_budget" "platform_budget" {
 
 ### 4.1 Scope
 
-This section follows `02_infra_design.md`: AI Engine is internal in the same VPC/ECS platform, so Worker → AI does **not** use NAT or public internet.
+This section follows `02_infra_design.md`: AI Engine is internal in the same VPC/ECS platform, but Path A puts API Gateway in front to enforce SigV4.
 
 ```text
 Region: us-east-1
 Topology: 2 AZ, private ECS tasks, public ALB for ingest
 Runtime: Telemetry API + Prediction Worker + AI Engine
-Luồng AI: Worker -> ECS Service Connect service name -> AI Engine
+Luồng AI: Worker private subnet -> NAT -> API Gateway execute-api -> VPC Link -> same ALB :8443 -> AI Engine
 AWS API traffic model: ~12GB/month
 ```
 
@@ -257,7 +258,7 @@ Not applied:
 | Option | Cost impact | Why not final |
 |---|---:|---|
 | Previous Singapore + Timestream for InfluxDB | About $296.04/month full-month always-on | Superseded by ADR-011 because fixed `db.influx.medium` cost breaks full-month $200 budget target. |
-| AMP + us-east-1 + x86 Fargate with public ALB + Service Connect | About $158.16/month; $189.79 with 20% buffer | ✅ Accepted physical design; fits hard $200 before and after buffer if proxy sidecar does not force task upsize. |
+| AMP + us-east-1 + x86 Fargate with public ALB + API Gateway Path A | About $158.33/month; $190.00 with 20% buffer | ✅ Accepted physical design; fits hard $200 before and after buffer while enforcing Worker → AI SigV4 at API Gateway. |
 | AMP + us-east-1 + ARM64 Fargate | Lower compute cost | Future optimization only; x86 is accepted decision for compatibility. |
 | Hybrid ECS + Lambda AI | Lower AI idle cost | Rejected for final because AI Deployment Contract says CDO hosts AI Engine as ECS Fargate service with task definition rollback. |
 | Serverless-all-in | Lowest cost | Weakens CDO control-plane story, internal service routing, ECS deployment evidence and alignment with client ECS context. |
@@ -300,7 +301,7 @@ Cost Explorer same-day or 7-day sandbox actuals are supporting evidence only. Th
 
 ## 9. Final defense statement
 
-All-ECS Fargate is not the cheapest possible option, but it is the most consistent option for this CDO platform. The platform must run Telemetry API, Prediction Worker and AI Engine Service as deployable workloads with health checks, CloudWatch logs, task roles, autoscaling and rollback. AI serving stays private through ECS Service Connect. The final TSDB choice is **Amazon Managed Service for Prometheus (AMP) in `us-east-1`**, replacing fixed-cost Timestream for InfluxDB. The accepted full-month x86 design with public ingest ALB plus ECS Service Connect is **~$158.16/month**; with 20% buffer it is **~$189.79/month**, still under the $200/month target if proxy sidecar headroom does not force task upsize. The key operating guardrails are PromQL scoping, bounded label cardinality, bounded samples/event, fixed log retention, Service Connect proxy resource monitoring and keeping audit/fallback active even when reducing non-critical load.
+All-ECS Fargate is not the cheapest possible option, but it is the most consistent option for this CDO platform. The platform must run Telemetry API, Prediction Worker and AI Engine Service as deployable workloads with health checks, CloudWatch logs, task roles, autoscaling and rollback. AI serving stays private behind API Gateway HTTP API `AWS_IAM`, VPC Link, and the same ALB restricted listener `:8443`; ECS Service Connect remains migration fallback. The final TSDB choice is **Amazon Managed Service for Prometheus (AMP) in `us-east-1`**, replacing fixed-cost Timestream for InfluxDB. The accepted full-month x86 design with public ingest ALB plus API Gateway Path A is **~$158.33/month**; with 20% buffer it is **~$190.00/month**, still under the $200/month target. The key operating guardrails are PromQL scoping, bounded label cardinality, bounded samples/event, fixed log retention, API Gateway auth probes and keeping audit/fallback active even when reducing non-critical load.
 
 ## Related documents
 

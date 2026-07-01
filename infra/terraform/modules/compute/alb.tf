@@ -43,6 +43,30 @@ resource "aws_lb_target_group" "telemetry_api" {
   })
 }
 
+resource "aws_lb_target_group" "ai_engine" {
+  name                 = "${var.project_name}-${var.environment}-ai-tg"
+  port                 = var.app_port
+  protocol             = "HTTP"
+  target_type          = "ip"
+  vpc_id               = var.vpc_id
+  deregistration_delay = 30
+
+  health_check {
+    path                = "/health"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-${var.environment}-ai-tg"
+    Purpose = "ai-engine-target-group"
+  })
+}
+
 resource "aws_acm_certificate" "cert" {
   domain_name       = var.domain_name
   validation_method = "DNS"
@@ -131,5 +155,68 @@ resource "aws_lb_listener_rule" "ingest" {
 
   tags = merge(var.tags, {
     Purpose = "telemetry-ingest-rule"
+  })
+}
+
+resource "aws_lb_listener" "ai_restricted_https" {
+  load_balancer_arn = aws_lb.public.arn
+  port              = var.ai_listener_port
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.cert.arn
+
+  default_action {
+    type = "fixed-response"
+
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Not Found"
+      status_code  = "404"
+    }
+  }
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-${var.environment}-ai-restricted-https-listener"
+    Purpose = "api-gateway-ai-listener"
+  })
+}
+
+resource "aws_lb_listener_rule" "ai_predict" {
+  listener_arn = aws_lb_listener.ai_restricted_https.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ai_engine.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/v1/predict"]
+    }
+  }
+
+  tags = merge(var.tags, {
+    Purpose = "ai-predict-rule"
+  })
+}
+
+resource "aws_lb_listener_rule" "ai_health" {
+  listener_arn = aws_lb_listener.ai_restricted_https.arn
+  priority     = 20
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ai_engine.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/health"]
+    }
+  }
+
+  tags = merge(var.tags, {
+    Purpose = "ai-health-rule"
   })
 }

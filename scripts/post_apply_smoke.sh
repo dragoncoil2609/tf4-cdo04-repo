@@ -103,6 +103,47 @@ else
   echo "Public /metrics returned HTTP ${metrics_status}; expected blocked endpoint"
 fi
 
+predict_status=$(http_code -X POST "${BASE_URL}/v1/predict" || true)
+if [[ "${predict_status}" == "200" || "${predict_status}" == "201" || "${predict_status}" == "202" ]]; then
+  echo "Public /v1/predict is exposed via ALB; expected 404/403 because AI path must require API Gateway SigV4" >&2
+  cat /tmp/smoke-response.txt >&2 || true
+  exit 1
+fi
+echo "Public /v1/predict blocked as expected: HTTP ${predict_status}"
+
+if [[ -n "${AI_API_GATEWAY_ENDPOINT:-}" ]]; then
+  ai_api_base="${AI_API_GATEWAY_ENDPOINT%/}"
+
+  echo "Checking unsigned ${ai_api_base}/health is denied"
+  ai_unsigned_status=$(http_code "${ai_api_base}/health" || true)
+  if [[ "${ai_unsigned_status}" != "403" ]]; then
+    echo "Unsigned API Gateway /health returned HTTP ${ai_unsigned_status}; expected 403" >&2
+    cat /tmp/smoke-response.txt >&2 || true
+    exit 1
+  fi
+
+  if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    echo "Skipping signed API Gateway health check: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY not exported for curl SigV4"
+  elif curl --help all 2>/dev/null | grep -q -- "--aws-sigv4"; then
+    echo "Checking signed ${ai_api_base}/health"
+    ai_signed_status=$(curl -sS -o /tmp/ai-api-smoke-response.txt -w "%{http_code}" \
+      --aws-sigv4 "aws:amz:${AWS_REGION:-us-east-1}:execute-api" \
+      --user "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}" \
+      -H "x-amz-security-token: ${AWS_SESSION_TOKEN:-}" \
+      "${ai_api_base}/health" || true)
+    if [[ "${ai_signed_status}" != "200" ]]; then
+      echo "Signed API Gateway /health failed: HTTP ${ai_signed_status}" >&2
+      cat /tmp/ai-api-smoke-response.txt >&2 || true
+      exit 1
+    fi
+    echo "Signed API Gateway /health passed"
+  else
+    echo "Skipping signed API Gateway health check: curl lacks --aws-sigv4"
+  fi
+else
+  echo "Skipping AI API Gateway checks: AI_API_GATEWAY_ENDPOINT not set"
+fi
+
 if [[ -n "${AMP_QUERY_ENDPOINT:-}" ]]; then
   if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
     echo "Skipping AMP query check: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY not exported for curl SigV4"

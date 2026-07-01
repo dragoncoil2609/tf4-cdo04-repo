@@ -37,6 +37,12 @@ variable "app_port" {
   default     = 8080
 }
 
+variable "ai_listener_port" {
+  description = "Restricted ALB listener port for API Gateway to AI Engine"
+  type        = number
+  default     = 8443
+}
+
 variable "alb_ingress_cidr" {
   description = "CIDR allowed to reach the public ALB HTTPS listener"
   type        = string

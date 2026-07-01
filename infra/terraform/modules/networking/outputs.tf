@@ -52,3 +52,8 @@ output "ai_engine_sg_id" {
   description = "Security group ID for the AI Engine ECS service"
   value       = aws_security_group.ai_engine.id
 }
+
+output "vpc_link_sg_id" {
+  description = "Security group ID for API Gateway VPC Link ENIs"
+  value       = aws_security_group.vpc_link.id
+}

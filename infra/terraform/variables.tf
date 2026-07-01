@@ -72,6 +72,12 @@ variable "app_port" {
   default     = 8080
 }
 
+variable "ai_listener_port" {
+  description = "Restricted ALB listener port for API Gateway to AI Engine"
+  type        = number
+  default     = 8443
+}
+
 # TODO (CPOA-40): allowed_ingress_cidrs and security group tuning belong to Security Groups owner.
 # TODO (CPOA-78): acm_certificate_arn and deployment pipeline variables belong to CI/CD owner.
 # TODO (CPOA-88/CPOA-98): alert_email and budget_limit belong to Observability/Cost owners.

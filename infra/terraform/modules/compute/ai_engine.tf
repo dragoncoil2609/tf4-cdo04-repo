@@ -254,6 +254,12 @@ resource "aws_ecs_service" "ai_engine" {
     rollback = true
   }
 
+  load_balancer {
+    target_group_arn = aws_lb_target_group.ai_engine.arn
+    container_name   = "ai-engine"
+    container_port   = var.app_port
+  }
+
   network_configuration {
     subnets          = var.private_subnet_ids
     security_groups  = [var.ai_engine_sg_id]
@@ -291,6 +297,8 @@ resource "aws_ecs_service" "ai_engine" {
 
   depends_on = [
     aws_iam_role_policy_attachment.ai_engine_task_policy,
-    aws_cloudwatch_log_group.ai_engine
+    aws_cloudwatch_log_group.ai_engine,
+    aws_lb_listener_rule.ai_health,
+    aws_lb_listener_rule.ai_predict
   ]
 }

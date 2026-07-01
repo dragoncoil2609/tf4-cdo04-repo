@@ -82,7 +82,7 @@ the expected inputs and outputs at each module call site.
 |---|---|
 | `networking` | VPC, public/private subnets (2 AZs), 1 NAT Gateway, IGW, S3 + DynamoDB Gateway Endpoints, ALB + ECS + Worker + AI Engine security groups |
 | `data` | AMP workspace, DynamoDB audit + policy tables, SQS prediction queue + DLQ, S3 evidence bucket (KMS key), Secrets Manager, SNS alert topic |
-| `compute` | ECR repos, ECS cluster, 3 Fargate services (API, Worker, AI Engine), ADOT Collector sidecar in telemetry API task, public ALB, ECS Service Connect, EventBridge Scheduler |
+| `compute` | ECR repos, ECS cluster, 3 Fargate services (API, Worker, AI Engine), ADOT Collector sidecar in telemetry API task, public ALB, restricted AI ALB listener, API Gateway HTTP API/VPC Link, ECS Service Connect fallback, EventBridge Scheduler |
 | `observability` | CloudWatch alarms (ALB 5xx/latency/unhealthy, ECS CPU/Memory, SQS depth/age/DLQ, DynamoDB throttles/errors), CloudWatch dashboard, SNS topic, AWS Budget |
 
 ## Variables
@@ -117,7 +117,8 @@ the expected inputs and outputs at each module call site.
   no custom image build or SSM parameter is required.
   A **standalone ADOT ECS service** with Service Connect alias `adot-collector`
   and OTLP ingress (gRPC 4317 / HTTP 4318) is deferred post-MVP.
-- **ECS Service Connect** for Worker -> AI Engine (no internal ALB).
+- **Path A Worker -> AI**: Worker private subnet egresses through existing NAT Gateway to API Gateway `execute-api`; API Gateway HTTP API enforces `AWS_IAM`/SigV4, then uses VPC Link to the same ALB restricted listener `:8443` and AI target group.
+- **ECS Service Connect** remains enabled for Worker -> AI rollback/fallback during migration.
 - **Single NAT Gateway** in the first public AZ to minimize cost.
 - **S3 and DynamoDB Gateway VPC Endpoints** (free tier) to avoid NAT data
   transfer charges for S3/DynamoDB traffic.
@@ -141,6 +142,8 @@ Full output list is in `outputs.tf`. Key outputs for consumers:
 | Output | Description |
 |---|---|
 | `alb_dns_name` | Public ALB DNS for `/v1/ingest` |
+| `ai_api_gateway_endpoint` | SigV4-protected API Gateway endpoint for Worker -> AI |
+| `ai_restricted_listener_arn` | ALB `:8443` listener used by API Gateway VPC Link |
 | `amp_remote_write_endpoint` | AMP remote write endpoint (ADOT collector target) |
 | `amp_query_endpoint` | AMP query endpoint (Prediction Worker PromQL) |
 | `prediction_queue_url` | SQS prediction queue URL |

@@ -55,12 +55,11 @@ PY
 }
 
 run_probe() {
-  local name="$1" expected="$2" method="$3" path="$4" body="${5:-}" tenant_header="${6:-}" auth_mode="${7:-valid}"
-  local tmp_body tmp_status status passed response
+  local name="$1" expected="$2" method="$3" path="$4" body="${5:-}" tenant_header="${6:-}" auth_mode="${7:-valid}" base_url="${8:-${BASE_URL}}"
+  local tmp_body status passed response
   tmp_body="$(mktemp)"
-  tmp_status="$(mktemp)"
 
-  args=(-sS -o "${tmp_body}" -w "%{http_code}" -X "${method}" "${BASE_URL}${path}")
+  args=(-sS -o "${tmp_body}" -w "%{http_code}" -X "${method}" "${base_url}${path}")
   if [[ -n "${tenant_header}" ]]; then
     args+=(-H "X-Tenant-Id: ${tenant_header}")
   fi
@@ -75,9 +74,10 @@ run_probe() {
 
   status="$(curl "${args[@]}" || true)"
   response="$(cat "${tmp_body}" | json_escape)"
-  rm -f "${tmp_body}" "${tmp_status}"
+  rm -f "${tmp_body}"
 
   case "${expected}" in
+    403) [[ "${status}" == "403" ]] && passed=true || passed=false ;;
     not_200) [[ "${status}" != "200" ]] && passed=true || passed=false ;;
     400) [[ "${status}" == "400" ]] && passed=true || passed=false ;;
     400_or_422) [[ "${status}" == "400" || "${status}" == "422" ]] && passed=true || passed=false ;;
@@ -105,6 +105,12 @@ PY
 {
   printf '{"generated_at":"%s","base_url":"%s","probes":[' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASE_URL}"
   run_probe "public_metrics_blocked" "not_200" "GET" "/metrics"
+  printf ','
+  run_probe "public_predict_blocked" "reject" "POST" "/v1/predict"
+  if [[ -n "${AI_API_GATEWAY_ENDPOINT:-}" ]]; then
+    printf ','
+    run_probe "unsigned_ai_api_health_denied" "403" "GET" "/health" "" "" "valid" "${AI_API_GATEWAY_ENDPOINT%/}"
+  fi
   if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
     printf ','
     run_probe "missing_auth_token" "reject" "POST" "/v1/ingest" "${missing_tenant_body}" "tenant-a" "none"

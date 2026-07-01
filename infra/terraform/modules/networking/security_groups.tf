@@ -50,6 +50,47 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_telemetry_api" {
   to_port                      = var.app_port
 }
 
+resource "aws_vpc_security_group_ingress_rule" "alb_ai_from_vpc_link" {
+  security_group_id = aws_security_group.alb.id
+  description       = "Allow API Gateway VPC Link to reach restricted AI listener"
+
+  referenced_security_group_id = aws_security_group.vpc_link.id
+  from_port                    = var.ai_listener_port
+  ip_protocol                  = "tcp"
+  to_port                      = var.ai_listener_port
+}
+
+resource "aws_vpc_security_group_egress_rule" "alb_to_ai_engine" {
+  security_group_id = aws_security_group.alb.id
+  description       = "Allow ALB restricted listener to forward traffic to AI Engine"
+
+  referenced_security_group_id = aws_security_group.ai_engine.id
+  from_port                    = var.app_port
+  ip_protocol                  = "tcp"
+  to_port                      = var.app_port
+}
+
+resource "aws_security_group" "vpc_link" {
+  name        = "${var.project_name}-vpc-link-sg"
+  description = "API Gateway VPC Link security group for private AI integration"
+  vpc_id      = aws_vpc.main.id
+
+  tags = merge(var.tags, {
+    Name    = "${var.project_name}-vpc-link-sg"
+    Purpose = "api-gateway-vpc-link"
+  })
+}
+
+resource "aws_vpc_security_group_egress_rule" "vpc_link_to_alb_ai" {
+  security_group_id = aws_security_group.vpc_link.id
+  description       = "Allow VPC Link ENIs to reach ALB restricted AI listener"
+
+  referenced_security_group_id = aws_security_group.alb.id
+  from_port                    = var.ai_listener_port
+  ip_protocol                  = "tcp"
+  to_port                      = var.ai_listener_port
+}
+
 resource "aws_security_group" "telemetry_api" {
   name        = "${var.project_name}-telemetry-api-sg"
   description = "Telemetry API ECS task security group"
@@ -121,9 +162,19 @@ resource "aws_security_group" "ai_engine" {
 
 resource "aws_vpc_security_group_ingress_rule" "ai_engine_from_worker" {
   security_group_id = aws_security_group.ai_engine.id
-  description       = "Allow Prediction Worker to call AI Engine"
+  description       = "Allow Prediction Worker to call AI Engine during Service Connect fallback"
 
   referenced_security_group_id = aws_security_group.prediction_worker.id
+  from_port                    = var.app_port
+  ip_protocol                  = "tcp"
+  to_port                      = var.app_port
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ai_engine_from_alb" {
+  security_group_id = aws_security_group.ai_engine.id
+  description       = "Allow restricted ALB listener to reach AI Engine"
+
+  referenced_security_group_id = aws_security_group.alb.id
   from_port                    = var.app_port
   ip_protocol                  = "tcp"
   to_port                      = var.app_port
