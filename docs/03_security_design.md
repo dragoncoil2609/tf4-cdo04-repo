@@ -129,7 +129,7 @@ Trong capstone, API Gateway HTTP API là public boundary có kiểm soát cho in
 
 Inbound được giới hạn theo nguyên tắc:
 
-- Public entry point duy nhất là API Gateway HTTP API; ALB là internal, chỉ nhận traffic từ VPC Link.
+- Public entry point duy nhất là API Gateway HTTP API; ALB là internal, chỉ nhận traffic từ API Gateway VPC Link SG.
 - ECS task không có public IP.
 - `prediction-worker` không cần public inbound trong normal operation.
 
@@ -248,8 +248,8 @@ Luồng ingest:
 - API Gateway route `POST /v1/ingest` enforce `AWS_IAM`; unsigned request trả `403` trước khi tới ALB.
 - Internal ALB security group chỉ cho phép VPC Link SG ingress port `:80`.
 - Request có `X-Tenant-Id`; header này là ngữ cảnh, không phải nguồn xác thực.
-- Tenant ingest token đi qua `X-Tenant-Ingest-Token`; legacy `Authorization: Bearer <tenant-ingest-token>` chỉ là local/internal fallback khi không dùng SigV4.
-- `telemetry-ingest` validate tenant, schema, PII denylist và metric allowlist trước khi emit OTLP/app metrics tới ADOT sidecar/collector; collector thực hiện Prometheus `remote_write` tới AMP bằng SigV4.
+- Tenant ingest token đi qua `X-Tenant-Ingest-Token`; legacy `Authorization: Bearer <tenant-ingest-token>` chỉ là local/internal fallback, không phải deployed production auth.
+- `telemetry-ingest` validate tenant, schema, PII denylist và metric allowlist trước khi cập nhật Prometheus gauges và expose `/metrics`; ADOT sidecar scrape `localhost:8080/metrics` rồi Prometheus `remote_write` tới AMP bằng SigV4.
 
 Luồng prediction:
 
@@ -279,8 +279,8 @@ API Gateway HTTP API được chọn làm SigV4 enforcement point vì ALB không
 ### 4.7 DNS and ACM (Name.com)
 
 - **Domain registrar**: Name.com (`xbrain26hackathon269.software` cho sandbox).
-- **ACM certificate**: DNS-validated public certificate cho `xbrain26hackathon269.software` và wildcard `*.xbrain26hackathon269.software`. Certificate được request trong `us-east-1` và retained for future API Gateway custom domain; not attached to internal ALB.
-- **DNS record**: CNAME record trên Name.com trỏ `xbrain26hackathon269.software` đến ALB DNS name. Validation CNAME cho ACM certificate được tạo thủ công trên Name.com console.
+- **ACM certificate**: DNS-validated public certificate cho `xbrain26hackathon269.software` và wildcard `*.xbrain26hackathon269.software`. Certificate được request trong `us-east-1` và giữ cho future API Gateway custom domain; không gắn vào internal ALB.
+- **DNS record**: CNAME record trỏ `xbrain26hackathon269.software` đến API Gateway execute-api DNS name hoặc custom domain tương lai. Validation CNAME cho ACM certificate được tạo thủ công trên Name.com console.
 - **Renewal**: ACM tự động renew certificate miễn là DNS CNAME validation record vẫn tồn tại. Name.com không có Route 53 automated DNS provisioning, nên DNS record và ACM validation được quản lý thủ công ngoài Terraform.
 - **API Gateway custom domain**: Hiện tại API Gateway HTTP API sử dụng default `execute-api` endpoint. Custom domain cho API Gateway (ví dụ `api.xbrain26hackathon269.software`) với ACM certificate là hardening option, không thuộc MVP.
 
@@ -292,9 +292,9 @@ API Gateway HTTP API được chọn làm SigV4 enforcement point vì ALB không
 
 | Secret/config | Nơi lưu | Service đọc | Rotation |
 |---|---|---|---|
-| `tf4-cdo04/<env>/ai-engine-endpoint-config` | SSM Parameter Store | `prediction-worker` | Cấu hình không nhạy cảm: Service Connect service name/base URL, host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. Route 53/private DNS không nằm trong MVP. |
+| `tf4-cdo04/<env>/ai-engine-endpoint-config` | SSM Parameter Store | `prediction-worker` | Cấu hình không nhạy cảm: API Gateway execute-api `/v1/predict` endpoint là runtime primary; Service Connect service name/base URL chỉ là rollback/fallback. Bao gồm host allowlist và timeout config; không chứa API key vì AI auth dùng IAM SigV4. Route 53/private DNS không nằm trong MVP. |
 | `tf4-cdo04/<env>/alert-email` | Terraform variable / SNS subscription | Observability module | địa chỉ SNS email; người nhận phải xác nhận subscription thủ công. |
-| `tf4-cdo04/<env>/tenant-ingest-token` | Terraform `random_password` -> Secrets Manager secret version + ECS `secrets` injection | `telemetry-ingest` / Telemetry API | Implemented demo path: Terraform generates token, stores it in Secrets Manager, and exposes sensitive output for k6. Token is stored in Terraform state by explicit project choice. ECS injects value as `TENANT_INGEST_TOKEN`; public `/v1/ingest` requires API Gateway `AWS_IAM`/SigV4 plus `X-Tenant-Ingest-Token`. Legacy `Authorization: Bearer <token>` remains local/internal fallback. Rotation means taint/replace secret version or rotate manually, then force new ECS deployment. |
+| `tf4-cdo04/<env>/tenant-ingest-token` | Terraform `random_password` -> Secrets Manager secret version + ECS `secrets` injection | `telemetry-ingest` / Telemetry API | Implemented demo path: Terraform generates token, stores it in Secrets Manager, and exposes sensitive output for k6. Token is stored in Terraform state by explicit project choice. ECS injects value as `TENANT_INGEST_TOKEN`; public `/v1/ingest` requires API Gateway `AWS_IAM`/SigV4 plus `X-Tenant-Ingest-Token`. Legacy `Authorization: Bearer <token>` remains local/internal fallback only, not deployed production auth. Rotation means taint/replace secret version or rotate manually, then force new ECS deployment. |
 | `tf4-cdo04/<env>/slack-webhook-url` | Secrets Manager | Future alert sender | Không thuộc MVP; ưu tiên SNS email. Secret container exists but is not wired to compute until a real Slack sender consumes it. |
 | `tf4-cdo04/<env>/ai-sigv4-config` | Secrets Manager | Future Worker -> AI auth verifier | Future hardening only. Current Worker -> AI auth remains IAM SigV4 intent; AI app-side verifier remains SYS-09 caveat. |
 
@@ -570,7 +570,7 @@ Các thay đổi security-sensitive cần review:
 
 ## 12. Quyết định security đã chốt cho Terraform v1
 
-- Public ingest ALB phải dùng `allowed_ingress_cidrs` khai báo rõ; không có giá trị mặc định mở và không dùng WAF trong MVP.
+- API Gateway HTTP API là public front door duy nhất; ALB là internal chỉ nhận từ VPC Link SG. Không dùng WAF trong MVP.
 - S3 evidence snapshot object chỉ lưu cho high-risk, fallback hoặc các trường hợp failure/replay; DynamoDB audit row được ghi cho mọi prediction.
 - MVP chỉ dùng CloudWatch dashboard/audit/evidence links; Grafana annotation API không thuộc Terraform v1.
 - Demo tenant ID default là key ổn định `demo-tenant-001`; format tenant production có thể chuyển sang UUID v4 sau mà không cần đổi Terraform resources.

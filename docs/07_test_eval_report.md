@@ -8,9 +8,9 @@
 
 ## 1. Executive verdict
 
-**Verdict: PASS for capstone demo / mentor review, with documented k6 caveat.**
+**Verdict: PASS cho capstone demo / mentor review, với documented k6 caveat.**
 
-Live evidence proves:
+Live evidence chứng minh:
 
 ```text
 Telemetry ingest over custom HTTPS domain works.
@@ -20,7 +20,7 @@ DynamoDB audit contains AI_ENGINE + complete_window + ai_status_code=200 records
 3h 50 RPS ingest run sustained target load with excellent latency/error SLOs.
 ```
 
-Caveat kept explicit:
+Caveat được giữ rõ ràng:
 
 ```text
 3h k6 had 5 dropped_iterations and 1 failed request out of 539,995 requests.
@@ -99,7 +99,7 @@ Result from `acceptance-50rps-3h-final-summary.json`:
 | Dropped iterations | 5 / ~540,000 = 0.00093% | owner-accepted caveat |
 | k6 exit code | 99 | caused by strict zero-drop threshold |
 
-Mentor-facing wording:
+Mentor-facing wording (trình bày với mentor):
 
 ```text
 The 3-hour run sustained 50 RPS over 539,995 ingest requests with p95 latency 257 ms and 99.9998% accepted responses. Five local k6 dropped iterations occurred over the 3-hour run; this is documented as a negligible scheduler/headroom artifact and not hidden.
@@ -117,7 +117,7 @@ ADOT remote_writes scraped samples to AMP
 prediction-worker query_range reads AMP
 ```
 
-Important scope:
+Phạm vi quan trọng:
 
 ```text
 50 RPS k6 validates ingest API headroom.
@@ -125,7 +125,7 @@ It does not prove AMP stores 50 event samples/sec.
 ADOT stores latest gauge snapshots per scrape interval, which is correct for 1-minute prediction buckets.
 ```
 
-Normal demo telemetry cadence:
+Telemetry cadence demo thông thường:
 
 ```text
 3 services x 7 signals / 60s = 0.35 RPS
@@ -155,7 +155,7 @@ AI_ENGINE + partial_window + 200: 3 records
 3 services covered: ledger, payment-gw, fraud-detector
 ```
 
-This fixes earlier false `gap_ratio=100%` issue; live worker now reaches AI Engine after AMP window fills.
+Điều này fix issue false `gap_ratio=100%` trước đó; live worker hiện đã reach AI Engine sau khi AMP window fills.
 
 ## 6. Worker and AI Engine logs
 
@@ -176,17 +176,17 @@ GET /health 200: 965
 POST /v1/predict 200: 6 in recent AI Engine logs
 ```
 
-Known non-blocking log noise:
+Log noise không chặn (non-blocking):
 
 ```text
 envoy_bug removed guard envoy.reloadable_features.use_http_client_to_fetch_aws_credentials
 ```
 
-Impact: did not block `/health` or `/v1/predict`.
+Tác động: không chặn `/health` hoặc `/v1/predict`.
 
 ## 7. Security and isolation evidence
 
-Covered by code/tests and smoke design:
+Được cover bởi code/tests và smoke design:
 
 | Probe | Status |
 |---|---|
@@ -198,9 +198,9 @@ Covered by code/tests and smoke design:
 
 ## 8. Cost evidence
 
-Cost Explorer actuals lag 24-48h, so same-day run cannot prove full billing impact.
+Cost Explorer actuals chậm 24-48h, nên same-day run không thể prove full billing impact.
 
-Mentor-safe statement:
+Mentor-safe statement (trình bày với mentor):
 
 ```text
 Budget guardrail and cost breaker are configured. Cost Explorer snapshot is delayed supporting evidence. Projected monthly cost remains under $200 based on deployed resource sizing.
@@ -222,7 +222,7 @@ Budget guardrail and cost breaker are configured. Cost Explorer snapshot is dela
 
 ## 10. Remaining caveats
 
-Do not overclaim these:
+Không overclaim các điểm sau:
 
 ```text
 - 3h k6 was owner-accepted despite 5 dropped iterations; not strict zero-drop k6 pass.

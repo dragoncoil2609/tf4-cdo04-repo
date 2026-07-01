@@ -41,7 +41,7 @@ Nhóm CDO chọn 3 service tier-1 sau cho demo:
 | `ledger`  | Ghi nhận giao dịch/sổ cái, ảnh hưởng tính đúng đắn tài chính | RDS-heavy / DB connection-heavy |
 | `fraud-detector`      | Ảnh hưởng onboarding, xử lý hồ sơ qua queue                  | Queue-heavy                     |
 
-> Canonical runtime service IDs: `payment-gw`, `ledger`, `fraud-detector`. Legacy discovery names were normalized after contract freeze; see `contracts/addendum-2026-06.md`.
+> Canonical runtime service IDs: `payment-gw`, `ledger`, `fraud-detector`. Legacy discovery names được chuẩn hóa sau contract freeze; xem `contracts/addendum-2026-06.md`.
 
 Ba service này đại diện cho ba dạng capacity risk khác nhau:
 
@@ -271,7 +271,7 @@ root_cause
 recommendation
 confidence
 prediction_id
-timestream_query_reference
+amp_query_reference
 cloudwatch_dashboard_url
 timestamp
 prediction_source
@@ -327,9 +327,9 @@ CloudWatch phù hợp để SRE xem nhanh hệ thống có đang khỏe không, 
 ### 8.3 Decision
 
 ```text
-Timestream is the source of truth for metric evidence.
-CloudWatch is the operational visibility and visualization layer.
-DynamoDB is the source of truth for prediction decision audit.
+AMP (hiện tại) / Timestream (lịch sử) là nguồn dữ liệu metric gốc dùng cho AI prediction và metric evidence.
+CloudWatch là lớp quan sát vận hành: logs, metrics, alarms, dashboard.
+DynamoDB là nơi lưu audit decision của từng prediction call.
 ```
 
 Bản tiếng Việt:
@@ -406,7 +406,7 @@ risk_level
 confidence
 root_cause
 recommendation
-timestream_query_reference
+amp_query_reference
 cloudwatch_dashboard_url
 model_version
 baseline_version
@@ -446,7 +446,7 @@ Cost guard policy mặc định:
 | Budget level | Action                                                         |
 | ------------ | -------------------------------------------------------------- |
 | 50%          | Notify PM/Infra owner                                          |
-| 80%          | Review synthetic load, log verbosity, Timestream query pattern |
+| 80%          | Review synthetic load, log verbosity, AMP PromQL query pattern |
 | 100%         | Pause synthetic load test hoặc non-critical prediction jobs    |
 
 Nguyên tắc:
@@ -509,8 +509,8 @@ Các quyết định này thuộc phạm vi CDO, không cần chờ Client hỏi
 | Decision                 | Default                                             |
 | ------------------------ | --------------------------------------------------- |
 | Compute                  | ECS Fargate for Telemetry API and Prediction Worker |
-| Telemetry store          | Amazon Timestream                                   |
-| Metric evidence source   | Timestream query result / saved query reference     |
+| Telemetry store (lich su - thay the boi AMP) | Amazon Timestream (historical)                     |
+| Metric evidence source (lich su - thay the boi AMP PromQL) | Timestream query result / saved query reference     |
 | Evidence visualization   | CloudWatch Dashboard first, Grafana optional        |
 | Decision audit evidence  | DynamoDB audit record / prediction_id               |
 | Prediction orchestration | EventBridge Scheduler + SQS + DLQ                   |
@@ -532,7 +532,7 @@ Sau PM review, nhóm CDO tạm lock các quyết định sau để các track kh
 * Prediction mode: **Balanced mode**
 * Warning format: service + root cause + recommendation
 * Recommendation format: action + target + from→to nếu evidence đủ + confidence + evidence reference
-* Metric evidence source: Timestream query result / saved query reference
+* Metric evidence source: Timestream query result / saved query reference (historical; hien tai la AMP PromQL)
 * Evidence visualization: CloudWatch Dashboard first, Grafana optional
 * Decision evidence: DynamoDB audit record / prediction_id
 * Fallback: static threshold fallback when AI endpoint unavailable
