@@ -123,10 +123,10 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
         width  = 12
         height = 6
         properties = {
-          title  = "1 - ALB - Total Requests"
-          period = 300
-          stat   = "Sum"
-          region = var.aws_region
+          title   = "1 - ALB - Total Requests"
+          period  = 300
+          stat    = "Sum"
+          region  = var.aws_region
           metrics = local.alb_request_metrics
         }
       },
@@ -139,10 +139,10 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
         width  = 12
         height = 6
         properties = {
-          title  = "2 - ALB - 5xx Errors"
-          period = 300
-          stat   = "Sum"
-          region = var.aws_region
+          title   = "2 - ALB - 5xx Errors"
+          period  = 300
+          stat    = "Sum"
+          region  = var.aws_region
           metrics = local.alb_5xx_metrics
         }
       },
@@ -155,9 +155,9 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
         width  = 12
         height = 6
         properties = {
-          title  = "3 - ALB - p99 Latency"
-          period = 300
-          region = var.aws_region
+          title   = "3 - ALB - p99 Latency"
+          period  = 300
+          region  = var.aws_region
           metrics = local.alb_latency_metrics
         }
       },
@@ -170,10 +170,10 @@ resource "aws_cloudwatch_dashboard" "telemetry_system" {
         width  = 12
         height = 6
         properties = {
-          title  = "4 - ECS - CPU & Memory Utilization"
-          period = 300
-          stat   = "Average"
-          region = var.aws_region
+          title   = "4 - ECS - CPU & Memory Utilization"
+          period  = 300
+          stat    = "Average"
+          region  = var.aws_region
           metrics = local.ecs_metrics
         }
       },
@@ -273,8 +273,8 @@ resource "aws_cloudwatch_metric_alarm" "ai_5xx_alarm" {
   statistic           = "Sum"
   threshold           = 10
 
-  alarm_actions = [aws_sns_topic.operational_alerts.arn]
-  ok_actions    = [aws_sns_topic.operational_alerts.arn]
+  alarm_actions      = [aws_sns_topic.operational_alerts.arn]
+  ok_actions         = [aws_sns_topic.operational_alerts.arn]
   treat_missing_data = "notBreaching"
 
   dimensions = {
@@ -305,7 +305,7 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth_alarm" {
   namespace           = "AWS/SQS"
   period              = 300
   statistic           = "Maximum"
-  threshold           = 0 
+  threshold           = 0
 
   alarm_actions      = [aws_sns_topic.operational_alerts.arn]
   ok_actions         = [aws_sns_topic.operational_alerts.arn]

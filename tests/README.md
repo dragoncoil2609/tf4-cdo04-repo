@@ -31,19 +31,19 @@ evidence/logs/audit-recent-scan.json
 
 ## 2. Runtime env
 
-Use custom HTTPS domain for final evidence, not raw ALB DNS over HTTPS:
+Use API Gateway public endpoint for final evidence:
 
 ```bash
 export AWS_REGION=us-east-1
-export ALB_BASE_URL=https://xbrain26hackathon269.software
-export TELEMETRY_API_HOST=https://xbrain26hackathon269.software
+export API_GATEWAY_BASE_URL="$(terraform -chdir=infra/terraform output -raw api_gateway_base_url)"
+export TELEMETRY_API_HOST="$API_GATEWAY_BASE_URL"
 export TENANT_ID=demo-tenant-001
 export SERVICE_IDS=ledger,payment-gw,fraud-detector
 export TENANT_INGEST_TOKEN="$(terraform -chdir=infra/terraform output -raw tenant_ingest_token)"  # Terraform-managed demo token; stored in Terraform state
 export AI_API_GATEWAY_ENDPOINT="$(terraform -chdir=infra/terraform output -raw ai_api_gateway_endpoint)"
 ```
 
-Raw ALB DNS with `https://` causes certificate hostname mismatch because ACM cert is for `xbrain26hackathon269.software`.
+ALB is internal after migration; do not use raw ALB DNS for public tests.
 
 ## 3. Unit/contract gate
 
@@ -69,9 +69,9 @@ Expected:
 /health returns 200 over custom HTTPS domain
 /v1/ingest returns 201 or 202
 /metrics is not public via ALB
-public ALB /v1/predict returns 403/404
-unsigned API Gateway /health returns 403 when AI_API_GATEWAY_ENDPOINT is set
-signed API Gateway /health returns 200 when curl SigV4 credentials are available
+unsigned API Gateway /v1/predict returns 403
+signed API Gateway /v1/predict returns 200/201/202 when curl SigV4 credentials are available
+API Gateway /metrics remains blocked (403/404)
 ECS services desired/running stable
 SQS/DLQ no unsafe growth
 ```

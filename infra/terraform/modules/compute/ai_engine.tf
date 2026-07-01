@@ -298,7 +298,6 @@ resource "aws_ecs_service" "ai_engine" {
   depends_on = [
     aws_iam_role_policy_attachment.ai_engine_task_policy,
     aws_cloudwatch_log_group.ai_engine,
-    aws_lb_listener_rule.ai_health,
-    aws_lb_listener_rule.ai_predict
+    aws_lb_listener_rule.predict
   ]
 }

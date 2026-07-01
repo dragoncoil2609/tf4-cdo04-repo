@@ -1,21 +1,21 @@
 # -----------------------------------------------------------------------------
-# Public Application Load Balancer -- CDO-W12-055
+# Internal Application Load Balancer -- CDO-W12-055 (migrated to API Gateway front)
 #
-# Exposes /health and /v1/ingest through HTTP or HTTPS depending on enable_https.
-# When HTTPS is enabled, port 80 redirects to 443 using the ACM certificate below.
-# /metrics is intentionally not routed; ADOT scrapes it on localhost inside the task.
+# ALB is internal in private subnets, reachable only via API Gateway VPC Link.
+# Single HTTP :80 listener routes to Telemetry API and AI Engine target groups.
+# ACM certificate retained for API Gateway custom domain, not attached to ALB.
 # -----------------------------------------------------------------------------
 
-resource "aws_lb" "public" {
+resource "aws_lb" "main" {
   name               = "${var.project_name}-${var.environment}-alb"
-  internal           = false
+  internal           = true
   load_balancer_type = "application"
   security_groups    = [var.alb_sg_id]
-  subnets            = var.public_subnet_ids
+  subnets            = var.private_subnet_ids
 
   tags = merge(var.tags, {
     Name    = "${var.project_name}-${var.environment}-alb"
-    Purpose = "public-ingest-alb"
+    Purpose = "internal-api-alb"
   })
 }
 
@@ -67,13 +67,18 @@ resource "aws_lb_target_group" "ai_engine" {
   })
 }
 
+# ACM certificate retained for future API Gateway custom domain integration.
+# ponytail: custom domain is deferred; upgrade by adding
+# aws_apigatewayv2_domain_name + api_mapping after Name.com CNAME is ready.
 resource "aws_acm_certificate" "cert" {
+  count = var.enable_acm ? 1 : 0
+
   domain_name       = var.domain_name
   validation_method = "DNS"
 
   tags = merge(var.tags, {
     Name    = "${var.project_name}-${var.environment}-acm-cert"
-    Purpose = "alb-https-cert"
+    Purpose = "api-gateway-custom-domain-cert"
   })
 
   lifecycle {
@@ -81,50 +86,14 @@ resource "aws_acm_certificate" "cert" {
   }
 }
 
+# Single HTTP listener on :80 -- all traffic arrives via API Gateway VPC Link.
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.public.arn
+  load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = var.enable_https ? "redirect" : "fixed-response"
-
-    dynamic "redirect" {
-      for_each = var.enable_https ? [1] : []
-      content {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
-
-    dynamic "fixed_response" {
-      for_each = var.enable_https ? [] : [1]
-      content {
-        content_type = "text/plain"
-        message_body = "Not Found"
-        status_code  = "404"
-      }
-    }
-  }
-
-  tags = merge(var.tags, {
-    Name    = "${var.project_name}-${var.environment}-http-listener"
-    Purpose = var.enable_https ? "http-to-https-redirect-listener" : "http-ingest-listener"
-  })
-}
-
-resource "aws_lb_listener" "https" {
-  count             = var.enable_https ? 1 : 0
-  load_balancer_arn = aws_lb.public.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate.cert.arn
-
-  default_action {
     type = "fixed-response"
-
     fixed_response {
       content_type = "text/plain"
       message_body = "Not Found"
@@ -133,13 +102,14 @@ resource "aws_lb_listener" "https" {
   }
 
   tags = merge(var.tags, {
-    Name    = "${var.project_name}-${var.environment}-https-listener"
-    Purpose = "https-ingest-listener"
+    Name    = "${var.project_name}-${var.environment}-http-listener"
+    Purpose = "internal-alb-http-listener"
   })
 }
 
-resource "aws_lb_listener_rule" "ingest" {
-  listener_arn = var.enable_https ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+# Path-based routing rules on the single HTTP listener.
+resource "aws_lb_listener_rule" "health" {
+  listener_arn = aws_lb_listener.http.arn
   priority     = 10
 
   action {
@@ -149,7 +119,27 @@ resource "aws_lb_listener_rule" "ingest" {
 
   condition {
     path_pattern {
-      values = ["/health", "/v1/ingest"]
+      values = ["/health"]
+    }
+  }
+
+  tags = merge(var.tags, {
+    Purpose = "health-rule"
+  })
+}
+
+resource "aws_lb_listener_rule" "ingest" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 20
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.telemetry_api.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/v1/ingest"]
     }
   }
 
@@ -158,32 +148,9 @@ resource "aws_lb_listener_rule" "ingest" {
   })
 }
 
-resource "aws_lb_listener" "ai_restricted_https" {
-  load_balancer_arn = aws_lb.public.arn
-  port              = var.ai_listener_port
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate.cert.arn
-
-  default_action {
-    type = "fixed-response"
-
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "Not Found"
-      status_code  = "404"
-    }
-  }
-
-  tags = merge(var.tags, {
-    Name    = "${var.project_name}-${var.environment}-ai-restricted-https-listener"
-    Purpose = "api-gateway-ai-listener"
-  })
-}
-
-resource "aws_lb_listener_rule" "ai_predict" {
-  listener_arn = aws_lb_listener.ai_restricted_https.arn
-  priority     = 10
+resource "aws_lb_listener_rule" "predict" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 30
 
   action {
     type             = "forward"
@@ -198,25 +165,5 @@ resource "aws_lb_listener_rule" "ai_predict" {
 
   tags = merge(var.tags, {
     Purpose = "ai-predict-rule"
-  })
-}
-
-resource "aws_lb_listener_rule" "ai_health" {
-  listener_arn = aws_lb_listener.ai_restricted_https.arn
-  priority     = 20
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.ai_engine.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/health"]
-    }
-  }
-
-  tags = merge(var.tags, {
-    Purpose = "ai-health-rule"
   })
 }

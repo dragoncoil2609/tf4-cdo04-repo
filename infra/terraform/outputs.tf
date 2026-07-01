@@ -90,12 +90,12 @@ output "telemetry_api_task_definition_arn" {
 # TODO: ALB, ECS service, ECR, scheduler, dashboard, alarm, budget, and SNS
 # outputs belong to teammate-owned work and are intentionally placeholders now.
 output "alb_sg_id" {
-  description = "Security group ID for the public ALB"
+  description = "Security group ID for the internal ALB"
   value       = module.networking.alb_sg_id
 }
 
 output "alb_dns_name" {
-  description = "ALB public DNS name"
+  description = "ALB DNS name (internal)"
   value       = module.compute.alb_dns_name
 }
 
@@ -145,14 +145,14 @@ output "vpc_link_sg_id" {
   value       = module.networking.vpc_link_sg_id
 }
 
-output "ai_api_gateway_endpoint" {
-  description = "API Gateway endpoint for SigV4-protected AI Engine calls"
-  value       = module.compute.ai_api_gateway_endpoint
+output "api_gateway_base_url" {
+  description = "API Gateway public base URL for unified telemetry and prediction API"
+  value       = module.compute.api_gateway_base_url
 }
 
-output "ai_restricted_listener_arn" {
-  description = "Restricted ALB HTTPS listener ARN for AI API Gateway integration"
-  value       = module.compute.ai_restricted_listener_arn
+output "ai_api_gateway_endpoint" {
+  description = "API Gateway endpoint for unified telemetry and prediction API"
+  value       = module.compute.ai_api_gateway_endpoint
 }
 
 output "kms_key_arn" {

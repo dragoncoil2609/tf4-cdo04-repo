@@ -213,7 +213,7 @@ resource "aws_ecs_service" "telemetry_api" {
   }
 
   depends_on = [
-    aws_lb_listener.https,
+    aws_lb_listener.http,
     aws_lb_listener_rule.ingest
   ]
 }

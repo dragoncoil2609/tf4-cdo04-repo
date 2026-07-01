@@ -12,9 +12,9 @@ Mục tiêu của tài liệu này không chỉ trả lời “AMP nên đi qua 
 ```text
 Region: us-east-1 / US East (N. Virginia)
 Month: 730 hours
-Topology: 2 AZ, private ECS Fargate tasks, public ALB ingress
+Topology: 2 AZ, private ECS Fargate tasks, API Gateway public front door, internal ALB
 Runtime: Telemetry API + Prediction Worker + AI Engine in private subnets
-AI endpoint: Path A — Worker private subnet -> NAT -> API Gateway HTTP API execute-api -> VPC Link -> same ALB restricted listener :8443 -> AI Engine
+AI endpoint: Path A — Worker private subnet -> NAT -> API Gateway HTTP API execute-api -> VPC Link -> internal ALB listener :80 -> AI Engine
 Metrics backend: AMP workspace
 Gateway endpoints: S3 + DynamoDB
 Budget target: <= $200/month platform estimate
@@ -22,7 +22,7 @@ Budget target: <= $200/month platform estimate
 
 Traffic được tính trong tài liệu này chỉ là traffic từ **private ECS tasks tới AWS service APIs** có thể đi qua NAT Gateway hoặc Interface VPC Endpoint. Không tính:
 
-- Client → public ALB ingest traffic.
+- Client → API Gateway ingest traffic.
 - API Gateway HTTP API request charge cho Worker → AI Path A được tách riêng ở §13 để reflect trạng thái sau thay đổi.
 - S3/DynamoDB endpoint processing, vì dùng Gateway Endpoint không có hourly/endpoint processing charge.
 - Bản thân phí service như CloudWatch Logs ingest, SQS request, AMP samples, DynamoDB writes; các phí đó đã nằm trong `05_cost_analysis.md`. Tài liệu này chủ yếu so sánh **network path cost**, riêng §13 cộng thêm API Gateway request charge vì Path A dùng public `execute-api` làm SigV4 enforcement point.
@@ -433,7 +433,7 @@ Không nên bỏ NAT trước khi đủ endpoint cho mọi runtime AWS API path,
 
 ## 12. Defense statement
 
-**Với CDO04 tại `us-east-1`, workload AWS API từ private ECS tasks sau Path A khoảng 13GB/tháng. S3 và DynamoDB đã đi qua Gateway Endpoint miễn phí. Worker → AI đi qua NAT tới API Gateway `execute-api`, rồi API Gateway dùng VPC Link vào same ALB restricted listener `:8443`; phần Path A tăng thêm khoảng $0.17/tháng cho 25,920 AI POST requests. Vì vậy phương án tối ưu cost-security cho MVP vẫn là giữ 1 zonal NAT Gateway + S3/DynamoDB Gateway Endpoints. AMP `aps-workspaces` Interface Endpoint là hardening option đầu tiên nếu cần private metric data-plane, nhưng hiện tăng khoảng $14.50/tháng và chỉ break-even khi AMP traffic vượt ~417GB/tháng. Full no-NAT 10 Interface Endpoints chỉ tối ưu cost khi tổng AWS API traffic vượt ~3.2TB/tháng so với 1 NAT, hoặc khi compliance yêu cầu private-only bất kể chi phí.**
+**Với CDO04 tại `us-east-1`, workload AWS API từ private ECS tasks sau Path A khoảng 13GB/tháng. S3 và DynamoDB đã đi qua Gateway Endpoint miễn phí. Worker → AI đi qua NAT tới API Gateway `execute-api`, rồi API Gateway dùng VPC Link vào internal ALB listener `:80`; phần Path A tăng thêm khoảng $0.17/tháng cho 25,920 AI POST requests. Vì vậy phương án tối ưu cost-security cho MVP vẫn là giữ 1 zonal NAT Gateway + S3/DynamoDB Gateway Endpoints. AMP `aps-workspaces` Interface Endpoint là hardening option đầu tiên nếu cần private metric data-plane, nhưng hiện tăng khoảng $14.50/tháng và chỉ break-even khi AMP traffic vượt ~417GB/tháng. Full no-NAT 10 Interface Endpoints chỉ tối ưu cost khi tổng AWS API traffic vượt ~3.2TB/tháng so với 1 NAT, hoặc khi compliance yêu cầu private-only bất kể chi phí.**
 
 ## 13. Worker → AI Path A request cost
 
@@ -452,7 +452,7 @@ Không cộng lại NAT hourly, ALB hourly, ECS Fargate hourly, CloudWatch logs 
 
 ```text
 Worker private subnet -> NAT Gateway -> public execute-api endpoint
-API Gateway -> VPC Link -> same ALB restricted listener :8443 -> AI Engine
+API Gateway -> VPC Link -> internal ALB listener :80 -> AI Engine
 ```
 
 ### 13.2 Full 120-minute window payload assumption

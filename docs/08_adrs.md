@@ -36,8 +36,8 @@ ADR-011, ADR-012 và ADR-013 là các quyết định hiện tại đã được
 - Metrics backend: AMP với PromQL và SigV4.
 - Metrics ingestion: Telemetry API expose `/metrics` endpoint (Prometheus text format); ADOT Collector sidecar colocated trong cùng ECS task scrape `localhost:8080/metrics` và remote_write vào AMP bằng SigV4 (`sigv4auth`, `service=aps`). App-direct remote_write bị tắt trong AWS (`AMP_DELIVERY_ENABLED=false`) vì chưa triển khai protobuf/Snappy/SigV4/retry. ADOT standalone ECS service với Service Connect alias `adot-collector` là post-MVP hardening.
 - Compute: ECS Fargate Linux/x86, private tasks.
-- Cổng vào public: một public ALB cho `/v1/ingest`; sandbox hiện dùng HTTP tạm, ACM/HTTPS là future/non-sandbox hardening; ingress giới hạn bằng `allowed_ingress_cidrs` khai báo rõ, không có giá trị mặc định mở.
-- Luồng AI: Prediction Worker -> ECS Service Connect -> AI Engine. Terraform v1 không tạo internal ALB hoặc API Gateway; Worker -> AI SigV4 contract dùng STS signed identity proof verified by AI middleware/sidecar.
+- Cổng vào public: API Gateway HTTP API cho `/health`, `/v1/ingest`, `/v1/predict`; sandbox hiện dùng HTTP tạm, ACM/HTTPS là future/non-sandbox hardening; ingress giới hạn bằng `allowed_ingress_cidrs` khai báo rõ, không có giá trị mặc định mở.
+- Luồng AI: Prediction Worker private subnet → NAT → API Gateway HTTP API `AWS_IAM` → VPC Link → internal ALB listener `:80` → AI Engine target group. ECS Service Connect giữ làm rollback/fallback trong migration. Terraform v1 không tạo internal ALB thứ hai hoặc REST API Gateway.
 - Networking: một NAT Gateway cùng S3/DynamoDB Gateway Endpoints; interface endpoints mặc định tắt.
 - Deployment: ECS rolling deployment circuit breaker trong Terraform v1. ECS-native blue/green là post-MVP; CodeDeploy không thuộc current scope.
 - Cảnh báo: CloudWatch Alarms + SNS email.
@@ -889,7 +889,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   Region          : us-east-1 / US East (N. Virginia)
   Compute         : ECS Fargate Linux/x86
   Metrics backend : Amazon Managed Service for Prometheus (AMP)
-  Luồng AI         : Prediction Worker -> ECS Service Connect service name -> POST /v1/predict -> AI Engine
+  Luồng AI         : Prediction Worker -> NAT -> API Gateway HTTP API `AWS_IAM` -> VPC Link -> internal ALB `:80` -> AI Engine (ECS Service Connect giữ làm rollback/fallback)
   ```
 
   AMP replaces the InfluxDB model:
@@ -917,14 +917,14 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   | **Full always-on estimate** | **~$158.16/month** |
   | **+20% operations buffer** | **~$189.79/month** |
 
-  This brings the full-month x86 design under the hard $200/month target before and after buffer while preserving the deployable topology: public ingest ALB plus ECS Service Connect for private Worker → AI traffic. The cost guardrails focus on log volume, synthetic-load windows, PromQL scope, label cardinality and Service Connect proxy resource headroom.
+  This brings the full-month x86 design under the hard $200/month target before and after buffer while preserving the deployable topology: public ingest ALB plus API Gateway HTTP API Path A for enforced Worker → AI SigV4, with ECS Service Connect as rollback/fallback. The cost guardrails focus on log volume, synthetic-load windows, PromQL scope, label cardinality and Service Connect proxy resource headroom.
 
 * **Consequences and guardrails**:
 
   * ✅ Restores full-month hard-budget fit before and after buffer while keeping ECS Fargate, audit, fallback and private AI serving.
   * ✅ AMP default 150-day retention satisfies the ≥90-day telemetry retention requirement.
   * ✅ AMP is available in `us-east-1` and supports `remote_write`, `query`, and `query_range`.
-  * ✅ IAM/SigV4 replaces long-lived InfluxDB data-plane tokens. Worker -> AI keeps SigV4 contract without API Gateway by sending STS signed identity proof; AI Engine middleware/sidecar verifies it because Service Connect does not natively verify SigV4 for custom HTTP services.
+  * ✅ IAM/SigV4 replaces long-lived InfluxDB data-plane tokens. Worker -> AI SigV4 is enforced by API Gateway HTTP API `AWS_IAM` (ADR-013); AI Engine app-side SigV4 verification remains production hardening.
   * ⚠️ AMP is a metrics backend, not a raw event lake. The 50k events/sec design ceiling is valid only with bounded samples/event and controlled label cardinality.
   * ⚠️ Do not use high-cardinality labels such as `request_id`, `trace_id`, `prediction_id`, `user_id`, or raw endpoint paths.
   * ⚠️ Runtime PromQL must always filter by tenant, service, metric name and the exact 120-minute range.
@@ -1032,12 +1032,12 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
     -> existing NAT Gateway
     -> API Gateway HTTP API execute-api endpoint with AWS_IAM
     -> API Gateway VPC Link
-    -> same existing ALB restricted listener :8443
+    -> internal ALB listener :80
     -> AI Engine target group
     -> AI Engine task :8080
   ```
 
-  Public ALB listener `:443` remains telemetry-only (`/health`, `/v1/ingest`). `/v1/predict` must not be routed on public `:443`. Restricted listener `:8443` only accepts source from API Gateway VPC Link security group. ECS Service Connect remains enabled only as rollback/fallback during migration.
+  API Gateway HTTP API is the only public front door. Internal ALB listener `:80` only accepts source from API Gateway VPC Link security group. ECS Service Connect remains enabled only as rollback/fallback during migration.
 
 * **Cost consequence**:
 
@@ -1049,7 +1049,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * ✅ Same ALB is reused; no second ALB fixed hourly cost.
   * ✅ NAT is used only for Worker private subnet egress to public execute-api.
   * ✅ VPC Link is used for API Gateway → ALB private integration; NAT does not replace this leg.
-  * ✅ Existing ALB ACM certificate remains for public `:443` and restricted `:8443`; no API Gateway custom domain/certificate in first pass.
+  * ✅ Existing ACM certificate remains managed for future API Gateway custom domain; no custom domain mapping in first pass.
   * ⚠️ VPC Link provisioning can add rollout delay.
   * ⚠️ Public `/v1/predict` denial and unsigned API Gateway `403` must be kept in smoke/security tests.
 

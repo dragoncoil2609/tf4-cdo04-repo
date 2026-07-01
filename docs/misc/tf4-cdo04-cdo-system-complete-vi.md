@@ -10,9 +10,9 @@
 
 TF4 CDO-04 là **SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow** cho 3 dịch vụ tier-1 của fintech demo. Mục tiêu không phải xây dashboard mới, mà biến telemetry thành **prediction decision có audit, fallback, evidence và cost guard**.
 
-Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **API Gateway HTTP API `AWS_IAM` → VPC Link → same ALB restricted listener `:8443` → AI target group**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. ECS Service Connect giữ làm rollback/fallback trong migration. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
+Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **API Gateway HTTP API `AWS_IAM` → VPC Link → internal ALB listener `:80` → AI target group**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. ECS Service Connect giữ làm rollback/fallback trong migration. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
 
-Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, 1 public ALB reused cho public ingest `:443` và restricted AI listener `:8443`, API Gateway HTTP API với `AWS_IAM`, VPC Link, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
+Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, API Gateway HTTP API làm public front door, internal ALB `:80` sau VPC Link với `AWS_IAM`, VPC Link, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
 
 Điểm cần nhớ: **không có Prometheus server scrape trực tiếp 3 service tier-1**. Đây là kiến trúc **push telemetry → Telemetry API `/metrics` → ADOT scrape → AMP remote_write**. Vì vậy 50 RPS trong k6 là **ingest API headroom**, không phải bằng chứng AMP lưu đủ 50 event samples/second.
 
@@ -96,7 +96,7 @@ API Gateway HTTP API (AWS_IAM)
   |
   | VPC Link
   v
-same ALB restricted listener :8443
+internal ALB listener :80
   |
   v
 AI Engine target group -> ECS Fargate: ai-engine (private subnet, port 8080)
@@ -267,10 +267,10 @@ process_job()
 
 AI call:
 
-- Endpoint: `http://ai-engine:8080/v1/predict`
-- Network: ECS Service Connect DNS
+- Endpoint: API Gateway HTTP API `execute-api` endpoint (enforced `AWS_IAM`/SigV4), then VPC Link → internal ALB `:80` → AI Engine target group → `http://ai-engine:8080/v1/predict`
+- Network: Worker private subnet → NAT → public execute-api → VPC Link → ALB
 - Timeout: 2s
-- Auth intent: SigV4, but current enforcement mismatch noted in stale section.
+- Auth: IAM SigV4 enforced by API Gateway `AWS_IAM`. ECS Service Connect `http://ai-engine:8080/v1/predict` kept as rollback/fallback. AI Engine app-side SigV4 verification remains production hardening.
 
 Fallback trigger:
 
@@ -304,7 +304,7 @@ Entrypoint:
 - Docker command: `uvicorn app.main:app --host 0.0.0.0 --port 8080`
 - Internal route: `POST /v1/predict`
 - Health: `/health`
-- Exposed only by ECS Service Connect, no public ALB.
+- Exposed only through internal ALB behind API Gateway VPC Link; no internet-facing ALB.
 
 Flow:
 
@@ -871,9 +871,11 @@ Risks:
 - Secrets Manager values are not managed in Terraform state; ECS injects the tenant ingest token by ARN through task definition `secrets`.
 - PII denylist and high-cardinality rejection at telemetry boundary.
 
-### 7.4 AI auth mismatch
+### 7.4 AI auth status
 
-Contract says IAM SigV4. Worker sends SigV4-style auth intent, but AI Engine app itself does not enforce SigV4. App requires `X-Tenant-Id`; comments suggest SigV4 enforced at edge, yet there is no API Gateway/ALB auth enforcement in described runtime path. This is a P0 contract drift until explicitly resolved.
+Worker → AI SigV4 is enforced at API Gateway HTTP API via `AWS_IAM` (Path A / ADR-013). Worker private subnet → NAT → public execute-api endpoint → VPC Link → internal ALB `:80` → AI Engine `:8080`. Unsigned or invalid SigV4 requests are rejected with `403` at API Gateway before reaching AI Engine.
+
+AI Engine app itself does not enforce SigV4 at the application layer -- this remains production hardening. The enforceable front door is provided by API Gateway HTTP API `AWS_IAM`. ECS Service Connect is kept as rollback/fallback in migration.
 
 ---
 
@@ -1072,13 +1074,15 @@ AMP_QUERY_ENDPOINT=<amp_query_endpoint>
 DYNAMODB_AUDIT_TABLE=<audit_table>
 DYNAMODB_POLICY_TABLE=<policy_table>
 AI_ENGINE_ENDPOINT=http://ai-engine:8080/v1/predict
+# Path A primary: API Gateway HTTP API execute-api endpoint (AWS_IAM enforced)
+# Path A fallback/rollback: ECS Service Connect http://ai-engine:8080/v1/predict
 AI_TIMEOUT_SECONDS=2
 ALERT_TOPIC_ARN=<sns_topic>
 ```
 
 Code default caveat:
 
-- Default fallback endpoint in code uses `http://ai-engine.cdo-services/v1/predict`, but Terraform overrides with `http://ai-engine:8080/v1/predict`. Runtime OK, default stale.
+- Default fallback endpoint in code `http://ai-engine.cdo-services/v1/predict`, Terraform overrides with `http://ai-engine:8080/v1/predict` (Service Connect fallback). Primary Path A runtime endpoint is API Gateway HTTP API execute-api URL. Runtime OK, default stale.
 
 ### 10.3 AI Engine env
 
@@ -1114,7 +1118,7 @@ DRY_RUN=false
 | SYS-03 | Terraform backend | Docs/workflow mention `-lock=false`, backend supports lockfile | State race risk | Remove `-lock=false`, document S3 lockfile |
 | SYS-05 | CI/CD | QA notes auto-approve and weak smoke in older flow | False green deploy | Gate apply with real smoke/evidence |
 | SYS-08 | AI runtime | Previous QA suspected placeholder AI runtime | Live audit now proves `AI_ENGINE` + `complete_window` + `ai_status_code=200` | Resolved for demo evidence; keep verifying image provenance in CI |
-| SYS-09 | AI auth | Worker SigV4/service mismatch; AI app does not enforce SigV4 | Auth contract not enforced at app layer | Add enforceable auth layer or update contract truthfully |
+| SYS-09 | AI auth | Worker SigV4 enforced at API Gateway HTTP API `AWS_IAM` via Path A; AI Engine app-side SigV4 verification remains production hardening | Auth contract enforced at edge for MVP; app-level verification is hardening | Accept Path A as contract satisfaction for capstone; document app-level verification as future work |
 | SYS-11 | AMP ingestion | App AMP adapter/stub vs ADOT remote_write docs | Confusion over actual data path | Document ADOT as only AWS remote_write path; rename no-op adapter |
 | SYS-12 | k6 path | Some stale docs/scripts may still call `/v1/telemetry`; current route is `/v1/ingest` | Operator confusion | Keep final tests on `/v1/ingest`; archive old scripts if found |
 | SYS-13 | Test report | Previously draft/placeholder | Final evidence now summarized in `docs/07_test_eval_report.md` | Resolved for demo; caveat remains for 3h k6 zero-drop |
@@ -1186,7 +1190,7 @@ Expected behavior:
 Operator checks:
 
 - AI Engine ECS health.
-- Service Connect 5xx/p95/p99 alarms.
+- API Gateway 4xx/5xx metrics, internal ALB `:80` target health, or Service Connect p95/p99 alarms (AI path fallback).
 - Worker logs for `ai_timeout`, `ai_5xx`, `ai_429`, `ai_invalid_response`.
 - DynamoDB audit source distribution.
 
@@ -1261,7 +1265,7 @@ Use `DRY_RUN=true` for breaker test.
 ### 13.2 Remaining caveats before production-like claim
 
 - 3h k6 had 5 dropped iterations and 1 failed request; accepted for demo, but not strict zero-drop.
-- AI SigV4 contract is not enforceable in current internal app path.
+- AI SigV4 contract enforced at API Gateway HTTP API `AWS_IAM` (Path A); app-level SigV4 verification remains production hardening.
 - 100 RPS acceptance was not rerun in final evidence pack.
 - Cross-account tenant isolation remains N/A in single sandbox.
 - Cost Explorer same-day actuals lag; use budget/cost-breaker + sizing model as proof.
@@ -1271,8 +1275,8 @@ Use `DRY_RUN=true` for breaker test.
 ### 13.3 Priority fix order
 
 1. Keep final evidence pack committed and clearly label 3h k6 caveat.
-2. Fix CI smoke to use custom domain `ALB_BASE_URL=https://xbrain26hackathon269.software`.
-3. Resolve AI auth truth: enforce SigV4 somewhere real, or update contract.
+2. DONE: CI smoke uses `API_GATEWAY_BASE_URL` from Terraform output.
+3. Document AI auth truth: API Gateway HTTP API `AWS_IAM` provides Path A enforcement; app-level SigV4 verification is production hardening.
 4. Optional: rerun k6 3h with bigger VU pool if a strict zero-drop artifact is required.
 5. Optional: run 100 RPS 10m acceptance if mentor asks for 100 RPS proof.
 6. Delete/move stale snapshots and cache files.
@@ -1299,11 +1303,11 @@ Use this priority when docs conflict:
 |---|---|
 | AMP | Amazon Managed Service for Prometheus, final TSDB |
 | ADOT | AWS Distro for OpenTelemetry Collector sidecar in telemetry-api task |
-| AI Engine | ECS service serving `/v1/predict` over Service Connect |
-| Prediction Worker | SQS consumer querying AMP and calling AI Engine |
+| AI Engine | ECS service serving `/v1/predict`; primary path via API Gateway HTTP API (AWS_IAM) → VPC Link → internal ALB `:80`; ECS Service Connect là fallback |
+| Prediction Worker | SQS consumer querying AMP and calling AI Engine via API Gateway HTTP API Path A |
 | Static threshold fallback | Fail-open decision path when AI/data unavailable |
 | Evidence status | `complete_window` or `partial_window` in audit |
-| Service Connect | Internal ECS DNS/routing for worker -> AI Engine |
+| Service Connect | Internal ECS DNS/routing, kept as rollback/fallback for worker → AI Engine; primary path is API Gateway HTTP API |
 | Cost breaker | Lambda scaling AI/worker to 0 when monthly cost hits 100% budget |
 | Tier-1 services | `payment-gw`, `ledger`, `fraud-detector` |
 
@@ -1317,5 +1321,5 @@ Status nên trình bày là:
 
 ```text
 DEMO PASS — architecture and runtime evidence converged for capstone review.
-Caveats: 3h k6 not strict zero-drop, AI SigV4 enforcement remains production hardening, Cost Explorer actuals are delayed supporting evidence.
+Caveats: 3h k6 not strict zero-drop, AI Engine app-side SigV4 verification remains production hardening (API Gateway HTTP API `AWS_IAM` provides edge enforcement), Cost Explorer actuals are delayed supporting evidence.
 ```

@@ -34,7 +34,7 @@ output "dynamodb_endpoint_id" {
 
 # TODO (CPOA-40): Security group outputs belong to Security Groups owner.
 output "alb_sg_id" {
-  description = "Security group ID for the public ALB"
+  description = "Security group ID for the internal ALB"
   value       = aws_security_group.alb.id
 }
 

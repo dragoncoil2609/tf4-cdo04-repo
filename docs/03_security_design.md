@@ -110,7 +110,7 @@ Nguyên tắc bảo mật chính:
 | ECS `telemetry-ingest` | Private app subnets | Không | Chỉ nhận traffic từ ALB security group. |
 | Collector / remote_write path | Private app subnets hoặc sidecar | Không | Gửi Prometheus samples tới AMP bằng SigV4. |
 | ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query AMP, gọi AI qua ECS Service Connect và ghi audit. |
-| ECS `ai-engine` | Private app subnets | Không | Chỉ nhận `/v1/predict` từ same ALB restricted listener `:8443` via target group; Service Connect direct path giữ tạm làm rollback/fallback. |
+| ECS `ai-engine` | Private app subnets | Không | Chỉ nhận `/v1/predict` từ internal ALB `:80` via target group; Service Connect direct path giữ tạm làm rollback/fallback. |
 | AMP workspace | AWS managed regional service | Không có public app endpoint trực tiếp | Truy cập qua AWS API endpoint bằng IAM/SigV4; MVP qua NAT, hardening qua PrivateLink. |
 | DynamoDB audit/policy | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và AWS SDK. |
 | SQS/DLQ | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và queue policy. |
@@ -179,7 +179,7 @@ AMP data-plane access dùng IAM/SigV4. Không còn InfluxDB write/read/admin tok
 |---|---|---|
 | `tf4-cdo04-ingest-task-role` hoặc collector task role | ECS `telemetry-ingest` / collector | `aps:RemoteWrite` vào AMP workspace, optional custom app metrics, optional `s3:PutObject` vào failure-buffer prefix; không có quyền đọc audit DB. CloudWatch `awslogs` permissions thuộc ECS execution role. |
 | `tf4-cdo04-prediction-worker-role` | ECS `prediction-worker` | Consume prediction job từ SQS; `aps:QueryMetrics` và optional `aps:GetLabels/GetSeries/GetMetricMetadata`; đọc service policy từ DynamoDB; ký IAM SigV4 request tới AI endpoint; ghi audit log vào DynamoDB; lưu evidence snapshot vào S3; publish high-risk alert qua SNS; ghi logs/metrics vào CloudWatch. |
-| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, public ALB target group/listener rule, Service Connect namespace/config, SQS/DLQ, AMP workspace/policy, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
+| `tf4-cdo04-terraform-deploy-role` | Terraform/CI pipeline | Tạo/cập nhật resource trong scope platform: ECS service/task definition, API Gateway route/VPC Link/internal ALB target group/listener rule, Service Connect namespace/config, SQS/DLQ, AMP workspace/policy, DynamoDB table, SNS topic, CloudWatch alarms, IAM roles/policies theo module. Không có quyền ngoài project prefix `tf4-cdo04-*`. |
 | `tf4-cdo04-readonly-reviewer-role` | Mentor/reviewer/Hoàng approve | Read-only để review evidence: ECS describe, CloudWatch logs read, SQS queue attributes read, DynamoDB audit read, S3 evidence read, SNS topic describe, AMP query read-only nếu được cấp. |
 | `tf4-cdo04-task-execution-role` | ECS agent | Pull image từ private ECR, ghi container logs qua `awslogs`, và đọc Secrets Manager/SSM values được inject lúc task start. Không có quyền đọc/ghi application data như DynamoDB, S3 evidence hoặc SNS. |
 
@@ -240,7 +240,7 @@ Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terra
 
 ### 4.5 Xác thực/ủy quyền giữa các service
 
-> **Path A update (2026-07-01)**: Worker → AI auth hiện enforce tại API Gateway HTTP API bằng `AWS_IAM`/SigV4. Worker private subnet đi ra public `execute-api` endpoint bằng NAT Gateway hiện có. API Gateway đi vào VPC bằng VPC Link tới same existing ALB restricted listener `:8443`. ALB listener `:8443` chỉ cho VPC Link SG; public listener `:443` không route `/v1/predict`. ECS Service Connect chỉ giữ làm rollback/fallback migration path.
+> **Path A update (2026-07-01)**: Worker → AI auth hiện enforce tại API Gateway HTTP API bằng `AWS_IAM`/SigV4. Worker private subnet đi ra public `execute-api` endpoint bằng NAT Gateway hiện có. API Gateway đi vào VPC bằng VPC Link tới internal ALB listener `:80`. ALB listener `:80` chỉ cho VPC Link SG; không còn internet-facing ALB path. ECS Service Connect chỉ giữ làm rollback/fallback migration path.
 
 Luồng ingest:
 
@@ -256,7 +256,32 @@ Luồng prediction:
 - SQS giữ một job cho mỗi tenant/service/cycle.
 - `prediction-worker` consume job bằng ECS task role.
 - Worker query AMP bằng IAM/SigV4, build đủ `signal_window` 120 phút, rồi gọi AI `POST /v1/predict` qua API Gateway HTTP API. Worker request được ký SigV4 service `execute-api` và task role chỉ có `execute-api:Invoke` cho `POST /v1/predict`.
-- API Gateway HTTP API enforce `AWS_IAM`; unsigned request trả `403`. API Gateway dùng VPC Link vào same ALB restricted listener `:8443`, listener này chỉ nhận source từ VPC Link SG. Public ALB `:443` không route `/v1/predict`. Không dùng API key/service token làm auth chính.
+- API Gateway HTTP API enforce `AWS_IAM`; unsigned request trả `403`. API Gateway dùng VPC Link vào internal ALB listener `:80`, listener này chỉ nhận source từ VPC Link SG. Không dùng API key/service token làm auth chính.
+
+### 4.6 API Gateway HTTP API trade-offs
+
+API Gateway HTTP API được chọn làm SigV4 enforcement point vì ALB không hỗ trợ `AWS_IAM` natively. Các trade-off đã chấp nhận:
+
+| Capability | HTTP API | REST API / WAF |
+|---|---|---|
+| **IAM SigV4 auth** | Yes, `AWS_IAM` on routes | Yes |
+| **WAF integration** | No (HTTP API không hỗ trợ WAF) | Yes |
+| **Resource policies** | No (HTTP API không có resource policy) | Yes |
+| **VPC Link** | Yes, private integration | Yes |
+| **Cost** | Lower ($1/M requests) | Higher |
+| **Custom domain** | ACM certificate, Name.com DNS CNAME | ACM certificate |
+
+**HTTP API không hỗ trợ WAF**: API Gateway HTTP API không có integration với AWS WAF. Mitigation: chỉ route `/v1/predict` được expose qua HTTP API và enforce `AWS_IAM`; public telemetry path `/v1/ingest` và `/health` đi qua ALB `:443` với `allowed_ingress_cidrs` khai báo rõ. `/v1/predict` không được route trên ALB public `:443`. Nếu cần WAF protection trong production, phải migrate `/v1/predict` lên REST API Gateway hoặc dùng CloudFront + WAF trước API Gateway.
+
+**HTTP API không hỗ trợ resource policies**: API Gateway HTTP API không có resource-based policy. Mitigation: enforce `AWS_IAM` trên route, giới hạn Worker task role chỉ có `execute-api:Invoke` cho method `POST` và path `/v1/predict` trên HTTP API ARN cụ thể.
+
+### 4.7 DNS and ACM (Name.com)
+
+- **Domain registrar**: Name.com (`xbrain26hackathon269.software` cho sandbox).
+- **ACM certificate**: DNS-validated public certificate cho `xbrain26hackathon269.software` và wildcard `*.xbrain26hackathon269.software`. Certificate được request trong `us-east-1` và retained for future API Gateway custom domain; not attached to internal ALB.
+- **DNS record**: CNAME record trên Name.com trỏ `xbrain26hackathon269.software` đến ALB DNS name. Validation CNAME cho ACM certificate được tạo thủ công trên Name.com console.
+- **Renewal**: ACM tự động renew certificate miễn là DNS CNAME validation record vẫn tồn tại. Name.com không có Route 53 automated DNS provisioning, nên DNS record và ACM validation được quản lý thủ công ngoài Terraform.
+- **API Gateway custom domain**: Hiện tại API Gateway HTTP API sử dụng default `execute-api` endpoint. Custom domain cho API Gateway (ví dụ `api.xbrain26hackathon269.software`) với ACM certificate là hardening option, không thuộc MVP.
 
 ---
 

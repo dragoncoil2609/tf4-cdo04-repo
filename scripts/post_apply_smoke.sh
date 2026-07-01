@@ -13,15 +13,29 @@ http_code() {
   curl -sS -o /tmp/smoke-response.txt -w "%{http_code}" "$@"
 }
 
-resolve_alb_base_url() {
-  local endpoint="${ALB_BASE_URL:-${ALB_DNS_NAME}}"
+write_predict_payload() {
+  local out="$1"
+  {
+    printf '{"signal_window":['
+    for i in $(seq 0 119); do
+      if (( i > 0 )); then
+        printf ','
+      fi
+      printf '{"ts":"2026-06-29T%02d:%02d:00Z","tenant_id":"smoke-test","service_id":"payment-gw","metric_type":"cpu_usage_percent","value":50}' "$((i / 60))" "$((i % 60))"
+    done
+    printf '],"context":{"deployment_version":"smoke","time_range":{"start_ts":"2026-06-29T00:00:00Z","end_ts":"2026-06-29T02:00:00Z"}}}'
+  } > "$out"
+}
+
+resolve_api_gateway_base_url() {
+  local endpoint="${API_GATEWAY_BASE_URL:-}"
   case "${endpoint}" in
     http://*|https://*) printf '%s\n' "${endpoint%/}" ;;
-    *) printf '%s\n' "${ALB_SCHEME:-http}://${endpoint%/}" ;;
+    *) printf '%s\n' "https://${endpoint%/}" ;;
   esac
 }
 
-require ALB_DNS_NAME
+require API_GATEWAY_BASE_URL
 require ECS_CLUSTER_NAME
 require TELEMETRY_API_SERVICE_NAME
 require PREDICTION_WORKER_SERVICE_NAME
@@ -29,14 +43,14 @@ require AI_ENGINE_SERVICE_NAME
 require PREDICTION_QUEUE_URL
 require PREDICTION_QUEUE_DLQ_URL
 
-BASE_URL="$(resolve_alb_base_url)"
+BASE_URL="$(resolve_api_gateway_base_url)"
 INGEST_AUTH_HEADER=()
 if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
   INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
 fi
 
-# Terraform returns after ECS service update starts; wait here so ALB does not hit
-# draining old tasks during the rolling deployment.
+# Terraform returns after ECS service update starts; wait so API Gateway does not
+# hit draining old tasks during the rolling deployment.
 echo "Waiting for ECS services to become stable"
 aws ecs wait services-stable \
   --cluster "${ECS_CLUSTER_NAME}" \
@@ -94,7 +108,7 @@ done
 echo "Checking ${BASE_URL}/metrics is not public"
 metrics_status=$(http_code "${BASE_URL}/metrics" || true)
 if [[ "${metrics_status}" == "200" ]]; then
-  echo "Public /metrics is exposed via ALB; expected 404/403 because ADOT scrapes localhost" >&2
+  echo "Public /metrics is exposed via API Gateway; expected 404/403 because ADOT scrapes localhost" >&2
   exit 1
 fi
 if [[ "${metrics_status}" == "404" || "${metrics_status}" == "403" ]]; then
@@ -103,45 +117,40 @@ else
   echo "Public /metrics returned HTTP ${metrics_status}; expected blocked endpoint"
 fi
 
-predict_status=$(http_code -X POST "${BASE_URL}/v1/predict" || true)
-if [[ "${predict_status}" == "200" || "${predict_status}" == "201" || "${predict_status}" == "202" ]]; then
-  echo "Public /v1/predict is exposed via ALB; expected 404/403 because AI path must require API Gateway SigV4" >&2
+echo "Checking unsigned POST ${BASE_URL}/v1/predict returns 403 (IAM auth)"
+predict_unsigned_status=$(http_code -X POST "${BASE_URL}/v1/predict" \
+  -H "Content-Type: application/json" \
+  -d '{"signal_window":[],"context":{"deployment_version":"smoke","time_range":{"start_ts":"2026-06-29T00:00:00Z","end_ts":"2026-06-29T02:00:00Z"}}}' || true)
+if [[ "${predict_unsigned_status}" != "403" ]]; then
+  echo "Unsigned POST /v1/predict returned HTTP ${predict_unsigned_status}; expected 403 (API Gateway IAM auth)" >&2
   cat /tmp/smoke-response.txt >&2 || true
   exit 1
 fi
-echo "Public /v1/predict blocked as expected: HTTP ${predict_status}"
+echo "Unsigned POST /v1/predict blocked as expected: HTTP ${predict_unsigned_status}"
 
-if [[ -n "${AI_API_GATEWAY_ENDPOINT:-}" ]]; then
-  ai_api_base="${AI_API_GATEWAY_ENDPOINT%/}"
-
-  echo "Checking unsigned ${ai_api_base}/health is denied"
-  ai_unsigned_status=$(http_code "${ai_api_base}/health" || true)
-  if [[ "${ai_unsigned_status}" != "403" ]]; then
-    echo "Unsigned API Gateway /health returned HTTP ${ai_unsigned_status}; expected 403" >&2
-    cat /tmp/smoke-response.txt >&2 || true
+echo "Checking signed POST ${BASE_URL}/v1/predict via SigV4"
+write_predict_payload /tmp/signed-predict-payload.json
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+  echo "Skipping signed predict check: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY not exported for curl SigV4"
+elif curl --help all 2>/dev/null | grep -q -- "--aws-sigv4"; then
+  predict_signed_status=$(curl -sS -o /tmp/signed-predict-response.txt -w "%{http_code}" \
+    --aws-sigv4 "aws:amz:${AWS_REGION:-us-east-1}:execute-api" \
+    --user "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}" \
+    -H "x-amz-security-token: ${AWS_SESSION_TOKEN:-}" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -H "X-Tenant-Id: smoke-test" \
+    -H "X-Correlation-Id: smoke-test" \
+    --data-binary @/tmp/signed-predict-payload.json \
+    "${BASE_URL}/v1/predict" || true)
+  if [[ "${predict_signed_status}" != "200" && "${predict_signed_status}" != "201" && "${predict_signed_status}" != "202" ]]; then
+    echo "Signed POST /v1/predict failed: HTTP ${predict_signed_status}" >&2
+    cat /tmp/signed-predict-response.txt >&2 || true
     exit 1
   fi
-
-  if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-    echo "Skipping signed API Gateway health check: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY not exported for curl SigV4"
-  elif curl --help all 2>/dev/null | grep -q -- "--aws-sigv4"; then
-    echo "Checking signed ${ai_api_base}/health"
-    ai_signed_status=$(curl -sS -o /tmp/ai-api-smoke-response.txt -w "%{http_code}" \
-      --aws-sigv4 "aws:amz:${AWS_REGION:-us-east-1}:execute-api" \
-      --user "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}" \
-      -H "x-amz-security-token: ${AWS_SESSION_TOKEN:-}" \
-      "${ai_api_base}/health" || true)
-    if [[ "${ai_signed_status}" != "200" ]]; then
-      echo "Signed API Gateway /health failed: HTTP ${ai_signed_status}" >&2
-      cat /tmp/ai-api-smoke-response.txt >&2 || true
-      exit 1
-    fi
-    echo "Signed API Gateway /health passed"
-  else
-    echo "Skipping signed API Gateway health check: curl lacks --aws-sigv4"
-  fi
+  echo "Signed POST /v1/predict passed: HTTP ${predict_signed_status}"
 else
-  echo "Skipping AI API Gateway checks: AI_API_GATEWAY_ENDPOINT not set"
+  echo "Skipping signed predict check: curl lacks --aws-sigv4"
 fi
 
 if [[ -n "${AMP_QUERY_ENDPOINT:-}" ]]; then

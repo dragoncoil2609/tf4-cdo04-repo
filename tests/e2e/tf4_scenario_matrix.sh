@@ -11,24 +11,24 @@ require() {
   fi
 }
 
-require ALB_DNS_NAME
+require API_GATEWAY_BASE_URL
 require PREDICTION_QUEUE_URL
 require DYNAMODB_AUDIT_TABLE
 
-resolve_alb_base_url() {
-  local endpoint="${ALB_BASE_URL:-${ALB_DNS_NAME}}"
+resolve_api_gateway_base_url() {
+  local endpoint="${API_GATEWAY_BASE_URL}"
   case "${endpoint}" in
     http://*|https://*) printf '%s\n' "${endpoint%/}" ;;
-    *) printf '%s\n' "${ALB_SCHEME:-http}://${endpoint%/}" ;;
+    *) printf '%s\n' "https://${endpoint%/}" ;;
   esac
 }
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
-TENANT_ID="${TENANT_ID:-acceptance-tenant}"
+TENANT_ID="${TENANT_ID:-demo-tenant-001}"
 WARMUP_MINUTES="${WARMUP_MINUTES:-120}"
 SCENARIO_MINUTES="${SCENARIO_MINUTES:-60}"
 POLL_SECONDS="${POLL_SECONDS:-1200}"
-BASE_URL="$(resolve_alb_base_url)"
+BASE_URL="$(resolve_api_gateway_base_url)"
 INGEST_AUTH_HEADER=()
 if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
   INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
