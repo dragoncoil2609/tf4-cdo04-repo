@@ -86,10 +86,11 @@ async def predict_capacity(
         "reasoning": reasoning,
     }
 
-    # IAM SigV4 is enforced at the edge (CDO-hosted Internal ALB / API Gateway AWS_IAM
-    # authorizer + SG-to-SG private subnet), NOT in app code. Requests reaching here are
-    # already signed & verified; we only read the verified principal_id for the audit log.
-    # Authorization stays Optional by design (W11 mock testing / edge owns enforcement).
+    # IAM SigV4 is enforced at the edge by a CDO-hosted private API Gateway (AWS_IAM
+    # authorization) in front of the internal ALB (SG-to-SG private subnet), NOT in app
+    # code. Requests reaching here are already signed & verified; we only read the verified
+    # principal_id for the audit log. Authorization stays Optional by design (W11 mock /
+    # edge owns enforcement).
     principal_id = (authorization.split("Credential=")[-1].split("/")[0]
                     if authorization and "Credential=" in authorization else "mock-principal-id")
 
