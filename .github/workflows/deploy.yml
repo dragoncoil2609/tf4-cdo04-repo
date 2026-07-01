@@ -110,7 +110,7 @@ jobs:
         run: |
           case "${{ github.base_ref }}" in
             main) state_key="tf4-cdo04/prod/terraform.tfstate" ;;
-            develop) state_key="tf4-cdo04/staging/terraform.tfstate" ;;
+            develop) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
             *) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
           esac
           terraform -chdir=infra/terraform init -backend-config="key=${state_key}"
@@ -220,7 +220,7 @@ jobs:
         run: |
           case "${{ github.ref_name }}" in
             main) state_key="tf4-cdo04/prod/terraform.tfstate" ;;
-            develop) state_key="tf4-cdo04/staging/terraform.tfstate" ;;
+            develop) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
             *) state_key="tf4-cdo04/sandbox/terraform.tfstate" ;;
           esac
           terraform -chdir=infra/terraform init -backend-config="key=${state_key}"
