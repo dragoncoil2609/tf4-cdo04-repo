@@ -41,6 +41,11 @@ output "telemetry_api_target_group_arn_suffix" {
   value       = aws_lb_target_group.telemetry_api.arn_suffix
 }
 
+output "ai_engine_target_group_arn_suffix" {
+  description = "AI Engine target group ARN suffix for CloudWatch dimensions"
+  value       = aws_lb_target_group.ai_engine.arn_suffix
+}
+
 output "alb_dns_name" {
   description = "ALB public DNS name"
   value       = aws_lb.public.dns_name
@@ -54,6 +59,21 @@ output "alb_zone_id" {
 output "alb_listener_arn" {
   description = "ALB HTTP listener ARN"
   value       = aws_lb_listener.http.arn
+}
+
+output "ai_restricted_listener_arn" {
+  description = "Restricted ALB HTTPS listener ARN for AI API Gateway integration"
+  value       = aws_lb_listener.ai_restricted_https.arn
+}
+
+output "ai_api_gateway_endpoint" {
+  description = "API Gateway endpoint for SigV4-protected AI Engine calls"
+  value       = aws_apigatewayv2_api.ai_engine.api_endpoint
+}
+
+output "ai_api_gateway_execution_arn" {
+  description = "API Gateway execution ARN for AI Engine invoke policy"
+  value       = aws_apigatewayv2_api.ai_engine.execution_arn
 }
 
 output "acm_certificate_arn" {

@@ -10,9 +10,9 @@
 
 TF4 CDO-04 là **SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow** cho 3 dịch vụ tier-1 của fintech demo. Mục tiêu không phải xây dashboard mới, mà biến telemetry thành **prediction decision có audit, fallback, evidence và cost guard**.
 
-Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **ECS Service Connect**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
+Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **API Gateway HTTP API `AWS_IAM` → VPC Link → same ALB restricted listener `:8443` → AI target group**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. ECS Service Connect giữ làm rollback/fallback trong migration. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
 
-Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, 1 public ALB, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
+Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, 1 public ALB reused cho public ingest `:443` và restricted AI listener `:8443`, API Gateway HTTP API với `AWS_IAM`, VPC Link, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
 
 Điểm cần nhớ: **không có Prometheus server scrape trực tiếp 3 service tier-1**. Đây là kiến trúc **push telemetry → Telemetry API `/metrics` → ADOT scrape → AMP remote_write**. Vì vậy 50 RPS trong k6 là **ingest API headroom**, không phải bằng chứng AMP lưu đủ 50 event samples/second.
 
@@ -90,12 +90,16 @@ ECS Fargate: prediction-worker (private subnet, outbound only)
   |-- query AMP /api/v1/query_range, step=60s, lookback=120m
   |-- align 1-min buckets, forward-fill/zero-fill
   |-- if gap_ratio >= 0.5 => static threshold fallback
-  |-- else POST /v1/predict
+  |-- else SigV4 POST /v1/predict to API Gateway execute-api via NAT
   v
-ECS Service Connect: ai-engine:8080
+API Gateway HTTP API (AWS_IAM)
+  |
+  | VPC Link
+  v
+same ALB restricted listener :8443
   |
   v
-ECS Fargate: ai-engine (private subnet, Service Connect server)
+AI Engine target group -> ECS Fargate: ai-engine (private subnet, port 8080)
   |-- rate limit 600 req/min/tenant
   |-- STL baseline + EWMA control chart
   |-- response: anomaly/severity/recommendation/reasoning/audit_id

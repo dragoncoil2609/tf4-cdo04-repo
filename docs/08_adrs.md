@@ -26,9 +26,9 @@ Khi một ADR cũ không còn áp dụng, không xóa ADR cũ. Chỉ cập nhậ
 Sau đó append ADR mới ở dưới.
 
 
-## Ghi chú quyết định hiện tại (2026-06-30)
+## Ghi chú quyết định hiện tại (2026-07-01)
 
-ADR-011 và ADR-012 là các quyết định hiện tại đã được chấp nhận cho region, TSDB product, query language, metrics auth model, và ADOT collector deployment topology. Mọi nội dung ADR cũ nhắc đến Singapore/`ap-southeast-1`, Amazon Timestream/Timestream for InfluxDB, InfluxDB tokens, Flux, `promql_evidence_reference`, Timestream VPC endpoints, hoặc ADOT standalone ECS service chỉ được giữ làm ngữ cảnh lịch sử, trừ khi ADR-011/ADR-012 lặp lại rõ ràng. Khi triển khai hiện tại, phải xem các chi tiết đó là đã bị thay thế bởi AMP tại `us-east-1` với PromQL, IAM/SigV4, và ADOT Collector sidecar trong telemetry-api task.
+ADR-011, ADR-012 và ADR-013 là các quyết định hiện tại đã được chấp nhận cho region, TSDB product, query language, metrics auth model, ADOT collector deployment topology, và Worker → AI SigV4 enforcement path. Mọi nội dung ADR cũ nhắc đến Singapore/`ap-southeast-1`, Amazon Timestream/Timestream for InfluxDB, InfluxDB tokens, Flux, `promql_evidence_reference`, Timestream VPC endpoints, ADOT standalone ECS service, hoặc Worker → AI direct Service Connect as primary auth path chỉ được giữ làm ngữ cảnh lịch sử, trừ khi ADR-011/012/013 lặp lại rõ ràng. Khi triển khai hiện tại, phải xem các chi tiết đó là đã bị thay thế bởi AMP tại `us-east-1` với PromQL, IAM/SigV4, ADOT Collector sidecar trong telemetry-api task, và API Gateway HTTP API `AWS_IAM` cho Worker → AI.
 
 ## Snapshot quyết định hiện tại cho Terraform v1 (2026-06-27)
 
@@ -1011,6 +1011,47 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * **Giữ nguyên `AmpDeliveryAdapter` và sửa bằng cách thêm SigV4**:
 
     Rejected vì chỉ thêm SigV4 là chưa đủ — AMP còn yêu cầu protobuf + Snappy. Sửa toàn bộ protocol stack trong Python là không kinh tế.
+
+---
+## ADR-013 - Enforce Worker to AI SigV4 with API Gateway Path A
+
+* **Status**: Accepted
+
+* **Date**: 2026-07-01
+
+* **Context**:
+
+  AI team confirmed ALB cannot enforce IAM SigV4. Previous Worker → AI path used ECS Service Connect and did not provide an enforceable SigV4 front door by itself. CDO needs to satisfy Worker → AI IAM SigV4 enforcement while staying under the $200/month cap and avoiding a second ALB if possible.
+
+* **Decision**:
+
+  Choose Path A:
+
+  ```text
+  prediction-worker private subnet
+    -> existing NAT Gateway
+    -> API Gateway HTTP API execute-api endpoint with AWS_IAM
+    -> API Gateway VPC Link
+    -> same existing ALB restricted listener :8443
+    -> AI Engine target group
+    -> AI Engine task :8080
+  ```
+
+  Public ALB listener `:443` remains telemetry-only (`/health`, `/v1/ingest`). `/v1/predict` must not be routed on public `:443`. Restricted listener `:8443` only accepts source from API Gateway VPC Link security group. ECS Service Connect remains enabled only as rollback/fallback during migration.
+
+* **Cost consequence**:
+
+  API Gateway HTTP API + Worker → `execute-api` NAT data adds about `$0.17/month` at 25,920 AI POST calls/month. That is about `$0.03/month` for HTTP API request charge plus `$0.14/month` NAT data for the full 120-minute payload window. Full always-on estimate becomes about `$158.33/month`; with 20% ops buffer about `$190.00/month`, still below `$200/month`. This is cheaper than adding a second ALB or moving to VPC Lattice for the capstone budget.
+
+* **Consequences**:
+
+  * ✅ Worker → AI SigV4 is enforced by API Gateway `AWS_IAM`.
+  * ✅ Same ALB is reused; no second ALB fixed hourly cost.
+  * ✅ NAT is used only for Worker private subnet egress to public execute-api.
+  * ✅ VPC Link is used for API Gateway → ALB private integration; NAT does not replace this leg.
+  * ✅ Existing ALB ACM certificate remains for public `:443` and restricted `:8443`; no API Gateway custom domain/certificate in first pass.
+  * ⚠️ VPC Link provisioning can add rollout delay.
+  * ⚠️ Public `/v1/predict` denial and unsigned API Gateway `403` must be kept in smoke/security tests.
 
 ---
 ## Related documents

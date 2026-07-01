@@ -28,11 +28,13 @@ locals {
 module "networking" {
   source = "./modules/networking"
 
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-  vpc_cidr     = var.vpc_cidr
-  az_count     = var.az_count
+  project_name     = var.project_name
+  environment      = var.environment
+  aws_region       = var.aws_region
+  vpc_cidr         = var.vpc_cidr
+  az_count         = var.az_count
+  app_port         = var.app_port
+  ai_listener_port = var.ai_listener_port
 }
 
 module "data" {
@@ -65,8 +67,11 @@ module "compute" {
   vpc_id            = module.networking.vpc_id
   public_subnet_ids = module.networking.public_subnet_ids
   alb_sg_id         = module.networking.alb_sg_id
+  vpc_link_sg_id    = module.networking.vpc_link_sg_id
 
-  app_port                = var.app_port
+  app_port         = var.app_port
+  ai_listener_port = var.ai_listener_port
+
   prediction_worker_image = var.prediction_worker_image_tag
   ai_engine_image         = var.ai_engine_image_tag
   ai_engine_sg_id         = module.networking.ai_engine_sg_id

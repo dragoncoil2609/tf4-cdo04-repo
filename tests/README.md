@@ -40,6 +40,7 @@ export TELEMETRY_API_HOST=https://xbrain26hackathon269.software
 export TENANT_ID=demo-tenant-001
 export SERVICE_IDS=ledger,payment-gw,fraud-detector
 export TENANT_INGEST_TOKEN="$(terraform -chdir=infra/terraform output -raw tenant_ingest_token)"  # Terraform-managed demo token; stored in Terraform state
+export AI_API_GATEWAY_ENDPOINT="$(terraform -chdir=infra/terraform output -raw ai_api_gateway_endpoint)"
 ```
 
 Raw ALB DNS with `https://` causes certificate hostname mismatch because ACM cert is for `xbrain26hackathon269.software`.
@@ -68,6 +69,9 @@ Expected:
 /health returns 200 over custom HTTPS domain
 /v1/ingest returns 201 or 202
 /metrics is not public via ALB
+public ALB /v1/predict returns 403/404
+unsigned API Gateway /health returns 403 when AI_API_GATEWAY_ENDPOINT is set
+signed API Gateway /health returns 200 when curl SigV4 credentials are available
 ECS services desired/running stable
 SQS/DLQ no unsafe growth
 ```

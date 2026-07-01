@@ -79,6 +79,17 @@ variable "alb_sg_id" {
   type        = string
 }
 
+variable "vpc_link_sg_id" {
+  description = "Security group ID for API Gateway VPC Link ENIs"
+  type        = string
+}
+
+variable "ai_listener_port" {
+  description = "Restricted ALB listener port for API Gateway to AI Engine"
+  type        = number
+  default     = 8443
+}
+
 variable "app_port" {
   description = "Application container port used by Telemetry API and AI Engine"
   type        = number

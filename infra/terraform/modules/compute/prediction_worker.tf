@@ -99,6 +99,14 @@ resource "aws_iam_policy" "prediction_worker_task_policy" {
         ]
         Resource = "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.project_name}-operational-alerts-${var.environment}"
       },
+      {
+        Sid    = "AllowInvokeAiApiGateway"
+        Effect = "Allow"
+        Action = [
+          "execute-api:Invoke"
+        ]
+        Resource = "${aws_apigatewayv2_api.ai_engine.execution_arn}/*/POST/v1/predict"
+      },
     ]
   })
 
@@ -175,7 +183,7 @@ resource "aws_ecs_task_definition" "prediction_worker" {
         },
         {
           name  = "AI_ENGINE_ENDPOINT"
-          value = "http://ai-engine:8080/v1/predict"
+          value = "${aws_apigatewayv2_api.ai_engine.api_endpoint}/v1/predict"
         },
         {
           name  = "AI_TIMEOUT_SECONDS"

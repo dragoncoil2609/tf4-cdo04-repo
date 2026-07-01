@@ -5,7 +5,7 @@
 **Project:** TF4 Foresight Lens
 **Infra source of truth:** `02_infra_design.md`
 **Angle:** SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow
-**Core stack:** Public ALB + ECS Fargate Linux/x86 + ECS Service Connect + Amazon Managed Service for Prometheus (AMP) + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
+**Core stack:** Public ALB + API Gateway HTTP API (`AWS_IAM`) + VPC Link + ECS Fargate Linux/x86 + ECS Service Connect fallback + Amazon Managed Service for Prometheus (AMP) + SQS/DLQ + DynamoDB audit log + SNS/CloudWatch + Secrets Manager
 
 ---
 
@@ -110,7 +110,7 @@ Nguyên tắc bảo mật chính:
 | ECS `telemetry-ingest` | Private app subnets | Không | Chỉ nhận traffic từ ALB security group. |
 | Collector / remote_write path | Private app subnets hoặc sidecar | Không | Gửi Prometheus samples tới AMP bằng SigV4. |
 | ECS `prediction-worker` | Private app subnets | Không | Poll SQS, query AMP, gọi AI qua ECS Service Connect và ghi audit. |
-| ECS `ai-engine` | Private app subnets | Không | Chỉ nhận `/v1/predict` từ Worker qua ECS Service Connect/private SG path; không public-facing. |
+| ECS `ai-engine` | Private app subnets | Không | Chỉ nhận `/v1/predict` từ same ALB restricted listener `:8443` via target group; Service Connect direct path giữ tạm làm rollback/fallback. |
 | AMP workspace | AWS managed regional service | Không có public app endpoint trực tiếp | Truy cập qua AWS API endpoint bằng IAM/SigV4; MVP qua NAT, hardening qua PrivateLink. |
 | DynamoDB audit/policy | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và AWS SDK. |
 | SQS/DLQ | AWS managed | Không có public app endpoint trực tiếp | Truy cập qua IAM và queue policy. |
@@ -240,6 +240,8 @@ Policy trên là sketch để thể hiện scope. ARN thật sẽ được Terra
 
 ### 4.5 Xác thực/ủy quyền giữa các service
 
+> **Path A update (2026-07-01)**: Worker → AI auth hiện enforce tại API Gateway HTTP API bằng `AWS_IAM`/SigV4. Worker private subnet đi ra public `execute-api` endpoint bằng NAT Gateway hiện có. API Gateway đi vào VPC bằng VPC Link tới same existing ALB restricted listener `:8443`. ALB listener `:8443` chỉ cho VPC Link SG; public listener `:443` không route `/v1/predict`. ECS Service Connect chỉ giữ làm rollback/fallback migration path.
+
 Luồng ingest:
 
 - Producer gọi ALB qua HTTP trong sandbox tạm; non-sandbox/future dùng HTTPS với ACM.
@@ -253,8 +255,8 @@ Luồng prediction:
 - EventBridge tạo job theo lịch.
 - SQS giữ một job cho mỗi tenant/service/cycle.
 - `prediction-worker` consume job bằng ECS task role.
-- Worker query AMP bằng IAM/SigV4, build đủ `signal_window` 120 phút, rồi gọi AI `POST /v1/predict` qua ECS Service Connect tới AI Engine ECS Fargate service trong cùng VPC.
-- W11 mock test có thể cho phép `Authorization` optional theo AI contract; W12 final enforce IAM SigV4. Không dùng API Gateway cho MVP. ECS Service Connect không tự verify SigV4 cho FastAPI service tùy chỉnh, nên Worker tạo STS signed identity proof cho `GetCallerIdentity` kèm body hash/timestamp/nonce; AI Engine middleware/sidecar replay proof tới STS để AWS verify signature, kiểm tra ARN trả về đúng Worker task role, clock skew/replay window và trả `401/403` khi không hợp lệ. Không dùng API key/service token làm auth chính.
+- Worker query AMP bằng IAM/SigV4, build đủ `signal_window` 120 phút, rồi gọi AI `POST /v1/predict` qua API Gateway HTTP API. Worker request được ký SigV4 service `execute-api` và task role chỉ có `execute-api:Invoke` cho `POST /v1/predict`.
+- API Gateway HTTP API enforce `AWS_IAM`; unsigned request trả `403`. API Gateway dùng VPC Link vào same ALB restricted listener `:8443`, listener này chỉ nhận source từ VPC Link SG. Public ALB `:443` không route `/v1/predict`. Không dùng API key/service token làm auth chính.
 
 ---
 

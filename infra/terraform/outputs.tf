@@ -139,6 +139,22 @@ output "ai_engine_sg_id" {
   description = "Security group ID for the AI Engine ECS service"
   value       = module.networking.ai_engine_sg_id
 }
+
+output "vpc_link_sg_id" {
+  description = "Security group ID for API Gateway VPC Link ENIs"
+  value       = module.networking.vpc_link_sg_id
+}
+
+output "ai_api_gateway_endpoint" {
+  description = "API Gateway endpoint for SigV4-protected AI Engine calls"
+  value       = module.compute.ai_api_gateway_endpoint
+}
+
+output "ai_restricted_listener_arn" {
+  description = "Restricted ALB HTTPS listener ARN for AI API Gateway integration"
+  value       = module.compute.ai_restricted_listener_arn
+}
+
 output "kms_key_arn" {
   description = "Project KMS key ARN"
   value       = module.data.kms_key_arn
@@ -208,6 +224,11 @@ output "prediction_worker_task_role_arn" {
   value       = module.compute.prediction_worker_task_role_arn
 }
 
+output "ai_api_gateway_execution_arn" {
+  description = "API Gateway execution ARN for AI Engine invoke policy"
+  value       = module.compute.ai_api_gateway_execution_arn
+}
+
 output "prediction_worker_service_name" {
   description = "Prediction Worker ECS service name"
   value       = module.compute.prediction_worker_service_name
@@ -273,4 +294,9 @@ output "operational_alerts_topic_arn" {
 output "ai_engine_autoscaling_target_resource_id" {
   description = "Application Auto Scaling target resource ID for AI Engine"
   value       = module.compute.ai_engine_autoscaling_target_resource_id
+}
+
+output "ai_engine_target_group_arn_suffix" {
+  description = "AI Engine target group ARN suffix for CloudWatch dimensions"
+  value       = module.compute.ai_engine_target_group_arn_suffix
 }
