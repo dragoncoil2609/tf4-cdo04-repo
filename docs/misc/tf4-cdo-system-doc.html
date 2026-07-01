@@ -1,0 +1,1886 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hệ Thống CDO — Tài Liệu Hệ Thống CDO Đầy Đủ</title>
+<style>
+/* =============================================================
+   DEFAULT DESIGN SYSTEM — tokens.css
+   ============================================================= */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  /* ── Accent (cam ấm) ── */
+  --accent:        #fe7624;
+  --accent-strong: #f59120;
+  --accent-soft:   #fbae42;
+  --accent-tint:   #fff2e6;
+
+  /* ── Ink (navy cấu trúc) ── */
+  --ink:    #1e293b;
+  --ink-2:  #24338a;
+
+  /* ── Trạng thái ngữ nghĩa ── */
+  --info:    #2563eb;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger:  #dc2626;
+
+  /* ── Bảng phân loại (6 màu phân biệt cho chart/badge/diagram) ── */
+  --cat-1: #fe7624;  --cat-2: #2563eb;  --cat-3: #16a34a;
+  --cat-4: #9333ea;  --cat-5: #db2777;  --cat-6: #0891b2;
+
+  /* ── Văn bản ── */
+  --text-primary:   #1a1a1a;
+  --text-secondary: #4d4e4e;
+  --text-muted:     #6b7280;
+
+  /* ── Bề mặt ── */
+  --surface-page: #fafafa;
+  --surface-card: #ffffff;
+  --surface-code: #0f172a;
+  --surface-tint: #fff7ec;
+  --surface-warm: #f0eeed;
+  --border:       #d8dee3;
+  --border-light: #ebebeb;
+
+  /* ── Typography ── */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', monospace;
+  --title: clamp(2.5rem, 7vw, 6rem);
+  --h2:    clamp(1.5rem, 3.5vw, 2.5rem);
+  --h3:    clamp(1.1rem, 2.2vw, 1.6rem);
+  --body:  clamp(0.85rem, 1.15vw, 1.05rem);
+  --small: clamp(0.72rem, 0.9vw, 0.85rem);
+  --mono:  clamp(0.7rem, 0.9vw, 0.85rem);
+
+  /* ── Không gian ── */
+  --gap-section: clamp(2rem, 5vw, 3.5rem);
+  --gap-content: clamp(0.75rem, 1.8vw, 1.8rem);
+  --gap-element: clamp(0.4rem, 1vw, 1rem);
+  --pad-block:   clamp(1.5rem, 4vw, 4rem);
+  --pad-inline:  clamp(1rem, 3vw, 3.5rem);
+
+  /* ── Hình khối ── */
+  --radius-sm: 10px;  --radius-md: 16px;  --radius-lg: 20px;
+  --radius-xl: 32px;  --radius-pill: 80px;
+
+  /* ── Đổ bóng ── */
+  --shadow-card: 0 8px 17px rgba(29,29,29,0.05);
+  --shadow-lg:   0 20px 40px rgba(30,41,59,0.12);
+
+  /* ── Gradient ── */
+  --gradient-accent: linear-gradient(135deg, #ffc078 0%, #ff8800 100%);
+  --gradient-text:   linear-gradient(135deg, #fcd554 0%, #fe7624 60%, #f59120 100%);
+  --gradient-hero:   radial-gradient(ellipse at 85% 10%, #fcd55455 0%, transparent 55%),
+                     radial-gradient(ellipse at 10% 90%, #fe762422 0%, transparent 60%);
+  --gradient-cool:   linear-gradient(135deg, #007bc1 0%, #24338a 100%);
+
+  /* ── Chuyển động ── */
+  --ease:       cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast:   0.35s;
+  --dur-normal: 0.65s;
+  --dur-slow:   1.1s;
+
+  /* ── Scrim ── */
+  --scrim: linear-gradient(180deg,
+            color-mix(in srgb, var(--ink) 25%, transparent),
+            color-mix(in srgb, var(--ink) 70%, transparent));
+}
+
+/* =============================================================
+   ENGINE.CSS — cấu trúc + component + animation
+   ============================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; font-family: var(--font-sans); color: var(--text-primary);
+  background: var(--surface-page); -webkit-font-smoothing: antialiased;
+  word-break: keep-all; overflow-wrap: break-word; line-height: 1.5;
+}
+img { display: block; max-width: 100%; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.gradient-text {
+  background: var(--gradient-text); -webkit-background-clip: text;
+  background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.layout { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.doc-nav {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  border-right: 1px solid var(--border); padding: 24px 0; background: var(--surface-card);
+}
+.doc-nav .nav-logo { padding: 0 20px 16px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.doc-nav .nav-logo h1 { font-size: 1.1rem; margin: 0; color: var(--ink); font-weight: 800; }
+.doc-nav .nav-logo p { font-size: var(--small); color: var(--text-muted); margin: 4px 0 0; }
+.doc-nav .nav-group { padding: 14px 20px 4px; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 700; }
+.doc-nav a { display: block; padding: 8px 20px; font-size: 13px; color: var(--text-secondary); text-decoration: none; border-left: 3px solid transparent; transition: all .15s; }
+.doc-nav a:hover, .doc-nav a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-tint); font-weight: 600; text-decoration: none; }
+.doc-main { padding: 40px 56px; max-width: 1000px; margin: 0 auto; width: 100%; }
+.doc-main section { margin-bottom: 64px; scroll-margin-top: 24px; border-bottom: 1px dashed var(--border); padding-bottom: 48px; }
+.doc-main section:last-child { border-bottom: none; }
+
+/* Components */
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: var(--small); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); padding: 6px 14px; background: var(--accent-tint); border-radius: var(--radius-pill); align-self: flex-start; }
+.eyebrow .dot, .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.section-header h2 { margin: 0; font-size: var(--h2); color: var(--ink); }
+.section-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 18px; flex-shrink: 0; background: var(--accent-tint); }
+.section-icon.info { background: color-mix(in srgb, var(--info) 14%, transparent); }
+.section-icon.success { background: color-mix(in srgb, var(--success) 14%, transparent); }
+.section-icon.warning { background: color-mix(in srgb, var(--warning) 14%, transparent); }
+.section-icon.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+.card { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: clamp(.85rem,1.4vw,1.4rem); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: clamp(.3rem,.8vw,.7rem); min-width: 0; }
+.card-title { font-weight: 700; font-size: var(--body); color: var(--ink); margin: 0; }
+.card-desc { font-size: var(--small); color: var(--text-secondary); line-height: 1.55; }
+.card-val { font-size: var(--h3); font-weight: 800; color: var(--accent); }
+.card-accent { border-color: var(--accent-strong); background: linear-gradient(180deg, var(--surface-card) 0%, var(--surface-tint) 100%); }
+.card-dark { background: var(--ink); border-color: var(--ink); color: #fff; }
+.card-dark .card-title { color: #fff; }
+.card-dark .card-body { color: var(--border); font-size: var(--body); line-height: 1.5; }
+
+.badge { display: inline-block; padding: 3px 10px; border-radius: var(--radius-sm); font-size: var(--small); font-weight: 700; letter-spacing: .04em; background: var(--accent-tint); color: var(--accent-strong); }
+.badge-info    { background: color-mix(in srgb, var(--info) 15%, transparent);    color: var(--info); }
+.badge-success { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.badge-warning { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+.badge-danger  { background: color-mix(in srgb, var(--danger) 15%, transparent);  color: var(--danger); }
+
+.code-block { background: var(--surface-code); border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); border-radius: var(--radius-sm); padding: 16px 18px; font-family: var(--font-mono); font-size: var(--mono); color: #e2e8f0; line-height: 1.65; overflow-x: auto; white-space: pre; margin-bottom: 18px; }
+.code-block .cmt { color: var(--text-muted); }
+.code-block .kw  { color: var(--accent-soft); font-weight: 600; }
+.code-block .str { color: var(--success); }
+.code-block .fn  { color: var(--info); }
+.code-block .val { color: var(--cat-5); }
+.code-block .out { color: var(--text-muted); }
+code { font-family: var(--font-mono); font-size: .88em; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 2px 6px; border-radius: 4px; color: var(--ink-2); font-weight: 600; }
+
+.callout { border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 20px; font-size: var(--body); border-left: 4px solid var(--accent); background: var(--accent-tint); }
+.callout p { margin: 0; line-height: 1.6; }
+.callout-info    { border-color: var(--info);    background: color-mix(in srgb, var(--info) 8%, transparent); }
+.callout-success { border-color: var(--success); background: color-mix(in srgb, var(--success) 8%, transparent); }
+.callout-warning { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); }
+.callout-danger  { border-color: var(--danger);  background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+table { width: 100%; border-collapse: collapse; font-size: var(--small); margin-bottom: 24px; box-shadow: var(--shadow-card); border-radius: var(--radius-sm); overflow: hidden; }
+th { text-align: left; padding: 12px 14px; background: var(--ink); color: #ffffff; font-weight: 700; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text-secondary); background: var(--surface-card); }
+tr:hover td { background: var(--surface-tint); }
+
+.flow { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.flow-step { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; font-size: var(--small); color: var(--text-primary); display: flex; flex-direction: column; gap: 4px; min-width: 140px; flex: 1; }
+.flow-step .flow-num { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; }
+.flow-step .flow-title { font-weight: 600; color: var(--ink); }
+.flow-step .flow-body { font-size: var(--small); color: var(--text-muted); line-height: 1.4; }
+.flow-arrow { color: var(--accent); font-size: 1.2rem; align-self: center; flex-shrink: 0; }
+
+.stepper { display: flex; flex-direction: column; margin-bottom: 24px; }
+.step-item { display: flex; gap: 16px; }
+.step-line { display: flex; flex-direction: column; align-items: center; width: 32px; flex-shrink: 0; }
+.step-dot { width: 28px; height: 28px; border-radius: 50%; background: var(--gradient-accent); color: #fff; font-size: .75rem; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
+.step-connector { width: 2px; flex: 1; min-height: 24px; background: var(--border); margin: 4px 0; }
+.step-item:last-child .step-connector { display: none; }
+.step-content { padding-bottom: 18px; flex: 1; }
+.step-title { font-weight: 700; font-size: .95rem; color: var(--ink); margin-bottom: 4px; margin-top: 2px; }
+.step-desc { font-size: var(--small); color: var(--text-secondary); line-height: 1.55; }
+
+.def-list { display: flex; flex-direction: column; gap: .5rem; margin-bottom: 20px; }
+.def-list .def-row { display: grid; grid-template-columns: minmax(150px, 250px) 1fr; gap: 1.5rem; padding: .6rem 12px; border-bottom: 1px solid var(--border-light); }
+.def-list .def-row:last-child { border-bottom: none; }
+.def-list .def-term { font-weight: 700; color: var(--ink-2); font-size: var(--small); }
+.def-list .def-desc { color: var(--text-secondary); font-size: var(--small); line-height: 1.5; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--gap-element); margin-bottom: 24px; }
+.stat { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-card); }
+.stat .big-num { font-size: 2.2rem; font-weight: 800; color: var(--accent); line-height: 1.1; }
+.stat .stat-label { font-size: var(--small); font-weight: 700; color: var(--ink); }
+.stat .stat-desc { font-size: var(--small); color: var(--text-muted); line-height: 1.4; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem,2vw,2rem); align-items: stretch; margin-bottom: 24px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-element); margin-bottom: 24px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-element); margin-bottom: 24px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-element); margin-bottom: 24px; }
+
+.two-col, .grid-2, .grid-3, .grid-4, .flow { min-height: 0; }
+.two-col > *, .grid-2 > *, .grid-3 > *, .grid-4 > *, .flow > * { min-width: 0; min-height: 0; }
+
+.media-contain { width: 100%; height: auto; min-height: 250px; display: grid; place-items: center; overflow: hidden; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); padding: clamp(.5rem,1.5vw,1rem); margin-bottom: 24px; }
+
+/* Animations */
+.reveal { opacity: 0; transform: translateY(14px); }
+.reveal.in { opacity: 1; transform: none; transition: opacity var(--dur-normal) var(--ease), transform var(--dur-normal) var(--ease); }
+.stagger > * { opacity: 0; transform: translateY(14px); }
+.stagger.in > * { opacity: 1; transform: none; transition: opacity var(--dur-normal) var(--ease), transform var(--dur-normal) var(--ease); transition-delay: calc(var(--i, 0) * 80ms); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .doc-nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  .doc-main { padding: 24px; }
+}
+@media (max-width: 767px) {
+  .grid-2, .grid-3, .grid-4, .two-col { grid-template-columns: 1fr; }
+  .flow { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); align-self: center; margin: 4px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .2s !important; }
+  html { scroll-behavior: auto; }
+  .reveal, .stagger > *, svg [data-animate] { opacity: 1 !important; transform: none !important; animation: none !important; stroke-dashoffset: 0 !important; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="doc-nav">
+    <div class="nav-logo">
+      <h1>Hệ Thống CDO</h1>
+      <p>TF4 CDO-04 — System Doc v2.6</p>
+    </div>
+    
+    <div class="nav-group">Tổng quan</div>
+    <a href="#s0" class="active">0. Executive Summary</a>
+    <a href="#s1">1. System Scope & SLOs</a>
+    <a href="#s2">2. Architecture Tổng Thể</a>
+    
+    <div class="nav-group">Luồng hoạt động</div>
+    <a href="#s3">3. Runtime Flow Chi Tiết</a>
+    <a href="#s4">4. Contracts với AI Team</a>
+    
+    <div class="nav-group">Hạ tầng & Vận hành</div>
+    <a href="#s5">5. Infrastructure as Code</a>
+    <a href="#s6">6. Observability (Giám Sát)</a>
+    <a href="#s7">7. Security Posture</a>
+    <a href="#s8">8. Testing & Acceptance</a>
+    <a href="#s9">9. Quy trình CI/CD</a>
+    <a href="#s10">10. Config Inventory</a>
+    
+    <div class="nav-group">Kiểm soát rủi ro</div>
+    <a href="#s11">11. Stale Docs & Drift</a>
+    <a href="#s12">12. Operational Runbooks</a>
+    <a href="#s13">13. Readiness Assessment</a>
+    
+    <div class="nav-group">Phụ lục</div>
+    <a href="#s14">14. Source-of-truth Rules</a>
+    <a href="#s15">15. Glossary (Thuật ngữ)</a>
+    <a href="#s16">16. Final State Statement</a>
+  </nav>
+
+  <main class="doc-main">
+    
+    <!-- SECTION 0 -->
+    <section id="s0">
+      <div class="section-header">
+        <div class="section-icon info">⚙️</div>
+        <h2>0. Executive Summary</h2>
+      </div>
+      <p class="reveal">
+        Hệ thống <strong>TF4 CDO-04</strong> đóng vai trò là một <strong>SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow</strong> dành cho 3 dịch vụ tier-1 cốt lõi trong nền tảng fintech demo. Mục tiêu thiết kế cốt lõi không chỉ là xây dựng dashboard giám sát thông thường, mà là chuyển hóa toàn bộ telemetry thô thành các quyết định dự báo (prediction decisions) có khả năng kiểm soát chi phí (cost guard), dự phòng (fallback), kiểm toán (audit), và cung cấp bằng chứng rõ ràng (evidence).
+      </p>
+      
+      <p class="reveal">
+        Cơ chế hoạt động chính của hệ thống bao gồm: nhận dữ liệu qua <code>POST /v1/ingest</code>, xuất metrics chuẩn Prometheus tại <code>/metrics</code>, để <strong>ADOT Collector sidecar</strong> scrape cục bộ rồi đẩy lên <strong>Amazon Managed Service for Prometheus (AMP)</strong> qua phương thức <code>remote_write</code>. Kế tiếp, <strong>EventBridge Scheduler</strong> kích hoạt các job dự báo định kỳ mỗi 5 phút đẩy vào <strong>SQS</strong>. Bộ phận <strong>Prediction Worker</strong> sẽ tiêu thụ các tin nhắn này, truy vấn AMP lấy chuỗi dữ liệu lookback 120 phút, đồng bộ thành các bucket 1 phút, và gọi dịch vụ <strong>AI Engine</strong> thông qua mạng lưới <strong>ECS Service Connect</strong>. Kết quả dự báo sẽ được ghi nhận vào sổ kiểm toán <strong>DynamoDB</strong> và cảnh báo qua <strong>SNS</strong> nếu phát hiện rủi ro bất thường cao.
+      </p>
+
+      <div class="callout callout-info reveal">
+        <p><strong>Lưu ý về thiết kế Scrape:</strong> Hệ thống không có Prometheus server scrape trực tiếp các service tier-1. Đây hoàn toàn là kiến trúc push telemetry lên Telemetry API rồi scrape thông qua ADOT sidecar để đẩy lên AMP. Vì vậy mức tải 50 RPS kiểm thử k6 chỉ chứng minh được giới hạn chịu tải của Ingest API, không đảm bảo rằng AMP lưu trữ đầy đủ mọi sample.</p>
+      </div>
+      
+      <div class="card card-accent reveal">
+        <div class="card-title">Kết Luận Executive Summary</div>
+        <div class="card-desc">Kiến trúc này chạy ổn định trên vùng us-east-1 sử dụng ECS Fargate trong Private Subnet và được bảo vệ nghiêm ngặt bằng cơ chế Cost Breaker Lambda tự động ngắt tải khi chi phí chạm ngân sách tối đa.</div>
+      </div>
+    </section>
+
+    <!-- SECTION 1 -->
+    <section id="s1">
+      <div class="section-header">
+        <div class="section-icon">🎯</div>
+        <h2>1. System Scope & SLOs</h2>
+      </div>
+      
+      <div class="eyebrow"><span class="dot"></span>1.1 Định Danh & Góc Tiếp Cận</div>
+      <p class="reveal">
+        Tài liệu hệ thống bao quát trạng thái repo <code>tf4-cdo04-repo</code> tính đến ngày 2026-07-01. Dự án hiện đã đạt chứng chỉ <strong>DEMO PASS</strong> (toàn bộ kiến trúc, IaC, runtime và bằng chứng đã hội tụ đầy đủ cho buổi capstone review, chỉ còn lại một số caveat vận hành nhỏ). Hệ thống chạy hoàn toàn trên Cloud Provider AWS vùng <strong>us-east-1</strong> và sử dụng <strong>AMP</strong> làm TSDB cuối cùng.
+      </p>
+      
+      <div class="eyebrow"><span class="dot"></span>1.2 Ba Dịch Vụ Tier-1 Demo</div>
+      <p class="reveal">Các dịch vụ tier-1 đại diện cho hệ thống fintech và các rủi ro vận hành chính mà control plane cần phát hiện:</p>
+      
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Service ID Canonical</th>
+            <th>Kiểu Kiến Trúc / Hạ Tầng</th>
+            <th>Rủi Ro Kỹ Thuật Chính</th>
+            <th>Ghi Chú Mapping Tên Cũ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>payment-gw</code></td>
+            <td>ALB-heavy + RDS-heavy</td>
+            <td>Traffic spike đột biến, tăng latency, quá tải ALB/API</td>
+            <td>Từng được đặt tên là <code>payment-gateway</code></td>
+          </tr>
+          <tr>
+            <td><code>ledger</code></td>
+            <td>RDS-heavy / DB connection-heavy</td>
+            <td>Cạn kiệt tài nguyên database pool, tăng query latency</td>
+            <td>Từng được đặt tên là <code>ledger-service</code></td>
+          </tr>
+          <tr>
+            <td><code>fraud-detector</code></td>
+            <td>Queue-heavy</td>
+            <td>Tích tụ hàng đợi SQS, worker bị timeout quá hạn</td>
+            <td>Từng được gọi là <code>kyc-worker</code> hoặc <code>fraud-detection</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>1.3 Ma Trận SLO và Chỉ Số Targets</div>
+      <div class="stat-grid stagger">
+        <div class="stat">
+          <div class="big-num" data-animate="count" data-to="5">0</div>
+          <div class="stat-label">Prediction Cadence</div>
+          <div class="stat-desc">Tần suất chạy dự báo (phút / lần)</div>
+        </div>
+        <div class="stat">
+          <div class="big-num" data-animate="count" data-to="1">0</div>
+          <div class="stat-label">Telemetry Frequency</div>
+          <div class="stat-desc">Tần suất đẩy metric của app (phút / metric)</div>
+        </div>
+        <div class="stat">
+          <div class="big-num" data-animate="count" data-to="120">0</div>
+          <div class="stat-label">AI Lookback Window</div>
+          <div class="stat-desc">Cửa sổ thời gian phân tích đầu vào (phút)</div>
+        </div>
+        <div class="stat">
+          <div class="big-num">≥ 15m</div>
+          <div class="stat-label">Lead Time Cảnh Báo Trước</div>
+          <div class="stat-desc">Mục tiêu phát hiện sớm (Target 30 phút)</div>
+        </div>
+        <div class="stat">
+          <div class="big-num">≤ 12%</div>
+          <div class="stat-label">False Positive Rate</div>
+          <div class="stat-desc">Giới hạn tỷ lệ báo động sai tối đa</div>
+        </div>
+        <div class="stat">
+          <div class="big-num">≥ 80%</div>
+          <div class="stat-label">Drift Catch Rate</div>
+          <div class="stat-desc">Tỷ lệ bắt thành công các điểm trôi dạt dữ liệu</div>
+        </div>
+        <div class="stat">
+          <div class="big-num">&lt; 500ms</div>
+          <div class="stat-label">AI API P99 Latency</div>
+          <div class="stat-desc">Độ trễ API tối đa ở mức tải 100 RPS</div>
+        </div>
+        <div class="stat">
+          <div class="big-num">≤ 200$</div>
+          <div class="stat-label">Platform Cost / Tháng</div>
+          <div class="stat-desc">Ngân sách trần bảo vệ tài nguyên cloud</div>
+        </div>
+      </div>
+      
+      <p class="reveal"><strong>Takeaway:</strong> Ba dịch vụ tier-1 phải sử dụng nhất quán tên Service ID canonical trong toàn bộ telemetry, metadata job, request AI, và logs kiểm toán.</p>
+    </section>
+
+    <!-- SECTION 2 -->
+    <section id="s2">
+      <div class="section-header">
+        <div class="section-icon">📐</div>
+        <h2>2. Architecture Tổng Thể</h2>
+      </div>
+      <p class="reveal">
+        Luồng dữ liệu tổng thể và các mối quan hệ thành phần của hệ thống CDO-04 được cấu trúc chặt chẽ như sơ đồ SVG trực quan dưới đây:
+      </p>
+
+      <div class="media-contain reveal">
+        <svg viewBox="0 0 850 480" width="100%" preserveAspectRatio="xMidYMid meet">
+          <style>
+            .s-box { fill: var(--surface-card); stroke: var(--border); stroke-width: 2; rx: 8; }
+            .s-box-accent { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 2; rx: 8; }
+            .s-box-dark { fill: var(--ink); stroke: var(--ink); rx: 8; }
+            .s-text { font-family: var(--font-sans); font-size: 11px; fill: var(--text-primary); font-weight: 600; }
+            .s-text-bold { font-family: var(--font-sans); font-size: 12px; fill: var(--ink); font-weight: 800; }
+            .s-text-white { font-family: var(--font-sans); font-size: 11px; fill: #ffffff; font-weight: bold; }
+            .s-line { stroke: var(--accent); stroke-width: 2; fill: none; }
+            .s-line-dashed { stroke: var(--text-muted); stroke-width: 1.5; stroke-dasharray: 4; fill: none; }
+            .s-marker { fill: var(--accent); }
+          </style>
+          
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" class="s-marker" />
+            </marker>
+          </defs>
+
+          <!-- Group Boundary Private Subnet -->
+          <rect x="180" y="30" width="640" height="420" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="4" rx="12" />
+          <text x="195" y="50" font-family="var(--font-sans)" font-size="10px" fill="var(--text-muted)" font-weight="700">AWS PRIVATE SUBNET (ECS FARGATE)</text>
+
+          <!-- Public ALB -->
+          <rect x="20" y="120" width="120" height="60" class="s-box" />
+          <text x="80" y="145" class="s-text-bold" text-anchor="middle">Public ALB</text>
+          <text x="80" y="165" font-family="var(--font-sans)" font-size="10px" fill="var(--text-secondary)" text-anchor="middle">Port 80/443 Ingress</text>
+
+          <!-- Client pushing telemetry -->
+          <path d="M 10 70 L 80 70 L 80 120" class="s-line" marker-end="url(#arrow)" />
+          <text x="45" y="60" font-family="var(--font-sans)" font-size="10px" fill="var(--accent)" font-weight="700">POST /v1/ingest</text>
+
+          <!-- Telemetry API -->
+          <rect x="200" y="120" width="160" height="70" class="s-box-accent" />
+          <text x="280" y="145" class="s-text-bold" text-anchor="middle">telemetry-api</text>
+          <text x="280" y="165" font-family="var(--font-sans)" font-size="10px" fill="var(--accent-strong)" text-anchor="middle">Port 8080 (FastAPI)</text>
+          <path d="M 140 150 L 200 150" class="s-line" marker-end="url(#arrow)" />
+
+          <!-- ADOT Sidecar Scrape -->
+          <rect x="200" y="240" width="160" height="60" class="s-box" />
+          <text x="280" y="265" class="s-text-bold" text-anchor="middle">ADOT Collector</text>
+          <text x="280" y="285" font-family="var(--font-sans)" font-size="10px" fill="var(--text-secondary)" text-anchor="middle">Scrape local :8080/metrics</text>
+          <path d="M 280 190 L 280 240" class="s-line" marker-end="url(#arrow)" />
+
+          <!-- AMP -->
+          <rect x="420" y="240" width="140" height="60" class="s-box-dark" />
+          <text x="490" y="270" class="s-text-white" text-anchor="middle">Amazon AMP</text>
+          <text x="490" y="285" font-family="var(--font-sans)" font-size="9px" fill="var(--accent-soft)" text-anchor="middle">Prometheus TSDB</text>
+          <path d="M 360 270 L 420 270" class="s-line" marker-end="url(#arrow)" />
+          
+          <!-- EventBridge & SQS -->
+          <rect x="420" y="80" width="140" height="50" class="s-box" />
+          <text x="490" y="105" class="s-text-bold" text-anchor="middle">EventBridge Scheduler</text>
+          <text x="490" y="120" font-family="var(--font-sans)" font-size="9px" fill="var(--text-muted)" text-anchor="middle">Every 5 minutes</text>
+
+          <rect x="620" y="80" width="140" height="50" class="s-box" />
+          <text x="690" y="105" class="s-text-bold" text-anchor="middle">SQS Jobs Queue</text>
+          <text x="690" y="120" font-family="var(--font-sans)" font-size="9px" fill="var(--text-muted)" text-anchor="middle">prediction-queue</text>
+          <path d="M 560 105 L 620 105" class="s-line" marker-end="url(#arrow)" />
+
+          <!-- Prediction Worker -->
+          <rect x="620" y="200" width="140" height="80" class="s-box-accent" />
+          <text x="690" y="225" class="s-text-bold" text-anchor="middle">prediction-worker</text>
+          <text x="690" y="245" font-family="var(--font-sans)" font-size="9px" fill="var(--text-secondary)" text-anchor="middle">SQS Consumer</text>
+          <text x="690" y="265" font-family="var(--font-sans)" font-size="9px" fill="var(--accent-strong)" text-anchor="middle">AMP Query & Impute</text>
+          <path d="M 690 130 L 690 200" class="s-line" marker-end="url(#arrow)" />
+          <path d="M 620 250 L 560 250" class="s-line" marker-end="url(#arrow)" />
+          <text x="590" y="242" font-family="var(--font-sans)" font-size="8px" fill="var(--accent)" text-anchor="middle">Query Range</text>
+
+          <!-- AI Engine -->
+          <rect x="620" y="350" width="140" height="60" class="s-box" />
+          <text x="690" y="375" class="s-text-bold" text-anchor="middle">ai-engine</text>
+          <text x="690" y="392" font-family="var(--font-sans)" font-size="9px" fill="var(--text-secondary)" text-anchor="middle">STL + EWMA Models</text>
+          <path d="M 670 280 L 670 350" class="s-line" marker-end="url(#arrow)" />
+          <path d="M 710 350 L 710 280" class="s-line" marker-end="url(#arrow)" />
+          <text x="750" y="318" font-family="var(--font-sans)" font-size="8px" fill="var(--text-muted)" text-anchor="middle">Predict API</text>
+
+          <!-- DynamoDB Audit -->
+          <rect x="420" y="350" width="140" height="60" class="s-box" />
+          <text x="490" y="375" class="s-text-bold" text-anchor="middle">DynamoDB Table</text>
+          <text x="490" y="392" font-family="var(--font-sans)" font-size="9px" fill="var(--text-secondary)" text-anchor="middle">Audit Logs (TTL 90d)</text>
+          <path d="M 620 380 L 560 380" class="s-line" marker-end="url(#arrow)" />
+          <text x="590" y="372" font-family="var(--font-sans)" font-size="8px" fill="var(--accent)" text-anchor="middle">Write Log</text>
+        </svg>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>2.1 Mô Hình Bằng Chứng (Evidence Model)</div>
+      <p class="reveal">Mỗi thành phần trong kiến trúc chịu trách nhiệm thu thập và duy trì một lớp bằng chứng cụ thể cho hệ thống:</p>
+      
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Lớp Bằng Chứng</th>
+            <th>Thành Phần Phụ Trách</th>
+            <th>Vai Trò &amp; Nhiệm Vụ Vận Hành</th>
+            <th>Hạn Chế &amp; Trade-off Vận Hành</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Metric evidence</strong></td>
+            <td>AMP (Prometheus TSDB)</td>
+            <td>Lưu trữ dữ liệu time-series thô đầu vào làm bằng chứng tính toán lookback.</td>
+            <td>Không lưu chi tiết cấu trúc JSON thô của telemetry đẩy lên.</td>
+          </tr>
+          <tr>
+            <td><strong>Visualization evidence</strong></td>
+            <td>CloudWatch Dashboard</td>
+            <td>Hỗ trợ kỹ sư SRE giám sát nhanh tình trạng tài nguyên, CPU/Memory hệ thống.</td>
+            <td>Chỉ dùng để trực quan hóa, không phải nguồn cấp dữ liệu cho logic dự báo.</td>
+          </tr>
+          <tr>
+            <td><strong>Decision evidence</strong></td>
+            <td>DynamoDB Audit Log</td>
+            <td>Lưu trữ nhật ký mọi quyết định dự báo/fallback với <code>prediction_id</code> (TTL 90 ngày).</td>
+            <td>Yêu cầu thiết kế schema tĩnh và tốn chi phí trên mỗi tác vụ ghi.</td>
+          </tr>
+          <tr>
+            <td><strong>Failure evidence</strong></td>
+            <td>S3 evidence bucket</td>
+            <td>Chứa buffer dữ liệu khi push telemetry lỗi, lưu model baseline, artifact thẩm định.</td>
+            <td>Độ trễ truy xuất dữ liệu lớn hơn so với database/cache.</td>
+          </tr>
+          <tr>
+            <td><strong>Cost evidence</strong></td>
+            <td>AWS Budgets</td>
+            <td>Theo dõi chi phí theo thời gian thực và kích hoạt bộ ngắt cost breaker khi quá hạn.</td>
+            <td>Cập nhật chi phí từ AWS API thường trễ từ 4 đến 8 giờ.</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <p class="reveal"><strong>Takeaway:</strong> Việc phân lớp bằng chứng đảm bảo tính độc lập giữa kiểm toán quyết định (DynamoDB), lưu trữ time-series (AMP) và dữ liệu sự cố (S3).</p>
+    </section>
+
+    <!-- SECTION 3 -->
+    <section id="s3">
+      <div class="section-header">
+        <div class="section-icon info">🔄</div>
+        <h2>3. Runtime Flow Chi Tiết</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>3.1 Luồng Thu Nhận Telemetry (Telemetry Ingest Flow)</div>
+      <p class="reveal">
+        Ứng dụng Telemetry API chạy tại đường dẫn <code>src/telemetry_api/main.py</code>. Lệnh chạy container chính: <code>uvicorn telemetry_api.main:app --port 8080</code>.
+      </p>
+      
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Client gửi Request</div>
+            <div class="step-desc">Client thực hiện gọi POST /v1/ingest đi qua ALB listener đến cổng 8080 của container telemetry-api.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Màng lọc Middleware</div>
+            <div class="step-desc">CorrelationIdMiddleware gán ID theo vết. PayloadSizeLimitMiddleware từ chối các payload lớn hơn 65,536 bytes để tránh tấn công DOS.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Kiểm tra Header &amp; Schema</div>
+            <div class="step-desc">Bắt buộc phải có header <code>X-Tenant-Id</code> và giá trị này phải trùng khớp với <code>tenant_id</code> nằm trong JSON body.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">4</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Pydantic Schema Validation</div>
+            <div class="step-desc">Kiểm tra cấu trúc dữ liệu: timestamp phải ở định dạng RFC3339 UTC nghiêm ngặt, value bắt buộc phải là số (không chấp nhận NaN/Inf).</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">5</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Bảo Vệ Cardinality &amp; PII Denylist</div>
+            <div class="step-desc">Lọc bỏ hoàn toàn các thông tin nhạy cảm của người dùng (PII) như: email, phone, name, transaction_id, user_id, request_id, trace_id. Chỉ chấp nhận các labels chuẩn an toàn. Từ chối các metric nội bộ khác ngoài 7 tín hiệu AI cho phép.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">6</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Observe Metric</div>
+            <div class="step-desc">Cập nhật chỉ số vào bộ nhớ Exporter cục bộ thông qua PrometheusExporter.observe(). Trả về 201 accepted hoặc 503 nếu lỗi.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-info reveal">
+        <p><strong>Cơ chế lưu trữ AWS Mode:</strong> Khi cài đặt biến môi trường <code>APP_MODE=aws</code> và <code>TELEMETRY_STORAGE_BACKEND=prometheus_amp</code>, tham số <code>AMP_DELIVERY_ENABLED</code> sẽ tự động cấu hình bằng false. Telemetry API không tự thực hiện gọi API remote_write đến AMP mà để mặc định cho ADOT Sidecar thực hiện scrape.</p>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>3.2 Luồng Scrape của ADOT Collector (Scrape / AMP Flow)</div>
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Expose Format</div>
+            <div class="step-desc">Telemetry API xuất dữ liệu dạng Prometheus text format tại đường dẫn nội bộ <code>GET /metrics</code>.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">ADOT Scrape</div>
+            <div class="step-desc">ADOT Collector chạy chung Task Definition (sidecar) gửi request scrape tới <code>localhost:8080/metrics</code> định kỳ mỗi 15 giây.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">SigV4 Remote Write</div>
+            <div class="step-desc">ADOT gom cụm (batch) và thực hiện gửi remote_write lên AMP endpoint với chữ ký AWS SigV4 định danh dịch vụ <code>aps</code>.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>3.3 Luồng EventBridge Scheduler → SQS Flow</div>
+      <p class="reveal">
+        Hạ tầng Terraform thiết lập 3 thực thể lịch trình riêng biệt cho 3 dịch vụ, chạy định kỳ với tần suất <code>rate(5 minutes)</code>. Payload gửi vào SQS hàng đợi có định dạng:
+      </p>
+      <div class="code-block reveal"><span class="kw">{</span>
+  <span class="str">"tenant_id"</span>: <span class="str">"demo-tenant-001"</span>,
+  <span class="str">"service_id"</span>: <span class="str">"payment-gw"</span>, <span class="cmt">// hoặc "ledger", "fraud-detector"</span>
+  <span class="str">"lookback_window_minutes"</span>: <span class="val">120</span>,
+  <span class="str">"prediction_mode"</span>: <span class="str">"balanced"</span>
+<span class="kw">}</span></div>
+
+      <div class="eyebrow"><span class="dot"></span>3.4 Luồng Xử Lý Của Prediction Worker</div>
+      <p class="reveal">
+        Ứng dụng chạy tại <code>src/prediction_worker/app.py</code> (Lệnh chạy: <code>python app.py</code>), không mở cổng Ingress, chỉ kết nối Outbound. Luồng chạy:
+      </p>
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Long Polling SQS</div>
+            <div class="step-desc">Worker liên tục lắng nghe hàng đợi SQS bằng cơ chế long poll 20 giây (WaitTimeSeconds=20).</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Query AMP Range</div>
+            <div class="step-desc">Với mỗi job nhận được, worker thực hiện 7 lệnh gọi PromQL query_range tuần tự lên AMP endpoint (step=60s, start=end-120m).</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Cân Chỉnh Dữ Liệu (Align &amp; Impute)</div>
+            <div class="step-desc">Đồng bộ dữ liệu time-series về các bucket 1 phút. Điền dữ liệu thiếu bằng phương pháp forward-fill cho hầu hết các tín hiệu, riêng queue_depth điền zero-fill.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">4</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Đánh Giá Khoảng Trống (Gap Ratio)</div>
+            <div class="step-desc">Tính toán tỷ lệ mất mát mẫu. Nếu <code>max_gap_ratio >= 0.5</code> hoặc dữ liệu AMP trả về rỗng, Worker bỏ qua cuộc gọi AI và kích hoạt <strong>Static Threshold Fallback</strong>.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">5</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Gọi AI Engine &amp; Thẩm Định</div>
+            <div class="step-desc">Gọi API POST /v1/predict qua Service Connect với thời gian chờ (timeout) 2s. Thẩm định định dạng kết quả nhận được. Nếu AI lỗi hoặc quá hạn, kích hoạt Fallback.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">6</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Ghi Nhận Kiểm Toán &amp; Cảnh Báo</div>
+            <div class="step-desc">Ghi log quyết định vào DynamoDB Audit Table (kèm cơ chế idempotency tránh lặp). Phát cảnh báo SNS nếu phát hiện bất thường nghiêm trọng. Xóa tin nhắn SQS.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>3.5 Luồng Thuật Toán AI Engine</div>
+      <p class="reveal">
+        AI Engine lắng nghe tại <code>src/ai_engine/app/main.py</code> (Lệnh chạy: <code>uvicorn app.main:app --host 0.0.0.0 --port 8080</code>).
+      </p>
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Rate Limiting</div>
+            <div class="step-desc">RateLimitMiddleware giới hạn 600 req/phút/tenant, trả về mã 429 + Retry-After: 60 nếu vượt quá ngưỡng tải.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Tải Baseline &amp; Trừ Xu Hướng Mùa Vụ</div>
+            <div class="step-desc">Tải cấu hình baseline phân tích STL (seasonal profile gồm 1,440 điểm dữ liệu đại diện cho từng phút trong ngày) từ S3. Tính toán Residual = Dữ liệu thực tế - Seasonal profile.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Biểu Đồ Kiểm Soát EWMA</div>
+            <div class="step-desc">Tính toán đường trung bình di động lũy thừa EWMA với hệ số alpha=0.3. Kiểm tra vi phạm giới hạn kiểm soát trên K = 4.0 sigma để xác định trạng thái bất thường.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">4</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Gating Cảnh Báo</div>
+            <div class="step-desc">Nếu kết quả phân tích có mức độ tin cậy (confidence) &lt; 0.7, AI Engine hạ cấp hành động đề xuất xuống mức INVESTIGATE. Trả về kết quả cho Worker.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>3.6 Tự Động Ngắt Chi Phí (Cost Breaker Flow)</div>
+      <p class="reveal">
+        Để kiểm soát ngân sách chạy thử nghiệm ở mức <strong>$200/tháng</strong>, Lambda Cost Breaker (chạy Python 3.10) được cấu hình liên kết với SNS cảnh báo từ AWS Budgets. Khi chạm mốc chi phí 100%, Lambda này thực thi update desiredCount của <code>ai-engine</code> và <code>prediction-worker</code> về 0. Dịch vụ <code>telemetry-api</code> được giữ nguyên hoạt động để bảo vệ luồng đẩy dữ liệu và evidence.
+      </p>
+
+      <p class="reveal"><strong>Takeaway:</strong> Bộ chuyển đổi fallback và ngắt chi phí bảo vệ Control Plane không bao giờ gây ra chi phí vượt quá giới hạn $200 hoặc treo hệ thống khi mất kết nối AI.</p>
+    </section>
+
+    <!-- SECTION 4 -->
+    <section id="s4">
+      <div class="section-header">
+        <div class="section-icon">📜</div>
+        <h2>4. Contracts với AI Team</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>4.1 Bộ Hợp Đồng Cam Kết (Contract Set)</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Hợp Đồng</th>
+            <th>Tập Tin Đặc Tả</th>
+            <th>Trách Nhiệm Của Phía CDO</th>
+            <th>Trách Nhiệm Của Phía AI</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Telemetry Contract</strong></td>
+            <td><code>contracts/telemetry-contract.md</code></td>
+            <td>Cung cấp đủ 7 signals, định dạng 1 phút, bảo vệ PII, xử lý điền giá trị thiếu.</td>
+            <td>Thực hiện huấn luyện và kiểm định mô hình dựa trên schema dữ liệu tĩnh đã cam kết.</td>
+          </tr>
+          <tr>
+            <td><strong>AI API Contract</strong></td>
+            <td><code>contracts/ai-api-contract.md</code></td>
+            <td>Thực hiện gọi API theo chuẩn POST, validate schema phản hồi, xử lý fallback.</td>
+            <td>Đảm bảo API đáp ứng đúng cấu trúc dữ liệu và các điều khoản SLA về hiệu năng.</td>
+          </tr>
+          <tr>
+            <td><strong>Deployment Contract</strong></td>
+            <td><code>contracts/deployment-contract.md</code></td>
+            <td>Triển khai và vận hành AI Engine trên Fargate, đồng bộ S3 baseline, quản lý healthcheck.</td>
+            <td>Đóng gói mã nguồn Docker image và mô hình chuẩn xác, đáp ứng kiểm tra sức khỏe.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>4.2 Đặc Tả 7 Tín Hiệu Telemetry Đầu Vào (7 AI Signals)</div>
+      <div class="def-list reveal">
+        <div class="def-row">
+          <div class="def-term"><code>cpu_usage_percent</code></div>
+          <div class="def-desc">Chỉ số sử dụng CPU của container dịch vụ (Đơn vị: %).</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>memory_usage_percent</code></div>
+          <div class="def-desc">Chỉ số sử dụng Memory phục vụ kiểm soát rò rỉ bộ nhớ (Đơn vị: %).</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>active_connections</code></div>
+          <div class="def-desc">Số lượng kết nối mạng TCP/HTTP đang hoạt động trên hệ thống (Đơn vị: count).</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>db_connection_pool_pct</code></div>
+          <div class="def-desc">Độ bão hòa của hồ kết nối Database để phát hiện DB connection exhaustion (Đơn vị: %).</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>queue_depth</code></div>
+          <div class="def-desc">Số lượng tin nhắn tích tụ trong hàng đợi SQS, tự động điền 0 nếu rỗng (Đơn vị: count).</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>cache_hit_rate_pct</code></div>
+          <div class="def-desc">Tỷ lệ truy xuất trúng bộ nhớ đệm Cache để phát hiện lỗi tầng đệm (Đơn vị: %).</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>api_latency_ms</code></div>
+          <div class="def-desc">Độ trễ phản hồi trung bình của API dịch vụ (Đơn vị: ms).</div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>4.3 &amp; 4.4 Yêu Cầu và Cấu Trúc Phản Hồi AI API</div>
+      <p class="reveal">Worker gọi <code>POST /v1/predict</code> gửi kèm chuỗi mảng <code>signal_window</code> gồm tối thiểu 120 điểm dữ liệu (đại diện cho 120 phút lookback). Cấu trúc phản hồi JSON bắt buộc:</p>
+      
+      <div class="code-block reveal"><span class="kw">{</span>
+  <span class="str">"anomaly"</span>: <span class="val">true</span>,
+  <span class="str">"severity"</span>: <span class="val">0.92</span>,
+  <span class="str">"reasoning"</span>: <span class="str">"api_latency_ms breached control limit K=4.0"</span>, <span class="cmt">// Tối đa 300 ký tự</span>
+  <span class="str">"recommendation"</span>: <span class="kw">{</span>
+    <span class="str">"action_verb"</span>: <span class="str">"SCALE_UP"</span>, <span class="cmt">// SCALE_UP | SCALE_DOWN | RETIRE | ROLLBACK | INVESTIGATE</span>
+    <span class="str">"target"</span>: <span class="str">"payment-gw"</span>,
+    <span class="str">"from_to"</span>: <span class="str">"2->4 tasks"</span>,
+    <span class="str">"confidence"</span>: <span class="val">0.88</span>,
+    <span class="str">"evidence_link"</span>: <span class="str">"https://s3.us-east-1.amazonaws.com/tf4-cdo04-evidence-sandbox/eval/index.html"</span>
+  <span class="kw">}</span>,
+  <span class="str">"audit_id"</span>: <span class="str">"e0c1f544-77a8-4de3-94c6-fae56c5476a8"</span>
+<span class="kw">}</span></div>
+
+      <div class="eyebrow"><span class="dot"></span>4.5 Ma Trận Xử Lý Lỗi API (Error Handling Matrix)</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>HTTP Status</th>
+            <th>Ý Nghĩa Mã Lỗi</th>
+            <th>Hành Vi Thực Tế Của CDO Worker</th>
+            <th>Rủi Ro &amp; Ảnh Hưởng Vận Hành</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>400</code></td>
+            <td>Invalid Input</td>
+            <td>Không retry. Kích hoạt static fallback ngay lập tức.</td>
+            <td>Dữ liệu gửi lên bị lệch định dạng so với mô hình AI đã train.</td>
+          </tr>
+          <tr>
+            <td><code>401</code></td>
+            <td>Unauthorized</td>
+            <td>Thực hiện thử lại (retry) 1 lần sau khi nạp lại token/config.</td>
+            <td>Cấu hình xác thực bị hết hạn hoặc sai thông tin bảo mật.</td>
+          </tr>
+          <tr>
+            <td><code>422</code></td>
+            <td>Schema Validation Failure</td>
+            <td>Không retry. Kích hoạt static fallback ngay lập tức.</td>
+            <td>Lệch phiên bản schema giữa Worker và API AI Engine.</td>
+          </tr>
+          <tr>
+            <td><code>429</code></td>
+            <td>Too Many Requests</td>
+            <td>Áp dụng backoff (1s -> 2s -> 4s) hoặc trực tiếp fallback.</td>
+            <td>AI Engine chịu tải quá mức giới hạn xử lý.</td>
+          </tr>
+          <tr>
+            <td><code>503</code></td>
+            <td>Service Unavailable</td>
+            <td>Kích hoạt static fallback ngay lập tức.</td>
+            <td>Hạ tầng container AI Engine bị sập hoặc quá tải.</td>
+          </tr>
+          <tr>
+            <td><code>Timeout / Network</code></td>
+            <td>Lỗi kết nối hoặc phản hồi lâu</td>
+            <td>Độ trễ vượt quá 2s, Worker tự động ngắt kết nối và fallback.</td>
+            <td>Sự cố kết nối Service Connect nội bộ giữa các ECS Task.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>4.6 Deployment Contract cho AI Engine</div>
+      <p class="reveal">
+        Mỗi container AI Engine được cấp phát <strong>0.5 vCPU và 1GB Memory</strong>. Quy mô tự động co giãn từ 2 task (Min/Desired) đến tối đa 4 task (Max). Trực tiếp lắng nghe kiểm tra sức khỏe tại endpoint <code>/health</code> bằng thư viện urllib của Python (Chu kỳ 30 giây, đánh giá lỗi sau 3 lần không phản hồi 200). Các baseline tĩnh được đồng bộ từ tiền tố <code>baselines/</code> của S3 evidence bucket bảo vệ bằng khóa KMS.
+      </p>
+
+      <p class="reveal"><strong>Takeaway:</strong> Bộ cam kết triển khai ràng buộc AI Engine hoạt động như một microservice độc lập chịu giới hạn tài nguyên và thời gian chờ nghiêm ngặt.</p>
+    </section>
+
+    <!-- SECTION 5 -->
+    <section id="s5">
+      <div class="section-header">
+        <div class="section-icon">🛠️</div>
+        <h2>5. Infrastructure as Code</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>5.1 Cấu HÌnh Terraform Backend</div>
+      <p class="reveal">
+        Mã nguồn hạ tầng tương thích với phiên bản Terraform <code>&gt;= 1.10.0</code> và AWS Provider <code>&gt;= 5.80.0</code>. Trạng thái hạ tầng được lưu trữ tập trung tại S3 Bucket <code>tf4-cdo04-terraform-state-0e0bped4</code> tại us-east-1.
+      </p>
+      <div class="code-block reveal"><span class="cmt"># terraform.tf configuration</span>
+<span class="kw">terraform</span> {
+  <span class="kw">backend</span> <span class="str">"s3"</span> {
+    <span class="fn">bucket</span>       = <span class="str">"tf4-cdo04-terraform-state-0e0bped4"</span>
+    <span class="fn">key</span>          = <span class="str">"tf4-cdo04/sandbox/terraform.tfstate"</span>
+    <span class="fn">region</span>       = <span class="str">"us-east-1"</span>
+    <span class="fn">encrypt</span>      = <span class="val">true</span>
+    <span class="fn">use_lockfile</span> = <span class="val">true</span> <span class="cmt"># Sử dụng s3 native lock</span>
+  }
+}</div>
+
+      <div class="eyebrow"><span class="dot"></span>5.2 Quy Trình Khởi Tạo Hạ Tầng (Bootstrap)</div>
+      <p class="reveal">
+        Quy trình khởi tạo thiết lập S3 state bucket kích hoạt versioning, ngăn chặn hành vi xóa bằng <code>prevent_destroy = true</code> và chặn mọi luồng giao tiếp không mã hóa SSL qua bucket policy <code>aws:SecureTransport = false</code>. Đồng thời cài đặt thực thể GitHub OIDC Provider cấp quyền cho role <code>tf4-cdo04-github-deploy-role</code> thực hiện deploy hạ tầng trong CI/CD. Tạo thêm tài khoản IAM cục bộ <code>tin</code> giới hạn quyền chỉ được đọc CloudWatch Logs, truy vấn AMP, đọc S3 evidence và bị cấm hoàn toàn quyền trên state bucket.
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>5.3 Cấu Trúc Mạng VPC và Nhóm Bảo Mật (Security Groups)</div>
+      <p class="reveal">
+        Hệ thống phân chia dải mạng <code>10.0.0.0/16</code> thành 2 Public Subnets (cấp phát ALB, NAT Gateway) và 2 Private Subnets (cấp phát các ECS Task). Để tối ưu chi phí, hệ thống chỉ sử dụng duy nhất 1 NAT Gateway zonal và cấu hình Gateway Endpoints đi trực tiếp tới S3 và DynamoDB để tránh chi phí truyền tải qua NAT.
+      </p>
+
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Security Group</th>
+            <th>Luồng Ingress Được Phép</th>
+            <th>Luồng Egress Mặc Định</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ALB SG</code></td>
+            <td>Nhận cổng HTTP:80 và HTTPS:443 từ dải mạng được phép (mặc định <code>0.0.0.0/0</code>).</td>
+            <td>Cho phép chuyển tiếp TCP:8080 tới Telemetry API SG.</td>
+          </tr>
+          <tr>
+            <td><code>Telemetry API SG</code></td>
+            <td>Chỉ chấp nhận cổng TCP:8080 từ ALB SG.</td>
+            <td>Cho phép mọi kết nối đi ra ngoài (Outbound) để gửi dữ liệu SQS và ghi nhận S3.</td>
+          </tr>
+          <tr>
+            <td><code>Prediction Worker SG</code></td>
+            <td>Chặn hoàn toàn chiều vào (Không cấu hình Ingress).</td>
+            <td>Cho phép kết nối Outbound để query AMP, đọc DynamoDB, gọi AI Engine.</td>
+          </tr>
+          <tr>
+            <td><code>AI Engine SG</code></td>
+            <td>Chỉ chấp nhận cổng TCP:8080 từ Prediction Worker SG (qua Service Connect).</td>
+            <td>Cho phép kết nối Outbound để tải baseline mô hình từ S3.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>5.4 Mô-đun Dữ Liệu (Data Module)</div>
+      <p class="reveal">
+        Bao gồm AMP workspace bí danh <code>tf4-cdo04-&lt;env&gt;</code>; DynamoDB audit table lưu trữ log kiểm toán; DynamoDB policy table chứa ngưỡng dự phòng khởi tạo (85.0 cho cả 3 dịch vụ); SQS queue <code>tf4-cdo04-prediction-&lt;env&gt;</code> cấu hình visibility timeout 180s và DLQ; S3 evidence bucket cài đặt xóa dữ liệu buffer sau 7 ngày và dữ liệu khác sau 90 ngày. Thiết lập KMS Key <code>alias/tf4-cdo04-&lt;env&gt;</code> kích hoạt tự động xoay vòng khóa (rotation) sau mỗi 1 năm.
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>5.5 &amp; 5.6 Cấu HÌnh Mô-đun Tính Toán (Compute Module) và ALB</div>
+      <p class="reveal">
+        Tất cả container chạy trên ECS Fargate với tùy chọn <code>assignPublicIp = DISABLED</code> để đảm bảo an toàn. ALB chịu trách nhiệm phân tải, chuyển hướng HTTP sang HTTPS nếu bật cấu hình <code>enable_https</code>. Route chuyển tiếp chỉ cho phép đường dẫn <code>/health</code> và <code>/v1/ingest</code>, các route khác trả về 403/404.
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>5.7 Chính Sách Tự Động Co Giãn (Autoscaling)</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Dịch Vụ ECS</th>
+            <th>Giới Hạn Tasks (Min -> Max)</th>
+            <th>Chính Sách Target Tracking</th>
+            <th>Chính Sách Step Scaling (Scale-out)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>telemetry-api</code></td>
+            <td>2 -> 5 tasks</td>
+            <td>CPU &gt; 70%, Memory &gt; 75%</td>
+            <td>Tăng +1 task khi ALB p99 latency &gt; 0.8s (Cooldown: 300s).</td>
+          </tr>
+          <tr>
+            <td><code>prediction-worker</code></td>
+            <td>1 -> 5 tasks</td>
+            <td>Không áp dụng</td>
+            <td>Tăng +1 task khi Queue oldest message age &gt; 120s hoặc visible messages &gt; 20.</td>
+          </tr>
+          <tr>
+            <td><code>ai-engine</code></td>
+            <td>2 -> 4 tasks</td>
+            <td>CPU &gt; 70%</td>
+            <td>Tăng +1 task khi Service Connect p95 latency &gt; 350ms hoặc p99 &gt; 500ms.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="reveal"><strong>Takeaway:</strong> Thiết kế hạ tầng cô lập tính toán trong Private Subnet và định tuyến nội bộ tối ưu hóa chi phí NAT nhờ Gateway Endpoints.</p>
+    </section>
+
+    <!-- SECTION 6 -->
+    <section id="s6">
+      <div class="section-header">
+        <div class="section-icon warning">📊</div>
+        <h2>6. Observability (Giám Sát)</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>6.1 Danh Sách Log Groups Trên CloudWatch</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Tên CloudWatch Log Group</th>
+            <th>Thời Gian Lưu Trữ</th>
+            <th>Cấu HÌnh Mã Hóa</th>
+            <th>Mục Đích Nhật Ký</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/ecs/telemetry-api</code></td>
+            <td>14 ngày</td>
+            <td>Mặc định (Default SSE)</td>
+            <td>Ghi nhận log của FastAPI ingest và ADOT sidecar.</td>
+          </tr>
+          <tr>
+            <td><code>/ecs/prediction-worker</code></td>
+            <td>14 ngày</td>
+            <td>Mặc định (Default SSE)</td>
+            <td>Log hoạt động của worker, kết quả truy vấn AMP, gọi AI.</td>
+          </tr>
+          <tr>
+            <td><code>/ecs/ai-engine</code></td>
+            <td>14 ngày</td>
+            <td>Mặc định (Default SSE)</td>
+            <td>Nhật ký tiến trình phân tích bất thường và độ trễ mô hình.</td>
+          </tr>
+          <tr>
+            <td><code>/ecs/tf4-cdo04-&lt;env&gt;-ai-engine-audit</code></td>
+            <td>365 ngày</td>
+            <td>Khóa KMS mã hóa riêng</td>
+            <td>Log kiểm toán AI chuyên sâu, yêu cầu lưu trữ dài hạn phục vụ đối chiếu.</td>
+          </tr>
+          <tr>
+            <td><code>/aws/lambda/tf4-cdo04-cost-breaker-&lt;env&gt;</code></td>
+            <td>14 ngày</td>
+            <td>Mặc định (Default SSE)</td>
+            <td>Log lịch sử kích hoạt ngắt tài nguyên để bảo vệ ngân sách.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>6.2, 6.3 &amp; 6.4 Ma Trận Ngưỡng Alarms Cảnh Báo</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Nhóm Thành Phần</th>
+            <th>Tên Alarm Chỉ Định</th>
+            <th>Ngưỡng Đánh Giá Cảnh Báo</th>
+            <th>Chu Kỳ &amp; Thời Gian Kiểm Tra</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Telemetry API</td>
+            <td>ALB p99 TargetResponseTime</td>
+            <td>&gt; 0.8s</td>
+            <td>5 chu kỳ liên tiếp x 60s (Cảnh báo + Scale-out).</td>
+          </tr>
+          <tr>
+            <td>Telemetry API</td>
+            <td>ALB 5xx Rate</td>
+            <td>&gt; 1%</td>
+            <td>5 chu kỳ liên tiếp x 60s.</td>
+          </tr>
+          <tr>
+            <td>Telemetry API</td>
+            <td>RunningTaskCount Low</td>
+            <td>&lt; 2 tasks</td>
+            <td>3 chu kỳ liên tiếp x 60s (Đánh giá cả trạng thái thiếu data).</td>
+          </tr>
+          <tr>
+            <td>Prediction Worker</td>
+            <td>Queue Oldest Message Age</td>
+            <td>&gt; 120s</td>
+            <td>2 chu kỳ liên tiếp x 60s (Cảnh báo + Scale-out).</td>
+          </tr>
+          <tr>
+            <td>Prediction Worker</td>
+            <td>Queue Visible Messages</td>
+            <td>&gt; 20 messages</td>
+            <td>5 chu kỳ liên tiếp x 60s.</td>
+          </tr>
+          <tr>
+            <td>Prediction Worker</td>
+            <td>DLQ Visible Messages</td>
+            <td>&gt; 0 message</td>
+            <td>1 chu kỳ duy nhất x 300s (Cảnh báo SRE xử lý lỗi nghẽn).</td>
+          </tr>
+          <tr>
+            <td>AI Engine</td>
+            <td>Service Connect 5xx Rate</td>
+            <td>&gt; 1%</td>
+            <td>3 chu kỳ liên tiếp x 60s.</td>
+          </tr>
+          <tr>
+            <td>AI Engine</td>
+            <td>Service Connect p99 Latency</td>
+            <td>&gt; 500ms</td>
+            <td>3 chu kỳ liên tiếp x 60s (Cảnh báo + Scale-out).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>6.5 &amp; 6.6 Ngưỡng Ngân Sách và Cơ Chế Tự Động Ngắt (Cost Breaker)</div>
+      <p class="reveal">
+        AWS Budgets giám sát chi phí tổng thể và kích hoạt các cảnh báo SNS ở mốc chi phí thực tế:
+      </p>
+      <div class="flow reveal">
+        <div class="flow-step">
+          <div class="flow-num">Mốc 50% ($100)</div>
+          <div class="flow-title">Cảnh Báo Sơ Bộ</div>
+          <div class="flow-body">Chỉ gửi thông báo cảnh báo qua Slack/Email. Không tác động hệ thống.</div>
+        </div>
+        <div class="flow-arrow">➔</div>
+        <div class="flow-step">
+          <div class="flow-num">Mốc 80% ($160)</div>
+          <div class="flow-title">Đánh Giá Thủ Công</div>
+          <div class="flow-body">SRE xem xét giảm tần suất chạy test, hạ bớt log, đóng băng lịch trình nếu cần.</div>
+        </div>
+        <div class="flow-arrow">➔</div>
+        <div class="flow-step">
+          <div class="flow-num">Mốc 100% ($200)</div>
+          <div class="flow-title">Kích Hoạt Ngắt</div>
+          <div class="flow-body">Lambda Cost Breaker scale-down Worker và AI Engine về 0. Giữ Ingest API sống.</div>
+        </div>
+      </div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Observability cung cấp cái nhìn toàn diện từ log thô đến các alarm co giãn, đồng thời bảo vệ ngân sách một cách tự động thông qua Lambda Cost Breaker.</p>
+    </section>
+
+    <!-- SECTION 7 -->
+    <section id="s7">
+      <div class="section-header">
+        <div class="section-icon danger">🛡️</div>
+        <h2>7. Security Posture</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>7.1 Bảo Vệ An Ninh Mạng</div>
+      <p class="reveal">
+        Tất cả container ECS Fargate đều được định cấu hình chạy trong Private Subnets, hoàn toàn chặn đứng các truy cập trực tiếp từ Internet. Chỉ có duy nhất Public ALB được mở cổng Ingress. Prediction Worker không mở bất kỳ cổng lắng nghe nào. AI Engine chỉ nhận các kết nối duy nhất từ Prediction Worker Security Group thông qua giao thức của ECS Service Connect.
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>7.2 Quản Lý Định Danh và Quyền Hạn Tối Thiểu (IAM)</div>
+      <p class="reveal">
+        Quy trình CI/CD sử dụng GitHub OIDC giúp loại bỏ các AWS Access Key tĩnh thời hạn dài. Các Role thực thi của ECS Task được phân tách rõ rệt: Telemetry API chỉ có quyền <code>aps:RemoteWrite</code>, <code>sqs:SendMessage</code> và <code>s3:PutObject</code>; Prediction Worker sở hữu quyền đọc SQS, truy vấn AMP, ghi DynamoDB và gửi SNS; AI Engine chỉ được quyền đọc baseline từ S3.
+      </p>
+
+      <div class="callout callout-warning reveal">
+        <p><strong>Rủi ro bảo mật chính sách Deploy:</strong> Do một số tài nguyên AWS không hỗ trợ tag-on-create lúc khởi tạo, Deploy Policy của GitHub OIDC vẫn tồn tại các quyền rộng như <code>ssm:*</code> và <code>cloudwatch:*</code> trên tài nguyên wildcard <code>*</code>. SRE cần thực hiện review định kỳ.</p>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>7.3 Bảo Vệ Dữ Liệu &amp; 7.4 Điểm Lệch Hợp Đồng AI Auth Mismatch</div>
+      <p class="reveal">
+        Tất cả S3 bucket và DynamoDB table đều được mã hóa tĩnh (SSE). Telemetry API lọc bỏ dữ liệu PII tại ranh giới Ingest. Tuy nhiên, tồn tại một điểm lệch hợp đồng nghiêm trọng (P0):
+      </p>
+
+      <div class="callout callout-danger reveal">
+        <p><strong>Lệch hợp đồng AI Auth (SYS-09):</strong> Theo đặc tả thiết kế, luồng gọi AI Engine yêu cầu ký xác thực AWS SigV4. Prediction Worker hiện đã gửi SigV4 Auth Intent, tuy nhiên bản thân AI Engine App ở phía đối diện không thực thi bất kỳ cơ chế kiểm soát chữ ký SigV4 nào mà chỉ kiểm tra header X-Tenant-Id. Đây là lỗ hổng cần vá trước khi lên Production.</p>
+      </div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Ngoại trừ điểm lệch hợp đồng AI Auth, mô hình an ninh mạng và phân quyền tối thiểu của hệ thống được thiết lập rất chặt chẽ.</p>
+    </section>
+
+    <!-- SECTION 8 -->
+    <section id="s8">
+      <div class="section-header">
+        <div class="section-icon success">🧪</div>
+        <h2>8. Testing & Acceptance</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>8.1 Thu Thập Bằng Chứng Thực Tế</div>
+      <p class="reveal">
+        Bằng chứng tải thực tế được thu thập thông qua công cụ K6 với kịch bản chạy trực tiếp lên Endpoint ALB:
+      </p>
+      <div class="code-block reveal"><span class="cmt"># Lệnh chạy K6 thu thập bằng chứng 50 RPS trong 3 giờ</span>
+<span class="kw">k6 run</span> tests/k6/acceptance_ingest.js \
+  -e <span class="fn">TELEMETRY_API_HOST</span>=<span class="str">"https://xbrain26hackathon269.software"</span> \
+  -e <span class="fn">TENANT_ID</span>=<span class="str">"demo-tenant-001"</span> \
+  -e <span class="fn">SERVICE_IDS</span>=<span class="str">"ledger,payment-gw,fraud-detector"</span> \
+  -e <span class="fn">RATE</span>=<span class="val">50</span> \
+  -e <span class="fn">DURATION</span>=<span class="str">"3h"</span> \
+  --summary-export <span class="str">"evidence/logs/acceptance-50rps-3h-final-summary.json"</span></div>
+
+      <div class="eyebrow"><span class="dot"></span>8.2 Ma Trận Nghiệm Thu Hệ Thống (Acceptance Gates)</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Cổng Nghiệm Thu</th>
+            <th>Phương Pháp / Lệnh Thực Thi</th>
+            <th>Tập Tin Bằng Chứng Đầu Ra</th>
+            <th>Trạng Thái Hiện Tại</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Unit + Contract Tests</td>
+            <td><code>PYTHONPATH=src/ai_engine:src pytest -q</code></td>
+            <td>Đầu ra console sạch sẽ không phát sinh lỗi.</td>
+            <td><span class="badge badge-success">PASS</span></td>
+          </tr>
+          <tr>
+            <td>Deploy Smoke Test</td>
+            <td><code>bash scripts/post_apply_smoke.sh</code></td>
+            <td>Tạo file log <code>final-smoke.log</code> kiểm tra ALB.</td>
+            <td><span class="badge badge-success">PASS</span></td>
+          </tr>
+          <tr>
+            <td>E2E AI Pipeline</td>
+            <td><code>bash tests/e2e/tf4_scenario_matrix.sh</code></td>
+            <td>File quét audit <code>tf4-scenario-audit-scan.json</code>.</td>
+            <td><span class="badge badge-success">PASS</span></td>
+          </tr>
+          <tr>
+            <td>Evaluation Reports</td>
+            <td><code>python tests/e2e/eval_report.py</code></td>
+            <td>Báo cáo chi tiết <code>eval-report.json</code> và markdown.</td>
+            <td><span class="badge badge-success">PASS</span></td>
+          </tr>
+          <tr>
+            <td>Load Test 50 RPS (3h)</td>
+            <td><code>k6 run tests/k6/acceptance_ingest.js</code></td>
+            <td>File tóm tắt <code>acceptance-50rps-3h-final-summary.json</code>.</td>
+            <td><span class="badge badge-warning">PASS WITH CAVEAT</span></td>
+          </tr>
+          <tr>
+            <td>Security Probes</td>
+            <td><code>bash tests/e2e/security_probes.sh</code></td>
+            <td>Báo cáo quét bảo mật <code>security-probes.json</code>.</td>
+            <td><span class="badge badge-success">PASS</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>8.3 Tiêu Chí Bắt Buộc (Hard Pass Rules)</div>
+      <p class="reveal">
+        Mọi bản ghi dự đoán hoàn tất thành công trong audit log của DynamoDB phải thỏa mãn 3 điều kiện: <code>prediction_source = AI_ENGINE</code>, <code>evidence_status = complete_window</code>, và <code>ai_status_code = 200</code>. Tỷ lệ recall phát hiện lỗi phải đạt &gt;= 80%, false positive &lt;= 12%, lead time cảnh báo trước tối thiểu 15 phút, hàng đợi DLQ hoàn toàn không tăng trưởng và chi phí tài nguyên thực tế dưới $200.
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>8.4 Chi Tiết Bốn Kịch Bản Test (4 Mentor Scenarios)</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Kịch Bản Chỉ Định</th>
+            <th>Dịch Vụ Kiểm Thử</th>
+            <th>Hành Vi Kỳ Vọng Từ Mô HÌnh AI</th>
+            <th>Kịch Bản K6 Phụ Trách</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>sc01_gradual_drift</code></td>
+            <td><code>ledger</code></td>
+            <td>Phát hiện trôi dạt dữ liệu dần dần, cảnh báo <code>anomaly = true</code>.</td>
+            <td><code>tests/k6/sc01_gradual_drift.js</code></td>
+          </tr>
+          <tr>
+            <td><code>sc02_spike</code></td>
+            <td><code>payment-gw</code></td>
+            <td>Phát hiện traffic spike đột biến, cảnh báo <code>anomaly = true</code>.</td>
+            <td><code>tests/k6/sc02_spike.js</code></td>
+          </tr>
+          <tr>
+            <td><code>sc03_slow_leak</code></td>
+            <td><code>fraud-detector</code></td>
+            <td>Phát hiện rò rỉ tải tăng dần trên queue, cảnh báo <code>anomaly = true</code>.</td>
+            <td><code>tests/k6/sc03_slow_leak.js</code></td>
+          </tr>
+          <tr>
+            <td><code>sc04_noisy_baseline</code></td>
+            <td><code>fraud-detector</code></td>
+            <td>Nhiễu nền nằm trong giới hạn kiểm soát, không cảnh báo sai.</td>
+            <td><code>tests/k6/sc04_noisy_baseline.js</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>8.7 Trạng Thái Thử Nghiệm Thực Tế (Test Evidence Caveat)</div>
+      <div class="callout callout-warning reveal">
+        <p><strong>Caveat về thử nghiệm K6 3h:</strong> Quá trình chạy load test 3h ở mức tải 50 RPS phát sinh 5 dropped iterations và 1 failed request trên tổng số 539,995 requests (Tỷ lệ lỗi cực thấp ~0.00093% dropped và 99.9998% success). Kết quả này đã được hội đồng chấp thuận thông qua dưới dạng Operational Pass.</p>
+      </div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Kết quả thử nghiệm chứng minh hệ thống đạt đầy đủ các tiêu chuẩn vận hành và độ chính xác mô hình AI, ngoại trừ caveat rất nhỏ về dropped iterations của k6.</p>
+    </section>
+
+    <!-- SECTION 9 -->
+    <section id="s9">
+      <div class="section-header">
+        <div class="section-icon">🚀</div>
+        <h2>9. Quy trình CI/CD</h2>
+      </div>
+      <p class="reveal">
+        Quy trình CI/CD được tự động hóa hoàn toàn thông qua Github Action Workflow tại tệp cấu hình <code>.github/workflows/deploy.yml</code>.
+      </p>
+
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Giai đoạn lint-and-validate</div>
+            <div class="step-desc">Thực hiện kiểm tra định dạng tệp markdown, chạy <code>terraform fmt -check</code>, validate cấu hình Terraform và thực thi kiểm thử đơn vị Python (pytest).</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Giai đoạn security-scan</div>
+            <div class="step-desc">Sử dụng công cụ GitLeaks để quét kiểm tra rò rỉ mã khóa, token bảo mật trong mã nguồn.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Giai đoạn build-and-push</div>
+            <div class="step-desc">Thực hiện build docker image song song cho 3 container dịch vụ (api, worker, engine), chạy quét lỗ hổng bảo mật Trivy với rào cản gate nghiêm ngặt (chặn hoàn toàn nếu có lỗi CRITICAL). Đẩy image lên AWS ECR kèm tag định danh SHA.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">4</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Giai đoạn terraform-deploy</div>
+            <div class="step-desc">Khởi tạo backend, lập phương án và thực thi apply thay đổi lên môi trường AWS. Chạy kịch bản smoke test để xác nhận trạng thái hoạt động của ALB sau khi deploy.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout callout-warning reveal">
+        <p><strong>Cảnh báo cấu hình CI/CD:</strong> Phiên bản Python khai báo trong workflow là 3.14 (Có thể là lỗi typo). SRE cần điều chỉnh lại phiên bản Python ổn định phù hợp với môi trường thực tế.</p>
+      </div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Pipeline CI/CD tự động hóa kiểm tra tĩnh, quét lỗ hổng docker và triển khai IaC kèm smoke test tự động.</p>
+    </section>
+
+    <!-- SECTION 10 -->
+    <section id="s10">
+      <div class="section-header">
+        <div class="section-icon">📋</div>
+        <h2>10. Config Inventory</h2>
+      </div>
+      <p class="reveal">Danh sách cấu hình biến môi trường chính xác được áp dụng cho các Container Service chạy trên ECS Fargate:</p>
+
+      <div class="eyebrow"><span class="dot"></span>10.1 Biến môi trường Telemetry API</div>
+      <div class="code-block reveal"><span class="fn">APP_MODE</span>=aws
+<span class="fn">AWS_REGION</span>=us-east-1
+<span class="fn">ENV</span>=sandbox <span class="cmt"># hoặc staging, prod</span>
+<span class="fn">PORT</span>=8080
+<span class="fn">TELEMETRY_STORAGE_BACKEND</span>=prometheus_amp
+<span class="fn">AMP_DELIVERY_ENABLED</span>=false
+<span class="fn">AMP_REMOTE_WRITE_ENDPOINT</span>=https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxx/api/v1/remote_write
+<span class="fn">S3_FAILURE_BUFFER_BUCKET</span>=tf4-cdo04-evidence-sandbox
+<span class="fn">S3_FAILURE_BUFFER_PREFIX</span>=failure-buffer/
+<span class="fn">PREDICTION_QUEUE_URL</span>=https://sqs.us-east-1.amazonaws.com/xxx/tf4-cdo04-prediction-sandbox</div>
+
+      <div class="eyebrow"><span class="dot"></span>10.2 Biến môi trường Prediction Worker</div>
+      <div class="code-block reveal"><span class="fn">AWS_REGION</span>=us-east-1
+<span class="fn">SQS_QUEUE_URL</span>=https://sqs.us-east-1.amazonaws.com/xxx/tf4-cdo04-prediction-sandbox
+<span class="fn">AMP_QUERY_ENDPOINT</span>=https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxx
+<span class="fn">DYNAMODB_AUDIT_TABLE</span>=tf4-cdo04-audit-sandbox
+<span class="fn">DYNAMODB_POLICY_TABLE</span>=tf4-cdo04-service-policies-sandbox
+<span class="fn">AI_ENGINE_ENDPOINT</span>=http://ai-engine:8080/v1/predict
+<span class="fn">AI_TIMEOUT_SECONDS</span>=2
+<span class="fn">ALERT_TOPIC_ARN</span>=arn:aws:sns:us-east-1:xxx:tf4-cdo04-operational-alerts</div>
+
+      <div class="eyebrow"><span class="dot"></span>10.3 Biến môi trường AI Engine</div>
+      <div class="code-block reveal"><span class="fn">AWS_REGION</span>=us-east-1
+<span class="fn">PORT</span>=8080
+<span class="fn">BASELINE_BACKEND</span>=s3
+<span class="fn">BASELINE_S3_BUCKET</span>=tf4-cdo04-evidence-sandbox
+<span class="fn">BASELINE_S3_PREFIX</span>=baselines/
+<span class="fn">EVIDENCE_BUCKET_NAME</span>=tf4-cdo04-evidence-sandbox</div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Các tham số cấu hình được đồng bộ hóa nghiêm ngặt từ Terraform SSM Parameter Store sang biến môi trường lúc runtime của các task.</p>
+    </section>
+
+    <!-- SECTION 11 -->
+    <section id="s11">
+      <div class="section-header">
+        <div class="section-icon danger">⚠️</div>
+        <h2>11. Stale Docs & Drift</h2>
+      </div>
+      <p class="reveal">
+        Trong quá trình phát triển nhanh và chuyển dịch kiến trúc lưu trữ từ Timestream/InfluxDB sang AMP, hệ thống phát sinh một số điểm lệch pha tài liệu (drift) và các tập tin rác cần dọn dẹp:
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>11.1 Chi Tiết Các Điểm Lệch Pha Kiến Trúc (P0/P1 Mismatches)</div>
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Mã Lệch Pha</th>
+            <th>Khu Vực Phát Sinh</th>
+            <th>Mô Tả Chi Tiết Điểm Lệch Pha</th>
+            <th>Mức Độ Ảnh Hưởng</th>
+            <th>Hướng Khắc Phục Chỉ Định</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>SYS-01</code></td>
+            <td>Edge Security</td>
+            <td>Tài liệu yêu cầu HTTPS cứng nhưng cấu hình ALB thực tế có thể mở cổng HTTP tùy thuộc vào biến <code>enable_https</code>.</td>
+            <td>Rủi ro an toàn mạng ở mức biên.</td>
+            <td>Cấu hình luật redirect bắt buộc toàn bộ HTTP sang HTTPS trên ALB.</td>
+          </tr>
+          <tr>
+            <td><code>SYS-02</code></td>
+            <td>Ingress CIDR</td>
+            <td>Tài liệu yêu cầu giới hạn IP truy cập nhưng cấu hình ALB mặc định mở rộng <code>0.0.0.0/0</code>.</td>
+            <td>Tiếp lộ hạ tầng công cộng.</td>
+            <td>Giới hạn dải IP qua biến cấu hình <code>allowed_ingress_cidrs</code>.</td>
+          </tr>
+          <tr>
+            <td><code>SYS-03</code></td>
+            <td>Terraform Backend</td>
+            <td>Một số tài liệu cũ hướng dẫn chạy apply kèm cờ <code>-lock=false</code>.</td>
+            <td>Tranh chấp trạng thái gây hỏng file state.</td>
+            <td>Loại bỏ hoàn toàn cờ <code>-lock=false</code>, tận dụng cơ chế s3 lockfile native.</td>
+          </tr>
+          <tr>
+            <td><code>SYS-09</code></td>
+            <td>AI Auth Layer</td>
+            <td>Worker gửi thông tin xác thực SigV4 nhưng AI Engine app không hề cấu hình xác minh SigV4.</td>
+            <td>Mất an toàn bảo mật nội bộ (P0).</td>
+            <td>Bổ sung SigV4 auth middleware tại AI Engine app.</td>
+          </tr>
+          <tr>
+            <td><code>SYS-11</code></td>
+            <td>AMP Ingestion</td>
+            <td>Trong code tồn tại file stub adapter ghi AMP nhưng thực tế luồng ghi là do ADOT Collector.</td>
+            <td>Gây bối rối cho lập trình viên mới.</td>
+            <td>Xóa file stub rác, ghi chú cơ chế ghi duy nhất qua ADOT.</td>
+          </tr>
+          <tr>
+            <td><code>SYS-12</code></td>
+            <td>k6 Test Path</td>
+            <td>Một số script kiểm thử cũ gửi request tới route <code>/v1/telemetry</code> cũ.</td>
+            <td>Test script chạy lỗi 404.</td>
+            <td>Cập nhật toàn bộ script test trỏ về route mới <code>/v1/ingest</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="eyebrow"><span class="dot"></span>11.2 Danh Sách Các File Rác / File Nghi Ngờ Cần Xóa</div>
+      <p class="reveal">Đội ngũ SRE cần thực hiện lưu trữ hoặc dọn dẹp các tệp tin sau để tránh làm nhiễu thông tin dự án:</p>
+      <div class="def-list reveal">
+        <div class="def-row">
+          <div class="def-term"><code>docs/00_client_debrief.md.md</code></div>
+          <div class="def-desc">Lỗi đặt trùng tên đuôi mở rộng, cần sửa lại thành <code>.md</code>.</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>src/telemetry_api/app.py</code></div>
+          <div class="def-desc">Mã nguồn API cũ sử dụng route <code>/v1/telemetry</code> cũ, cần xóa bỏ vì Docker chạy file <code>main.py</code>.</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>src/telemetry_api/adapters/amp_adapter_stub.py</code></div>
+          <div class="def-desc">File stub no-op giả lập ghi AMP, cần đổi tên hoặc xóa để tránh hiểu lầm.</div>
+        </div>
+        <div class="def-row">
+          <div class="def-term"><code>infra/terraform/*.json</code> (ai-service, worker-service-connect, v.v.)</div>
+          <div class="def-desc">Các tệp JSON snapshot trạng thái thực tế mô tả tài nguyên, không phải cấu hình Terraform đầu vào, cần chuyển vào thư mục lưu trữ evidence.</div>
+        </div>
+      </div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Việc dọn dẹp các file rác và định vị các điểm lệch pha bảo mật (SigV4 Auth) là ưu tiên hàng đầu trước khi nghiệm thu vận hành.</p>
+    </section>
+
+    <!-- SECTION 12 -->
+    <section id="s12">
+      <div class="section-header">
+        <div class="section-icon">📖</div>
+        <h2>12. Operational Runbooks</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>12.1 Quy Trình Kiểm Tra Triển Khai Bình Thường (Normal Deploy Check)</div>
+      <p class="reveal">SRE thực thi các bước kiểm tra sau mỗi lần chạy Terraform Apply:</p>
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Xác nhận Tasks hoạt động</div>
+            <div class="step-desc">Kiểm tra số lượng task running trên ECS console: telemetry-api: 2, worker: 1, ai-engine: 2.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Kiểm tra Ingest API và Route bảo mật</div>
+            <div class="step-desc">Gửi payload thử nghiệm tới <code>/v1/ingest</code> mong đợi mã 201/202. Gửi request tới <code>/metrics</code> qua ALB mong đợi mã 403/404 (Không được public).</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Xác nhận ghi Audit Log</div>
+            <div class="step-desc">Truy vấn bảng DynamoDB audit mong đợi xuất hiện các bản ghi có <code>prediction_source = AI_ENGINE</code> sau chu kỳ 5 phút.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>12.2 Quy Trình Xử Lý Sự Cố AI Engine (AI Failure Mode)</div>
+      <p class="reveal">
+        Khi AI Engine gặp sự cố (timeout &gt; 2s, lỗi 5xx, 429 hoặc lỗi mạng Service Connect), Prediction Worker tự động kích hoạt chế độ Fallback tĩnh. Quy trình xử lý của SRE:
+      </p>
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Xác định lỗi qua Audit</div>
+            <div class="step-desc">Truy vấn DynamoDB audit table tìm các bản ghi có <code>prediction_source = static_threshold_fallback</code> và xem lý do tại cột <code>fallback_reason</code>.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Kiểm tra nhật ký container</div>
+            <div class="step-desc">Đọc logs tại CloudWatch log group <code>/ecs/ai-engine</code> để tìm nguyên nhân crash hoặc quá tải.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Kiểm tra trạng thái Service Connect</div>
+            <div class="step-desc">Xác nhận các cảnh báo độ trễ p95/p99 của Service Connect trên CloudWatch.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>12.4 Khôi Phục Sau Khi Kích Hoạt Cost Breaker</div>
+      <p class="reveal">
+        Khi Lambda Cost Breaker scale-down hệ thống về 0 do chạm ngân sách $200, sau khi rà soát tối ưu chi phí hoặc sang chu kỳ thanh toán mới, SRE khôi phục dịch vụ bằng các lệnh AWS CLI:
+      </p>
+      <div class="code-block reveal"><span class="cmt"># Khôi phục số lượng task mong muốn cho AI Engine và Worker</span>
+<span class="kw">aws ecs update-service</span> --cluster <span class="str">"tf4-cdo04-sandbox-cluster"</span> --service <span class="str">"ai-engine"</span> --desired-count <span class="val">2</span>
+<span class="kw">aws ecs update-service</span> --cluster <span class="str">"tf4-cdo04-sandbox-cluster"</span> --service <span class="str">"prediction-worker"</span> --desired-count <span class="val">1</span></div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Runbooks đảm bảo SRE có đầy đủ các bước phản ứng nhanh khi AI sập, dữ liệu AMP bị đứt quãng hoặc khi hệ thống bị ngắt bởi Cost Breaker.</p>
+    </section>
+
+    <!-- SECTION 13 -->
+    <section id="s13">
+      <div class="section-header">
+        <div class="section-icon">📈</div>
+        <h2>13. Readiness Assessment</h2>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>13.1 Các Điểm Mạnh Hiện Tại (What is Strong)</div>
+      <div class="grid-2 reveal">
+        <div class="card card-accent">
+          <div class="card-title">Kiến Trúc &amp; IaC Khép Kín</div>
+          <div class="card-desc">Kiến trúc hệ thống rất rõ ràng, an toàn nhờ phân vùng Private Subnet. Module Terraform được phân tách độc lập và dễ quản lý.</div>
+        </div>
+        <div class="card card-accent">
+          <div class="card-title">Cơ Chế Khắc Phục Lỗi</div>
+          <div class="card-desc">Tự động fallback sang ngưỡng tĩnh khi mất dữ liệu hoặc AI Engine sập. Hệ thống được bảo vệ chi phí nghiêm ngặt nhờ Cost Breaker Lambda.</div>
+        </div>
+      </div>
+
+      <div class="eyebrow"><span class="dot"></span>13.2 Các Rào Cản/Caveats Vận Hành</div>
+      <p class="reveal">
+        Hệ thống ghi nhận caveat k6 3h tải 50 RPS có phát sinh dropped iterations cực nhỏ, cơ chế xác thực SigV4 trên AI Engine chưa thực thi (P0 auth mismatch), và dữ liệu Actual Cost từ Cost Explorer bị trễ so với thực tế.
+      </p>
+
+      <div class="eyebrow"><span class="dot"></span>13.3 Thứ Tự Ưu Tiên Vá Lỗi (Priority Fix Order)</div>
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Vá lỗi xác thực AI Engine (SYS-09)</div>
+            <div class="step-desc">Bổ sung middleware thực thi kiểm soát chữ ký AWS SigV4 tại mã nguồn AI Engine.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Định hình lại cấu hình CI/CD Smoke</div>
+            <div class="step-desc">Cấu hình biến chạy smoke test trỏ về custom domain HTTPS: <code>ALB_BASE_URL=https://xbrain26hackathon269.software</code>.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Dọn dẹp mã nguồn rác</div>
+            <div class="step-desc">Xóa các file snapshot JSON dư thừa trong thư mục terraform và xóa mã API cũ <code>app.py</code>.</div>
+          </div>
+        </div>
+      </div>
+
+      <p class="reveal"><strong>Takeaway:</strong> Hệ thống đạt trạng thái DEMO PASS sẵn sàng bàn giao cho capstone review, các lỗi tồn đọng đã được khoanh vùng và lập kế hoạch sửa đổi.</p>
+    </section>
+
+    <!-- SECTION 14 -->
+    <section id="s14">
+      <div class="section-header">
+        <div class="section-icon">⚖️</div>
+        <h2>14. Source-of-truth Rules</h2>
+      </div>
+      <p class="reveal">Khi phát sinh các mâu thuẫn thông tin trong tài liệu hạ tầng, kỹ sư vận hành bắt buộc phải áp dụng thứ tự ưu tiên nguồn sự thật dưới đây:</p>
+      
+      <div class="stepper reveal">
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">1</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Mã Nguồn Đang Chạy</div>
+            <div class="step-desc">Mã nguồn ứng dụng đang thực thi runtime và tệp cấu hình Terraform đang deploy thực tế trên AWS.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">2</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Hợp Đồng Cam Kết Băng Giá</div>
+            <div class="step-desc">Nội dung bộ hợp đồng (Telemetry, AI API, Deployment contracts) đã chốt với đội ngũ AI.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">3</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Quyết Định Kiến Trúc (ADRs)</div>
+            <div class="step-desc">Các tệp ghi nhận quyết định kiến trúc cốt lõi, đặc biệt là ADR-011 và ADR-012.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-line">
+            <div class="step-dot">4</div>
+            <div class="step-connector"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title">Tài Liệu Môi Trường</div>
+            <div class="step-desc">Các hướng dẫn, tài liệu cũ đề cập đến Timestream, InfluxDB, vùng Singapore, route <code>/v1/telemetry</code> cũ được coi là lỗi thời và hết giá trị đối chiếu.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 15 -->
+    <section id="s15">
+      <div class="section-header">
+        <div class="section-icon info">📖</div>
+        <h2>15. Glossary (Thuật ngữ)</h2>
+      </div>
+      <p class="reveal">Danh sách thuật ngữ chuẩn hóa được sử dụng xuyên suốt dự án CDO-04:</p>
+      
+      <table class="reveal">
+        <thead>
+          <tr>
+            <th>Thuật Ngữ Viết Tắt</th>
+            <th>Ý Nghĩa Kỹ Thuật Chi Tiết</th>
+            <th>Mức Độ Ảnh Hưởng Đến Hệ Thống</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>AMP</code></td>
+            <td>Amazon Managed Service for Prometheus — Hệ thống TSDB được AWS quản lý toàn phần dùng để lưu trữ telemetry.</td>
+            <td>Tài nguyên trung tâm lưu trữ metric time-series.</td>
+          </tr>
+          <tr>
+            <td><code>ADOT</code></td>
+            <td>AWS Distro for OpenTelemetry — Sidecar Collector chịu trách nhiệm scrape dữ liệu và đẩy lên AMP.</td>
+            <td>Đảm bảo việc phân tách luồng đẩy dữ liệu khỏi code ứng dụng chính.</td>
+          </tr>
+          <tr>
+            <td><code>AI Engine</code></td>
+            <td>Dịch vụ chạy container thực hiện gọi phân tích bất thường dựa trên thuật toán STL và EWMA.</td>
+            <td>Thực thi phân tích thông minh và đề xuất thay đổi quy mô.</td>
+          </tr>
+          <tr>
+            <td><code>Prediction Worker</code></td>
+            <td>Tiêu thụ job từ SQS, thực hiện truy vấn AMP, căn chỉnh mốc thời gian và gọi AI Engine.</td>
+            <td>Bộ não điều khiển phối hợp quy trình dự báo của Control Plane.</td>
+          </tr>
+          <tr>
+            <td><code>Static threshold fallback</code></td>
+            <td>Chế độ tự động chuyển đổi sang so sánh ngưỡng tĩnh từ DynamoDB khi AI Engine sập hoặc dữ liệu bị mất mát.</td>
+            <td>Đảm bảo tính liên tục của hệ thống cảnh báo sớm.</td>
+          </tr>
+          <tr>
+            <td><code>Evidence status</code></td>
+            <td>Trạng thái ghi nhận dữ liệu lookback trong audit log (<code>complete_window</code> hoặc <code>partial_window</code>).</td>
+            <td>Bằng chứng chứng minh chất lượng dữ liệu đầu vào phục vụ dự báo.</td>
+          </tr>
+          <tr>
+            <td><code>Service Connect</code></td>
+            <td>Mạng lưới giao tiếp dịch vụ nội bộ của ECS Fargate không qua cổng ALB công cộng.</td>
+            <td>Tăng cường tính bảo mật kết nối nội bộ.</td>
+          </tr>
+          <tr>
+            <td><code>Cost breaker</code></td>
+            <td>Hàm Lambda tự động scale-down Worker và AI Engine về 0 khi tổng chi phí chạm mốc $200 ngân sách tháng.</td>
+            <td>Chốt chặn bảo vệ chi phí tài nguyên cloud.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- SECTION 16 -->
+    <section id="s16">
+      <div class="section-header">
+        <div class="section-icon success">🏁</div>
+        <h2>16. Final State Statement</h2>
+      </div>
+      <p class="reveal">
+        Hệ thống <strong>TF4 CDO-04</strong> hiện đã đạt trạng thái <strong>DEMO PASS with documented caveats</strong>. Toàn bộ các mảnh ghép cấu thành control plane đều đã được thiết lập thành công và kiểm thử thực tế chứng minh luồng hoạt động khép kín: thu nhận telemetry qua ALB HTTPS, sidecar ADOT đẩy dữ liệu lên AMP, EventBridge scheduler kích hoạt Worker, Worker gọi AI Engine qua Service Connect, lưu log kiểm toán DynamoDB, và cảnh báo qua SNS thành công.
+      </p>
+
+      <div class="card card-dark reveal">
+        <div class="card-title">Tuyên Bố Trạng Thái Demo</div>
+        <div class="card-body">
+          DEMO PASS — Toàn bộ kiến trúc hạ tầng và bằng chứng vận hành thực tế đã hội tụ đầy đủ cho đợt Capstone Review.<br>
+          Caveats: Caveat K6 3h tải có dropped iterations cực nhỏ (~0.00093%), xác thực chữ ký SigV4 tại AI Engine cần được triển khai cứng cáp hơn trên môi trường Production.
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* =============================================================
+   PRESENTATION.JS — shared engine behaviour (slide + doc)
+   ============================================================= */
+(function () {
+  'use strict';
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- 1. Prep: stagger index ---------- */
+  function prepAnimations() {
+    document.querySelectorAll('.stagger').forEach(function (c) {
+      Array.prototype.forEach.call(c.children, function (ch, i) {
+        ch.style.setProperty('--i', i);
+      });
+    });
+  }
+
+  /* ---------- 2. Fire counters ---------- */
+  function runCounters(scope) {
+    scope.querySelectorAll('[data-animate="count"]').forEach(function (el) {
+      if (el.dataset.done) return;
+      el.dataset.done = '1';
+      var to = parseFloat(el.dataset.to || el.textContent) || 0;
+      if (reduce) { el.textContent = to; return; }
+      var dur = 900, t0 = null;
+      function tick(t) {
+        if (!t0) t0 = t;
+        var p = Math.min((t - t0) / dur, 1);
+        var v = to * (1 - Math.pow(1 - p, 3));
+        el.textContent = (to % 1 === 0) ? Math.round(v) : v.toFixed(1);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  /* ---------- 3. Doc reveal on scroll ---------- */
+  function setupDocReveal() {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('in');
+        runCounters(e.target);
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.15 });
+
+    document.querySelectorAll('.reveal, .stagger').forEach(function (el) {
+      io.observe(el);
+    });
+  }
+
+  /* ---------- 4. Scroll spy ---------- */
+  function setupDocSpy() {
+    var sections = document.querySelectorAll('.doc-main section[id]');
+    var links = document.querySelectorAll('.doc-nav a[href^="#"]');
+    if (!sections.length || !links.length) return;
+    var spy = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (l) {
+          l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id);
+        });
+      });
+    }, { rootMargin: '-20% 0px -60% 0px' });
+    sections.forEach(function (s) { spy.observe(s); });
+  }
+
+  /* ---------- init ---------- */
+  document.addEventListener('DOMContentLoaded', function () {
+    prepAnimations();
+    setupDocReveal();
+    setupDocSpy();
+  });
+})();
+</script>
+</body>
+</html>
