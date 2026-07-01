@@ -40,12 +40,12 @@ data "aws_iam_policy_document" "kms_policy" {
     resources = ["*"]
     principals {
       type        = "Service"
-      identifiers = ["logs.us-east-1.amazonaws.com"]
+      identifiers = ["logs.${var.aws_region}.amazonaws.com"]
     }
     condition {
       test     = "ArnLike"
       variable = "kms:EncryptionContext:aws:logs:arn"
-      values   = ["arn:aws:logs:us-east-1:${data.aws_caller_identity.current.account_id}:log-group:*"]
+      values   = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"]
     }
   }
 }

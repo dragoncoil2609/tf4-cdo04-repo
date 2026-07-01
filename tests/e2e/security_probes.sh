@@ -55,7 +55,7 @@ PY
 }
 
 run_probe() {
-  local name="$1" expected="$2" method="$3" path="$4" body="${5:-}" tenant_header="${6:-}"
+  local name="$1" expected="$2" method="$3" path="$4" body="${5:-}" tenant_header="${6:-}" auth_mode="${7:-valid}"
   local tmp_body tmp_status status passed response
   tmp_body="$(mktemp)"
   tmp_status="$(mktemp)"
@@ -63,6 +63,11 @@ run_probe() {
   args=(-sS -o "${tmp_body}" -w "%{http_code}" -X "${method}" "${BASE_URL}${path}")
   if [[ -n "${tenant_header}" ]]; then
     args+=(-H "X-Tenant-Id: ${tenant_header}")
+  fi
+  if [[ -n "${TENANT_INGEST_TOKEN:-}" && "${auth_mode}" == "valid" ]]; then
+    args+=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
+  elif [[ "${auth_mode}" == "invalid" ]]; then
+    args+=(-H "Authorization: Bearer invalid-token")
   fi
   if [[ -n "${body}" ]]; then
     args+=(-H "Content-Type: application/json" -d "${body}")
@@ -100,6 +105,12 @@ PY
 {
   printf '{"generated_at":"%s","base_url":"%s","probes":[' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASE_URL}"
   run_probe "public_metrics_blocked" "not_200" "GET" "/metrics"
+  if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
+    printf ','
+    run_probe "missing_auth_token" "reject" "POST" "/v1/ingest" "${missing_tenant_body}" "tenant-a" "none"
+    printf ','
+    run_probe "invalid_auth_token" "reject" "POST" "/v1/ingest" "${missing_tenant_body}" "tenant-a" "invalid"
+  fi
   printf ','
   run_probe "missing_tenant_header" "reject" "POST" "/v1/ingest" "${missing_tenant_body}"
   printf ','

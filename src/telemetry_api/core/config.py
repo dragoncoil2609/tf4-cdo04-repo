@@ -49,6 +49,7 @@ class Settings:
     s3_failure_buffer_object_age_alarm_seconds: int = 300
 
     cloudwatch_namespace: str = "CDO/TelemetryApi"
+    tenant_ingest_token: str | None = None
 
 
 def _read_int(name: str, default: int) -> int:
@@ -126,5 +127,6 @@ def load_settings() -> Settings:
         s3_failure_buffer_kms_key_id=os.getenv("S3_FAILURE_BUFFER_KMS_KEY_ID", Settings.s3_failure_buffer_kms_key_id),
         s3_failure_buffer_object_age_alarm_seconds=_read_int("S3_FAILURE_BUFFER_OBJECT_AGE_ALARM_SECONDS", Settings.s3_failure_buffer_object_age_alarm_seconds),
         cloudwatch_namespace=os.getenv("CLOUDWATCH_NAMESPACE", Settings.cloudwatch_namespace),
+        tenant_ingest_token=os.getenv("TENANT_INGEST_TOKEN"),
     )
 
