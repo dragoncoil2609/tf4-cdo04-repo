@@ -1,8 +1,8 @@
 # TF4 CDO-04 — Tài liệu hệ thống CDO đầy đủ
 
 > Ngôn ngữ: Tiếng Việt, giữ nguyên thuật ngữ kỹ thuật bằng English.  
-> Phạm vi: `tf4-cdo04-repo` tại ngày 2026-07-01.  
-> Trạng thái hệ thống: **DEMO PASS** — kiến trúc, IaC, runtime và evidence chính đã hội tụ cho capstone demo; còn caveat nhỏ về k6 zero-drop và một số hardening production.
+> Phạm vi: `tf4-cdo04-repo` tại ngày 2026-06-30.  
+> Trạng thái hệ thống: **PARTIAL** — kiến trúc và IaC khá đầy đủ, nhưng còn lệch lớn giữa docs, Terraform, runtime và test evidence.
 
 ---
 
@@ -10,11 +10,11 @@
 
 TF4 CDO-04 là **SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow** cho 3 dịch vụ tier-1 của fintech demo. Mục tiêu không phải xây dashboard mới, mà biến telemetry thành **prediction decision có audit, fallback, evidence và cost guard**.
 
-Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **API Gateway HTTP API `AWS_IAM` → VPC Link → same ALB restricted listener `:8443` → AI target group**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. ECS Service Connect giữ làm rollback/fallback trong migration. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
+Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **ECS Service Connect**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
 
-Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, 1 public ALB reused cho public ingest `:443` và restricted AI listener `:8443`, API Gateway HTTP API với `AWS_IAM`, VPC Link, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
+Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, 1 public ALB, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
 
-Điểm cần nhớ: **không có Prometheus server scrape trực tiếp 3 service tier-1**. Đây là kiến trúc **push telemetry → Telemetry API `/metrics` → ADOT scrape → AMP remote_write**. Vì vậy 50 RPS trong k6 là **ingest API headroom**, không phải bằng chứng AMP lưu đủ 50 event samples/second.
+Điểm cần nhớ: **không có Prometheus server scrape trực tiếp 3 service tier-1**. Đây là kiến trúc **push telemetry → Telemetry API `/metrics` → ADOT scrape → AMP remote_write**.
 
 ---
 
@@ -90,16 +90,12 @@ ECS Fargate: prediction-worker (private subnet, outbound only)
   |-- query AMP /api/v1/query_range, step=60s, lookback=120m
   |-- align 1-min buckets, forward-fill/zero-fill
   |-- if gap_ratio >= 0.5 => static threshold fallback
-  |-- else SigV4 POST /v1/predict to API Gateway execute-api via NAT
+  |-- else POST /v1/predict
   v
-API Gateway HTTP API (AWS_IAM)
-  |
-  | VPC Link
-  v
-same ALB restricted listener :8443
+ECS Service Connect: ai-engine:8080
   |
   v
-AI Engine target group -> ECS Fargate: ai-engine (private subnet, port 8080)
+ECS Fargate: ai-engine (private subnet, Service Connect server)
   |-- rate limit 600 req/min/tenant
   |-- STL baseline + EWMA control chart
   |-- response: anomaly/severity/recommendation/reasoning/audit_id
@@ -197,9 +193,6 @@ Telemetry API receives pushed telemetry
 
 - Không có Prometheus server scrape các service app trực tiếp.
 - Không có scrape target discovery bên ngoài task.
-- ADOT scrape **latest gauge snapshot** từ Telemetry API, không lưu mọi event ingest.
-- 1-minute prediction bucket vẫn hợp lý vì ADOT scrape 15s/lần, tức khoảng 4 sample/phút nếu producer giữ cadence 1 phút.
-- 50 RPS k6 chứng minh ALB + Telemetry API chịu producer traffic; không chứng minh AMP persisted 50 samples/sec.
 - ADOT config thực tế nằm inline trong Terraform task definition, không phải `src/telemetry_api/adot-config.yaml`.
 - `src/telemetry_api/adot-config.yaml` chỉ là reference và dễ stale.
 
@@ -550,7 +543,7 @@ DynamoDB policy table:
 - SK: `service_name` (S).
 - PITR: enabled.
 - SSE: enabled.
-- Seed policies for `var.prediction_tenant_id`:
+- Seed policies for `tnt-benchmark`:
   - `ledger` threshold 85.0
   - `payment-gw` threshold 85.0
   - `fraud-detector` threshold 85.0
@@ -587,10 +580,10 @@ KMS/SSM/Secrets:
   - `/<project>/<env>/ai/predict_path`
   - `/<project>/<env>/prediction/lookback_window_minutes`
   - `/<project>/<env>/ai/baseline_s3_prefix`
-- Secrets Manager, KMS encrypted:
-  - `tf4-cdo04/<env>/tenant-ingest-token` — Terraform generates value with `random_password`, stores secret version in Secrets Manager, and exposes sensitive output for k6/default demo workflow. Token is stored in Terraform state by explicit project choice. ECS wires it to Telemetry API through `secrets` as `TENANT_INGEST_TOKEN`; `/v1/ingest` enforces `Authorization: Bearer <token>` when configured.
-  - `tf4-cdo04/<env>/slack-webhook-url` — future optional Slack path; MVP uses SNS email.
-  - `tf4-cdo04/<env>/ai-sigv4-config` — future AI auth hardening config; Worker -> AI remains IAM SigV4 intent and SYS-09 caveat until verifier exists.
+- Secrets Manager, KMS encrypted, values managed outside Terraform:
+  - `tf4-cdo04/<env>/tenant-ingest-token`
+  - `tf4-cdo04/<env>/slack-webhook-url`
+  - `tf4-cdo04/<env>/ai-sigv4-config`
 
 ### 5.5 Compute module
 
@@ -852,9 +845,9 @@ Good:
 
 - GitHub OIDC uses dedicated deploy role, not static long-lived AWS key.
 - ECS task roles split by service.
-- Telemetry task gets remote write, SQS send, S3 failure-buffer put; ECS execution role reads only tenant ingest token secret and decrypts it through project KMS for task-start injection.
-- Worker task gets SQS consume, APS query, DynamoDB audit/policy, SNS publish; no Secrets Manager runtime dependency in current MVP.
-- AI task gets baseline/evidence read, SSM/Secrets/KMS, metrics publish; AI SigV4 app-side enforcement remains production hardening.
+- Telemetry task gets only remote write, SQS send, S3 failure-buffer put.
+- Worker task gets SQS consume, APS query, DynamoDB audit/policy, SNS publish.
+- AI task gets baseline/evidence read, SSM/Secrets/KMS, metrics publish.
 
 Risks:
 
@@ -868,7 +861,7 @@ Risks:
 - S3 evidence bucket encrypted and blocks public access.
 - DynamoDB SSE enabled.
 - KMS key exists for AI/audit/secrets related flows.
-- Secrets Manager values are not managed in Terraform state; ECS injects the tenant ingest token by ARN through task definition `secrets`.
+- Secrets Manager values are not managed in Terraform state.
 - PII denylist and high-cardinality rejection at telemetry boundary.
 
 ### 7.4 AI auth mismatch
@@ -879,26 +872,13 @@ Contract says IAM SigV4. Worker sends SigV4-style auth intent, but AI Engine app
 
 ## 8. Testing & Acceptance
 
-### 8.1 Final evidence command set
-
-Final evidence was collected with direct focused commands, not full all-in-one matrix runner:
+### 8.1 Primary acceptance command
 
 ```bash
-export TENANT_INGEST_TOKEN="$(terraform -chdir=infra/terraform output -raw tenant_ingest_token)"
-
-k6 run tests/k6/acceptance_ingest.js \
-  -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software \
-  -e TENANT_ID=demo-tenant-001 \
-  -e SERVICE_IDS=ledger,payment-gw,fraud-detector \
-  -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
-  -e RATE=50 \
-  -e DURATION=3h \
-  --summary-export evidence/logs/acceptance-50rps-3h-final-summary.json
+bash tests/e2e/run_final_acceptance.sh
 ```
 
-Worker, AI Engine and audit evidence were collected from CloudWatch Logs and DynamoDB into `evidence/logs/`.
-
-`tests/e2e/run_final_acceptance.sh` remains the broader reusable entrypoint, but final demo evidence here is the focused 2m/3h load + audit/worker/AI evidence pack.
+Expected wall time: around 3.5h.
 
 ### 8.2 Acceptance gates
 
@@ -909,7 +889,7 @@ Worker, AI Engine and audit evidence were collected from CloudWatch Logs and Dyn
 | AI complete path | `bash tests/e2e/tf4_scenario_matrix.sh` | `tf4-scenario-audit-scan.json` |
 | 4 TF4 scenarios | `bash tests/e2e/tf4_scenario_matrix.sh` | `tf4-scenario-summary.json` |
 | Eval metrics | `python tests/e2e/eval_report.py` | `eval-report.json`, `eval-report.md` |
-| Load 50 RPS | `k6 run tests/k6/acceptance_ingest.js` | `acceptance-50rps-2m-final-summary.json`, `acceptance-50rps-3h-final-summary.json` |
+| Load 50/100 RPS | `k6 run tests/k6/acceptance_ingest.js` | `acceptance-50rps-summary.json`, `acceptance-100rps-summary.json` |
 | Security probes | `bash tests/e2e/security_probes.sh` | `security-probes.json` |
 | Cost guard | Budget + Cost Explorer | `budget-final.json`, `cost-explorer-final.json` |
 
@@ -931,20 +911,19 @@ Additional pass criteria:
 - False Positive <= 12%.
 - F1/confusion/Brier reported.
 - >= 1 scenario lead time >= 15min.
-- k6 50 RPS accepted: p95 < 1000ms, error rate < 1%, sustained ~50 RPS.
-- 3h k6 caveat visible: 5 dropped iterations and 1 failed request over 539,995 requests; owner accepted as operational pass.
-- Security probes/tests cover tenant mismatch and `/metrics` exposure.
+- k6 50 RPS and 100 RPS pass.
+- Security probes pass.
 - DLQ no growth.
-- Budget < $200 by sizing model and budget/cost-breaker configuration.
+- Budget < $200.
 
 ### 8.4 Four mentor-facing scenarios
 
 | Scenario | Service | Expected | Script |
 |---|---|---|---|
-| Gradual drift | `ledger` | anomaly | `tests/e2e/tf4_scenario_matrix.sh` |
-| Sudden spike | `payment-gw` | anomaly | `tests/e2e/tf4_scenario_matrix.sh` |
-| Slow leak | `fraud-detector` | anomaly | `tests/e2e/tf4_scenario_matrix.sh` |
-| Noisy baseline | `fraud-detector` | no anomaly / low severity | `tests/e2e/tf4_scenario_matrix.sh` |
+| Gradual drift | `ledger` | anomaly | `tests/k6/sc01_gradual_drift.js` |
+| Sudden spike | `payment-gw` | anomaly | `tests/k6/sc02_spike.js` |
+| Slow leak | `fraud-detector` | anomaly | `tests/k6/sc03_slow_leak.js` |
+| Noisy baseline | `fraud-detector` | no anomaly / low severity | `tests/k6/sc04_noisy_baseline.js` |
 
 ### 8.5 Unit test map
 
@@ -983,17 +962,7 @@ Additional pass criteria:
 
 ### 8.7 Test evidence status
 
-Final live evidence has been regenerated under `evidence/logs/` and summarized in `docs/07_test_eval_report.md`.
-
-Current demo acceptance status:
-
-```text
-2m 50 RPS smoke: PASS, 6,001 requests, 0 failures, 0 dropped iterations.
-3h 50 RPS run: accepted PASS with caveat, 539,995 requests, p95 257 ms, 1 failed request, 5 dropped iterations.
-Worker/AI path: PASS, DynamoDB audit contains AI_ENGINE + complete_window + ai_status_code=200 for ledger, payment-gw, fraud-detector.
-```
-
-Caveat: 3h k6 is not a strict zero-drop pass. It is accepted as operational pass because drop rate was ~0.00093% and request success was 99.9998%.
+Current docs say final evidence was redesigned/deleted and must be re-run. `docs/07_test_eval_report.md` contains placeholder/draft fields and must not be treated as pass evidence until actual run artifacts exist.
 
 ---
 
@@ -1113,11 +1082,11 @@ DRY_RUN=false
 | SYS-02 | Ingress CIDR | ALB CIDR can be `0.0.0.0/0`, docs want explicit allowed CIDRs | Accidental public exposure | Require `allowed_ingress_cidrs` var per env |
 | SYS-03 | Terraform backend | Docs/workflow mention `-lock=false`, backend supports lockfile | State race risk | Remove `-lock=false`, document S3 lockfile |
 | SYS-05 | CI/CD | QA notes auto-approve and weak smoke in older flow | False green deploy | Gate apply with real smoke/evidence |
-| SYS-08 | AI runtime | Previous QA suspected placeholder AI runtime | Live audit now proves `AI_ENGINE` + `complete_window` + `ai_status_code=200` | Resolved for demo evidence; keep verifying image provenance in CI |
-| SYS-09 | AI auth | Worker SigV4/service mismatch; AI app does not enforce SigV4 | Auth contract not enforced at app layer | Add enforceable auth layer or update contract truthfully |
+| SYS-08 | AI runtime | QA found placeholder AI ECS in Terraform at one point vs real contract | ECS healthy may not prove AI behavior | Ensure ECS image runs real `src/ai_engine` app, not inline placeholder |
+| SYS-09 | AI auth | Worker SigV4/service mismatch; AI app does not enforce SigV4 | Auth contract not enforced | Add enforceable auth layer or update contract truthfully |
 | SYS-11 | AMP ingestion | App AMP adapter/stub vs ADOT remote_write docs | Confusion over actual data path | Document ADOT as only AWS remote_write path; rename no-op adapter |
-| SYS-12 | k6 path | Some stale docs/scripts may still call `/v1/telemetry`; current route is `/v1/ingest` | Operator confusion | Keep final tests on `/v1/ingest`; archive old scripts if found |
-| SYS-13 | Test report | Previously draft/placeholder | Final evidence now summarized in `docs/07_test_eval_report.md` | Resolved for demo; caveat remains for 3h k6 zero-drop |
+| SYS-12 | k6 path | Some k6/docs still call `/v1/telemetry`, current route is `/v1/ingest` | Load tests stale | Update all tests to `/v1/ingest` |
+| SYS-13 | Test report | `docs/07_test_eval_report.md` is draft/placeholder | Cannot claim pass | Re-run final acceptance and store artifacts |
 | SYS-15 | Terraform README | README vars mention old vars/Timestream/Singapore | Operator error | Rewrite README from current root variables |
 
 ### 11.2 Stale/unused/suspect files
@@ -1135,7 +1104,7 @@ DRY_RUN=false
 | `note/*.json` IAM/budget/state policies | Reference policies likely migrated into Terraform | Archive/delete after verify |
 | `tests/__pycache__/test_basic.cpython-314-pytest-9.1.1.pyc` | Python cache without source | Delete |
 | `tests/test_basic.py` if present | `assert True` placeholder per docs agent | Delete/replace |
-| Old `tests/k6/sc01_*`–`sc04_*` scripts | Diagnostic-only high-RPS scripts, not final acceptance evidence | Deleted; scenario coverage is `tests/e2e/tf4_scenario_matrix.sh` |
+| `tests/k6/sc02_spike.js` | May call `/v1/telemetry` and expect old status | Update to `/v1/ingest`, expect 201/202 |
 | `infra/terraform/README.md` | Variables and service choices stale | Rewrite |
 | `infra/terraform/modules/observability/cost_dashboard.tf` | Text may mention Timestream after AMP migration | Update labels |
 | `contracts/telemetry-contract.md` | Mentions Timestream/Managed Prometheus alternatives and old cost model | Add final AMP addendum inline |
@@ -1148,7 +1117,7 @@ DRY_RUN=false
 - **Metrics backend drift**: Timestream/InfluxDB old vs AMP current.
 - **Region drift**: `ap-southeast-1` old vs `us-east-1` current.
 - **Deployment strategy drift**: CodeDeploy/canary old vs ECS rolling + circuit breaker current.
-- **AI runtime drift**: previously suspected placeholder/mocked smoke; final audit evidence now proves real AI path for demo.
+- **AI runtime drift**: placeholder/mocked smoke vs real AI behavior requirement.
 - **Auth drift**: SigV4 contract vs no app-level enforcement.
 - **Test evidence drift**: draft reports vs actual pass artifacts missing.
 
@@ -1255,29 +1224,30 @@ Use `DRY_RUN=true` for breaker test.
 - Cost cap has explicit 50/80/100 policy and breaker.
 - Contracts with AI team are mostly explicit.
 - Unit test coverage exists across telemetry, worker, AI, cost breaker.
-- Final live evidence now shows 3-service ingest, AMP/Worker/AI path and audit records.
-- 3h 50 RPS run sustained target load over custom HTTPS domain with p95 257 ms.
 
-### 13.2 Remaining caveats before production-like claim
+### 13.2 What blocks “done”
 
-- 3h k6 had 5 dropped iterations and 1 failed request; accepted for demo, but not strict zero-drop.
-- AI SigV4 contract is not enforceable in current internal app path.
-- 100 RPS acceptance was not rerun in final evidence pack.
-- Cross-account tenant isolation remains N/A in single sandbox.
-- Cost Explorer same-day actuals lag; use budget/cost-breaker + sizing model as proof.
-- CI/CD safety still needs periodic verification: lock enabled, smoke real, no fake pass.
-- Stale archive docs may still mention Timestream, Singapore, `/v1/telemetry`, or old service IDs.
+- Real final acceptance evidence missing/re-run needed.
+- Route drift in stale tests/docs.
+- AI SigV4 contract not enforceable in current internal app path.
+- AMP remote_write path must be verified in AWS with actual ADOT logs + AMP query.
+- HTTPS/public edge posture not fully aligned with docs.
+- CI/CD safety needs verification: lock enabled, smoke real, no fake pass.
+- Baseline coverage is incomplete for 7 signals x 3 services.
+- Stale Terraform README/docs can mislead operators.
 
 ### 13.3 Priority fix order
 
-1. Keep final evidence pack committed and clearly label 3h k6 caveat.
-2. Fix CI smoke to use custom domain `ALB_BASE_URL=https://xbrain26hackathon269.software`.
+1. Lock public edge: HTTPS/CIDR docs+Terraform alignment.
+2. Remove unsafe Terraform workflow patterns: no `-lock=false`, no fake smoke.
 3. Resolve AI auth truth: enforce SigV4 somewhere real, or update contract.
-4. Optional: rerun k6 3h with bigger VU pool if a strict zero-drop artifact is required.
-5. Optional: run 100 RPS 10m acceptance if mentor asks for 100 RPS proof.
-6. Delete/move stale snapshots and cache files.
+4. Ensure ECS AI image runs real AI app, not placeholder.
+5. Verify ADOT -> AMP remote_write end-to-end.
+6. Update all `/v1/telemetry` references to `/v1/ingest`.
 7. Rewrite Terraform README from current variables.
-8. Expand/refresh baselines for all 7 signals and 3 services if AI quality target is strict.
+8. Delete/move stale snapshots and cache files.
+9. Re-run full acceptance and regenerate evidence report.
+10. Expand/refresh baselines for all 7 signals and 3 services if AI quality target is strict.
 
 ---
 
@@ -1311,11 +1281,6 @@ Use this priority when docs conflict:
 
 ## 16. Final state statement
 
-Hệ thống CDO-04 hiện là **DEMO PASS with documented caveats**. Control plane pieces exist and live evidence proves the core path: custom HTTPS ingest, ADOT-to-AMP telemetry, scheduled Worker jobs, AI Engine calls, DynamoDB audit records, SNS alert path and 3-service coverage.
+Hệ thống CDO-04 hiện là **well-designed but partially proven**. Control plane pieces exist: ingest, scrape-to-AMP design, scheduler, queue, worker, AI service, audit, alert, alarms, autoscaling, cost breaker. Nhưng để claim production-like final, cần đóng drift: HTTPS/auth/CI safety/AMP proof/test evidence/stale docs.
 
-Status nên trình bày là:
-
-```text
-DEMO PASS — architecture and runtime evidence converged for capstone review.
-Caveats: 3h k6 not strict zero-drop, AI SigV4 enforcement remains production hardening, Cost Explorer actuals are delayed supporting evidence.
-```
+Until those are fixed, status nên giữ là: **PARTIAL — architecture complete, implementation/evidence not fully converged**.

@@ -98,3 +98,10 @@ Nhằm duy trì hệ thống chạy liên tục 24/7 nhưng không vượt quá 
     3.  **Cấp quyền bảo mật:** Bổ sung quyền hạn `dynamodb:GetItem` vào IAM Policy của Prediction Worker để chỉ cho phép đọc thông tin cấu hình từ bảng này.
     4.  **Tích hợp Container:** Truyền tên bảng thông qua biến môi trường `DYNAMODB_POLICY_TABLE` vào định nghĩa ECS Task Definition của Prediction Worker.
     5.  **Logic Fallback (Python app):** Lập trình hàm `get_static_threshold_fallback` gọi hàm `get_item` trên bảng DynamoDB này để lấy ngưỡng tĩnh thay thế khi kết nối tới AI Engine bị gián đoạn.
+
+### 📌 Task: CPOA-86 | CodeDeploy canary for AI Engine
+*   **Trạng thái:** POST-MVP (Tạm hoãn để tối ưu hóa tài nguyên Sandbox).
+*   **Mô tả công việc đã làm:**
+    1.  **Chiến lược Deployment:** Tạm hoãn triển khai CodeDeploy Canary sang giai đoạn Post-MVP để tránh phát sinh chi phí lớn trên môi trường Sandbox (theo thống nhất kiến trúc).
+    2.  **Thiết lập ECS Circuit Breaker:** Cấu hình và kích hoạt cờ `enable = true` và `rollback = true` trong block `deployment_circuit_breaker` cho dịch vụ `ai-engine` tại tệp `ai_engine.tf`.
+    3.  **Cơ chế bảo vệ Auto-Rollback:** Đảm bảo khi có sự cố phát sinh ở phiên bản Task Definition mới (lỗi crash-loop, port, hoặc health check `/health` fail), ECS sẽ tự động hủy đợt deploy và tự động khôi phục (rollback) ngay lập tức về phiên bản cũ hoạt động tốt gần nhất mà không làm gián đoạn dịch vụ.
