@@ -5,7 +5,7 @@
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
-  #  Build alarm action lists, conditionally including scaling policy ARNs.
+  # Build alarm action lists, conditionally including scaling policy ARNs.
   scoped_alarm_actions = compact([
     aws_sns_topic.operational_alerts.arn,
   ])
@@ -46,7 +46,7 @@ locals {
     TargetDiscoveryName = "ai-engine"
   }
 
-  #  Danh sách target groups & ECS services cho ALB widgets
+  # Danh sách target groups & ECS services cho ALB widgets
   alb_target_groups = ["ledger-tg", "payment-tg", "kyc-tg"]
   ecs_services      = ["ledger-service", "payment-gateway", "kyc-worker"]
 
@@ -75,7 +75,7 @@ locals {
     )
   ]
 
-  #  ECS metrics (CPU + Memory) cho từng service
+  # ECS metrics (CPU + Memory) cho từng service
   ecs_metrics = flatten([
     for idx, svc in local.ecs_services : [
       ["AWS/ECS", "CPUUtilization", "ServiceName", svc, "ClusterName", var.ecs_cluster_name],
@@ -364,7 +364,6 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx_alarm" {
 # TASK: CPOA-103 | CDO-W12-058 - Retention policies
 # OWNER: Tạ Hoàng Huy
 # -----------------------------------------------------------------------------
-
 resource "aws_cloudwatch_log_group" "ai_engine_audit" {
   name              = "/ecs/${var.project_name}-${var.environment}-ai-engine-audit"
   retention_in_days = 365
