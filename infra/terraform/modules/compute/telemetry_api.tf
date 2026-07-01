@@ -2,7 +2,7 @@
 # Telemetry API ECS Task Definition and Service -- CPOA-46 / CPOA-45 / CPOA-78
 #
 # Scope:
-# - ECS Fargate task definition for Telemetry Ingestion API (0.5 vCPU / 1GB RAM).
+# - ECS Fargate task definition for Telemetry Ingestion API (1 vCPU / 2GB RAM).
 # - IAM task role for AMP Remote Write + SQS SendMessage.
 # - CloudWatch log group /ecs/telemetry-api.
 # - ECS service with deployment circuit breaker, private subnets, no public IP,
@@ -10,8 +10,8 @@
 # -----------------------------------------------------------------------------
 
 locals {
-  telemetry_api_task_cpu      = 512
-  telemetry_api_task_memory   = 1024
+  telemetry_api_task_cpu      = 1024
+  telemetry_api_task_memory   = 2048
   telemetry_api_container_url = var.telemetry_api_image_tag
   adot_collector_image        = var.adot_collector_image_tag != "" ? var.adot_collector_image_tag : "public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0"
   adot_collector_config       = <<-YAML
@@ -184,7 +184,7 @@ resource "aws_ecs_service" "telemetry_api" {
   name            = "${var.project_name}-${var.environment}-telemetry-api"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.telemetry_api.arn
-  desired_count   = 2
+  desired_count   = 1
   launch_type     = "FARGATE"
 
   deployment_circuit_breaker {
@@ -206,10 +206,6 @@ resource "aws_ecs_service" "telemetry_api" {
     target_group_arn = aws_lb_target_group.telemetry_api.arn
     container_name   = "telemetry-api"
     container_port   = var.app_port
-  }
-
-  lifecycle {
-    ignore_changes = [desired_count]
   }
 
   depends_on = [

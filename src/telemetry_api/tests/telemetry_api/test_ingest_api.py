@@ -352,6 +352,54 @@ def test_ingest_token_configured_accepts_correct_bearer(telemetry_file: Path) ->
     assert response.status_code == 201
 
 
+def test_tenant_ingest_token_header_accepted_when_configured(telemetry_file: Path) -> None:
+    """X-Tenant-Ingest-Token đúng được ưu tiên hơn Authorization: Bearer."""
+
+    settings = Settings(local_telemetry_file=str(telemetry_file), tenant_ingest_token="secret-token")
+    token_client = TestClient(create_app(settings))
+    headers = tenant_headers()
+    headers["X-Tenant-Ingest-Token"] = "secret-token"
+
+    response = post_ingest(token_client, valid_payload(), headers=headers)
+
+    assert response.status_code == 201
+    metrics_data = token_client.get("/debug/metrics-json").json()
+    assert metrics_data["telemetry_ingest_accepted_total"] == 1
+
+
+def test_tenant_ingest_token_header_wrong_rejected(telemetry_file: Path) -> None:
+    """X-Tenant-Ingest-Token sai bị từ chối 400."""
+
+    settings = Settings(local_telemetry_file=str(telemetry_file), tenant_ingest_token="secret-token")
+    token_client = TestClient(create_app(settings))
+    headers = tenant_headers()
+    headers["X-Tenant-Ingest-Token"] = "wrong-token"
+
+    response = post_ingest(token_client, valid_payload(), headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid or missing ingest token"
+    metrics_data = token_client.get("/debug/metrics-json").json()
+    assert metrics_data["telemetry_ingest_rejected_by_reason"]["invalid_ingest_token"] == 1
+
+
+def test_tenant_ingest_token_header_wins_over_wrong_bearer(telemetry_file: Path) -> None:
+    """Khi có cả X-Tenant-Ingest-Token sai và Authorization Bearer đúng, header mới wins -> bị từ chối."""
+
+    settings = Settings(local_telemetry_file=str(telemetry_file), tenant_ingest_token="secret-token")
+    token_client = TestClient(create_app(settings))
+    headers = tenant_headers()
+    headers["X-Tenant-Ingest-Token"] = "wrong-token"
+    headers["Authorization"] = "Bearer secret-token"
+
+    response = post_ingest(token_client, valid_payload(), headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid or missing ingest token"
+    metrics_data = token_client.get("/debug/metrics-json").json()
+    assert metrics_data["telemetry_ingest_rejected_by_reason"]["invalid_ingest_token"] == 1
+
+
 # --- 8. KIỂM THỬ BẢO VỆ GHI LOG & DUNG LƯỢNG ---
 
 def test_invalid_json_returns_400(client: TestClient) -> None:

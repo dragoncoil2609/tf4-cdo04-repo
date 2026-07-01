@@ -140,7 +140,7 @@ Full output list is in `outputs.tf`. Key outputs for consumers:
 
 | Output | Description |
 |---|---|
-| `alb_dns_name` | Public ALB DNS for `/v1/ingest` |
+| `alb_dns_name` | Internal ALB DNS for VPC Link routing |
 | `ai_api_gateway_endpoint` | SigV4-protected API Gateway endpoint for Worker -> AI |
 | `amp_remote_write_endpoint` | AMP remote write endpoint (ADOT collector target) |
 | `amp_query_endpoint` | AMP query endpoint (Prediction Worker PromQL) |

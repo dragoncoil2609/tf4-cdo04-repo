@@ -47,11 +47,11 @@ infra/
 ## What this builds
 
 - **HTTP ALB** on port 80 exposing `/v1/ingest` to the Telemetry API. ACM/HTTPS is deferred.
-- **Telemetry API** ECS service (Fargate, 2 tasks) accepting ingest, writing to AMP and SQS.
+- **Telemetry API** ECS service (Fargate, 1 task, 1 vCPU / 2GB) accepting ingest, writing to AMP and SQS.
 - **Prediction Worker** ECS service (Fargate, 1+ tasks) consuming SQS, querying AMP, calling AI Engine via Service Connect, and writing audit records to DynamoDB.
 - **AI Engine** ECS service (Fargate, 2 tasks) serving `/v1/predict` on Service Connect with S3 baseline access.
 - **ECS Service Connect** for private service-to-service discovery (no ALB needed between Worker and AI).
-- **Autoscaling** on all three services: Telemetry API (CPU target tracking + ALB p99 step), Prediction Worker (queue-driven step scale-out/scale-in), AI Engine (CPU target tracking + latency step).
+- **Autoscaling** for Prediction Worker (queue-driven step scale-out/scale-in) and AI Engine (CPU target tracking + latency step). Telemetry API is pinned to 1 task for MVP single-writer AMP consistency.
 - **18 CloudWatch alarms** covering CPU, memory, latency, error rate, running task count, SQS queue depth/age, and DLQ visibility.
 - **Operational SNS topic** with email subscription for runtime alarm notifications.
 - **Budget alert SNS topic** with AWS Budget (50/80/100% thresholds at $200/month), billing alarm ($160 at 80%), cost breaker Lambda, and cost dashboard.
@@ -91,7 +91,7 @@ terraform output public_subnet_ids
 terraform output nat_gateway_id
 terraform output s3_endpoint_id
 terraform output dynamodb_endpoint_id
-terraform output alb_dns_name
+terraform output api_gateway_base_url
 terraform output alb_zone_id
 terraform output alb_listener_arn
 terraform output alb_sg_id
@@ -155,11 +155,11 @@ terraform output operational_alerts_topic_arn
 
 ## Verification commands
 
-Smoke-test the ingest path through the ALB:
+Smoke-test the ingest path through API Gateway:
 
 ```bash
-ALB_DNS=$(terraform output -raw alb_dns_name)
-curl -s -o /dev/null -w "%{http_code}" "http://${ALB_DNS}/v1/ingest"
+API_URL=$(terraform output -raw api_gateway_base_url)
+curl -s -o /dev/null -w "%{http_code}" "${API_URL}/v1/ingest" -H "X-Tenant-Id: demo-tenant-001"
 ```
 
 Check ECS service health:

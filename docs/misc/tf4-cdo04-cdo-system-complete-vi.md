@@ -10,9 +10,9 @@
 
 TF4 CDO-04 là **SLO Early-Warning Control Plane with TSDB-backed Prediction Workflow** cho 3 dịch vụ tier-1 của fintech demo. Mục tiêu không phải xây dashboard mới, mà biến telemetry thành **prediction decision có audit, fallback, evidence và cost guard**.
 
-Hệ thống nhận telemetry qua `POST /v1/ingest`, expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **API Gateway HTTP API `AWS_IAM` → VPC Link → internal ALB listener `:80` → AI target group**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. ECS Service Connect giữ làm rollback/fallback trong migration. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
+Hệ thống nhận telemetry qua `POST /v1/ingest` (API Gateway `AWS_IAM`/SigV4 service `execute-api`, tenant token qua `X-Tenant-Ingest-Token`), expose metrics dạng Prometheus tại `/metrics`, để **ADOT Collector sidecar scrape chính Telemetry API** rồi `remote_write` vào **Amazon Managed Service for Prometheus (AMP)**. Sau đó **EventBridge Scheduler** gửi job mỗi 5 phút vào **SQS**, **Prediction Worker** query AMP lấy cửa sổ 120 phút, align/impute thành 1-minute buckets, gọi **AI Engine** qua **API Gateway HTTP API `AWS_IAM` → VPC Link → internal ALB listener `:80` → AI target group**, ghi audit vào **DynamoDB**, publish alert qua **SNS** khi rủi ro cao. ECS Service Connect giữ làm rollback/fallback trong migration. Khi AI lỗi hoặc data gap lớn, worker fail-open sang **static threshold fallback**.
 
-Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, API Gateway HTTP API làm public front door, internal ALB `:80` sau VPC Link với `AWS_IAM`, VPC Link, 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker.
+Design hiện tại chạy tại `us-east-1`, ECS Fargate Linux/x86, private subnets, **API Gateway HTTP API là public front door duy nhất** với 3 route: `GET /health` (NONE auth), `POST /v1/ingest` (AWS_IAM/SigV4 + `X-Tenant-Ingest-Token`), `POST /v1/predict` (AWS_IAM/SigV4). API Gateway → VPC Link v2 → ENIs trong private subnets → **internal ALB HTTP `:80`** → ECS target groups `:8080`. `/health` và `/v1/ingest` route đến telemetry-api target group; `/v1/predict` route đến ai-engine target group. ALB nằm trong private subnets, **không có public 80/443 ingress**, không có restricted `:8443` listener. 1 NAT Gateway, S3/DynamoDB Gateway Endpoints, AMP làm TSDB, DynamoDB làm audit/policy store, S3 làm evidence/failure-buffer/baseline store, CloudWatch làm alarm/dashboard/logs, Budgets + Lambda làm cost breaker. ACM cert được giữ lại cho API Gateway custom domain trong tương lai; hiện tại chưa có API Gateway custom domain resource. CI/smoke dùng `api_gateway_base_url` (execute-api endpoint).
 
 Điểm cần nhớ: **không có Prometheus server scrape trực tiếp 3 service tier-1**. Đây là kiến trúc **push telemetry → Telemetry API `/metrics` → ADOT scrape → AMP remote_write**. Vì vậy 50 RPS trong k6 là **ingest API headroom**, không phải bằng chứng AMP lưu đủ 50 event samples/second.
 
@@ -61,9 +61,18 @@ Service ID canonical cần dùng nhất quán trong telemetry, SQS job, AI reque
 ```text
 Client / Synthetic telemetry
   |
-  | POST /v1/ingest + X-Tenant-Id
+  | POST /v1/ingest + SigV4 execute-api + X-Tenant-Id + X-Tenant-Ingest-Token
   v
-Public ALB (:80 hoặc :443 tùy enable_https)
+API Gateway HTTP API (public front door; /v1/ingest and /v1/predict AWS_IAM)
+  | route: /health (NONE), /v1/ingest (AWS_IAM) -> telemetry-api target group
+  | route: /v1/predict (AWS_IAM/SigV4) -> ai-engine target group
+  |
+  | VPC Link v2 -> ENIs in private subnets
+  v
+internal ALB HTTP :80 (private subnets only, no public ingress)
+  |
+  |-- /health, /v1/ingest -> telemetry-api target group :8080
+  |-- /v1/predict -> ai-engine target group :8080
   |
   v
 ECS Fargate: telemetry-api (private subnet, port 8080)
@@ -133,17 +142,18 @@ Entrypoint chính:
 
 - App: `src/telemetry_api/main.py`
 - Docker command: `uvicorn telemetry_api.main:app --port 8080`
-- Public route qua ALB: `POST /v1/ingest`
+- Public route qua API Gateway HTTP API: `POST /v1/ingest` (`AWS_IAM`/SigV4 tại API Gateway, tenant token qua `X-Tenant-Ingest-Token`)
 - Internal metrics route: `GET /metrics`
-- Health: `GET /health`
+- Health: `GET /health` (internal ALB route, không expose qua API Gateway)
 
 Flow:
 
 ```text
 Client
-  -> POST /v1/ingest
-  -> ALB listener rule /v1/ingest
-  -> target group port 8080
+  -> POST /v1/ingest + SigV4 service execute-api + X-Tenant-Ingest-Token
+  -> API Gateway HTTP API /v1/ingest route (AWS_IAM, unsigned => 403)
+  -> VPC Link -> internal ALB :80 listener rule /v1/ingest
+  -> telemetry-api target group port 8080
   -> telemetry-api container
   -> CorrelationIdMiddleware
   -> PayloadSizeLimitMiddleware, max 65536 bytes
@@ -199,9 +209,10 @@ Telemetry API receives pushed telemetry
 - Không có scrape target discovery bên ngoài task.
 - ADOT scrape **latest gauge snapshot** từ Telemetry API, không lưu mọi event ingest.
 - 1-minute prediction bucket vẫn hợp lý vì ADOT scrape 15s/lần, tức khoảng 4 sample/phút nếu producer giữ cadence 1 phút.
-- 50 RPS k6 chứng minh ALB + Telemetry API chịu producer traffic; không chứng minh AMP persisted 50 samples/sec.
+- 50 RPS k6 chứng minh API Gateway + internal ALB + Telemetry API chịu producer traffic; không chứng minh AMP persisted 50 samples/sec.
 - ADOT config thực tế nằm inline trong Terraform task definition, không phải `src/telemetry_api/adot-config.yaml`.
 - `src/telemetry_api/adot-config.yaml` chỉ là reference và dễ stale.
+- **MVP tradeoff (single-writer)**: Telemetry API desired count giảm từ 2 xuống 1, task sizing tăng từ 512/1024 lên 1024/2048. Duy nhất 1 task chạy, không có HA nếu task crash — nhưng ECS tự replace task trong <60s. Phù hợp demo capstone, không phải production. Autoscaling tắt hoàn toàn.
 
 ### 3.3 EventBridge Scheduler → SQS flow
 
@@ -304,7 +315,7 @@ Entrypoint:
 - Docker command: `uvicorn app.main:app --host 0.0.0.0 --port 8080`
 - Internal route: `POST /v1/predict`
 - Health: `/health`
-- Exposed only through internal ALB behind API Gateway VPC Link; no internet-facing ALB.
+- Exposed only through internal ALB behind API Gateway VPC Link; no public/internet-facing ALB. Internal ALB listener `:80` routes `/v1/predict` to AI target group.
 
 Flow:
 
@@ -517,12 +528,12 @@ Security Groups:
 
 | SG | Ingress | Egress |
 |---|---|---|
-| ALB | HTTP 80 and HTTPS 443 from allowed CIDRs/default `0.0.0.0/0` | TCP 8080 to telemetry API SG |
-| Telemetry API | TCP 8080 from ALB SG | all outbound |
+| Internal ALB | HTTP 80 from VPC Link ENI subnets only (private subnets), no public ingress | TCP 8080 to telemetry API SG + TCP 8080 to AI Engine SG |
+| Telemetry API | TCP 8080 from internal ALB SG | all outbound |
 | Prediction Worker | none | TCP 8080 to AI Engine SG + all outbound |
-| AI Engine | TCP 8080 from worker SG | all outbound |
+| AI Engine | TCP 8080 from internal ALB SG + TCP 8080 from worker SG | all outbound |
 
-Security note: docs demand strict allowed ingress CIDRs/HTTPS posture; Terraform currently can allow broad public ingress. HTTP/HTTPS behavior depends `enable_https`.
+Security note: ALB is internal/private subnets only. Public front door is API Gateway HTTP API with VPC Link. API Gateway routes: `/health` và `/v1/ingest` route đến telemetry-api target group; `/v1/predict` route đến ai-engine target group.
 
 ### 5.4 Data module
 
@@ -588,7 +599,7 @@ KMS/SSM/Secrets:
   - `/<project>/<env>/prediction/lookback_window_minutes`
   - `/<project>/<env>/ai/baseline_s3_prefix`
 - Secrets Manager, KMS encrypted:
-  - `tf4-cdo04/<env>/tenant-ingest-token` — Terraform generates value with `random_password`, stores secret version in Secrets Manager, and exposes sensitive output for k6/default demo workflow. Token is stored in Terraform state by explicit project choice. ECS wires it to Telemetry API through `secrets` as `TENANT_INGEST_TOKEN`; `/v1/ingest` enforces `Authorization: Bearer <token>` when configured.
+  - `tf4-cdo04/<env>/tenant-ingest-token` — Terraform generates value with `random_password`, stores secret version in Secrets Manager, and exposes sensitive output for k6/default demo workflow. Token is stored in Terraform state by explicit project choice. ECS wires it to Telemetry API through `secrets` as `TENANT_INGEST_TOKEN`; public `/v1/ingest` enforces API Gateway `AWS_IAM`/SigV4 plus `X-Tenant-Ingest-Token`. Legacy `Authorization: Bearer <token>` remains local/internal fallback.
   - `tf4-cdo04/<env>/slack-webhook-url` — future optional Slack path; MVP uses SNS email.
   - `tf4-cdo04/<env>/ai-sigv4-config` — future AI auth hardening config; Worker -> AI remains IAM SigV4 intent and SYS-09 caveat until verifier exists.
 
@@ -617,10 +628,10 @@ Telemetry API ECS task:
 
 | Setting | Value |
 |---|---|
-| CPU | 512 |
-| Memory | 1024 MB |
-| Desired | 2 |
-| Autoscaling | min 2, max 5 |
+| CPU | 1024 |
+| Memory | 2048 MB |
+| Desired | 1 |
+| Autoscaling | N/A (single-writer MVP) |
 | Port | 8080 |
 | Containers | `telemetry-api`, `adot-collector` |
 | Health check | `curl -f http://localhost:8080/health` |
@@ -722,32 +733,43 @@ AI Engine IAM:
 - `kms:Decrypt`
 - `cloudwatch:PutMetricData`
 
-### 5.6 ALB
+### 5.6 ALB and API Gateway
+
+Internal ALB:
 
 - Type: application.
-- Scheme: internet-facing.
+- Scheme: **internal** (private subnets only, no public ingress).
 - Target type: IP.
-- Target group port: 8080.
-- Health check path: `/health`.
+- Target groups:
+  - `telemetry-api`: port 8080, health check `/health`, routes `/health` và `/v1/ingest`.
+  - `ai-engine`: port 8080, health check `/health`, route `/v1/predict`.
 - Deregistration delay: 30s.
-- ACM certificate DNS validation for `var.domain_name`, default `xbrain26hackathon269.software`.
-- HTTP listener port 80:
-  - if `enable_https=true`: redirect to HTTPS
-  - else: default 404
-- HTTPS listener port 443 optional:
-  - TLS policy: `ELBSecurityPolicy-TLS13-1-2-2021-06`
-  - default 404
-- Listener rule priority 10:
-  - forward `/health`
-  - forward `/v1/ingest`
+- Listener: HTTP `:80` only (no public 80/443, no restricted `:8443` listener).
+- Listener rules:
+  - priority 10: forward `/health`, `/v1/ingest` đến telemetry-api target group.
+  - priority 20: forward `/v1/predict` đến ai-engine target group.
 
-Mismatch note: some docs require HTTPS/TLS as final posture, but sandbox/current Terraform may still expose HTTP behavior depending var and certificate.
+API Gateway HTTP API:
+
+- Public front door. 3 route với auth type:
+  - `GET /health` (NONE).
+  - `POST /v1/ingest` (AWS_IAM/SigV4 + `X-Tenant-Ingest-Token`).
+  - `POST /v1/predict` (AWS_IAM/SigV4).
+- Integration: VPC Link v2 → internal ALB HTTP `:80`.
+- VPC Link target: ENIs trong private subnets.
+
+ACM cert:
+
+- DNS validation cho `var.domain_name`, default `xbrain26hackathon269.software`.
+- Được giữ lại cho API Gateway custom domain trong tương lai.
+- Hiện tại chưa có API Gateway custom domain resource; CI/smoke dùng `api_gateway_base_url` (execute-api endpoint).
+- Không còn ALB HTTPS listener; ACM cert on ALB is deprecated path.
 
 ### 5.7 Autoscaling
 
 | Service | Min | Max | Target tracking | Step scaling |
 |---|---:|---:|---|---|
-| Telemetry API | 2 | 5 | CPU 70%, Memory 75% | ALB p99 scale-out +1, cooldown 300s |
+| Telemetry API | 1 | 1 | N/A (single-writer MVP) | N/A (single-writer MVP) |
 | Prediction Worker | 1 | 5 | none | SQS queue age/visible scale-out +1, idle scale-in -1, cooldown 120s |
 | AI Engine | 2 | 4 | CPU 70% | Service Connect p95/p99 latency scale-out +1, cooldown 300s |
 
@@ -773,7 +795,7 @@ Mismatch note: some docs require HTTPS/TLS as final posture, but sandbox/current
 | Memory high | > 75% | 2 x 300s | SNS operational |
 | ALB p99 TargetResponseTime | > 0.8s | 5 x 60s | SNS + scale-out |
 | ALB 5xx rate | > 1% | 5 x 60s | SNS |
-| RunningTaskCount low | < 2 | 3 x 60s, missing=breaching | SNS |
+| RunningTaskCount low | < 1 | 3 x 60s, missing=breaching | SNS |
 | Budget-style CPU high | >= 85% | 1 x 60s | budget SNS |
 | Budget-style Memory high | >= 85% | 1 x 60s | budget SNS |
 
@@ -840,9 +862,9 @@ Lambda breaker:
 
 - ECS tasks run in private subnets.
 - `assignPublicIp=DISABLED`.
-- Only ALB is public.
+- Only API Gateway HTTP API is public. Internal ALB is private subnets only.
 - Worker has no inbound listener.
-- AI Engine only reachable from worker SG through Service Connect/port 8080.
+- AI Engine reachable from internal ALB SG and worker SG through port 8080.
 - S3/DynamoDB access can avoid NAT through Gateway Endpoints.
 - ECR/CloudWatch/SSM/Secrets traffic still uses NAT because Interface Endpoints not provisioned.
 
@@ -851,6 +873,7 @@ Lambda breaker:
 Good:
 
 - GitHub OIDC uses dedicated deploy role, not static long-lived AWS key.
+- Deploy policy includes API Gateway log delivery actions, `execute-api:Invoke` for smoke tests, `ec2:ModifySecurityGroupRules` for SG rule updates.
 - ECS task roles split by service.
 - Telemetry task gets remote write, SQS send, S3 failure-buffer put; ECS execution role reads only tenant ingest token secret and decrypts it through project KMS for task-start injection.
 - Worker task gets SQS consume, APS query, DynamoDB audit/policy, SNS publish; no Secrets Manager runtime dependency in current MVP.
@@ -871,7 +894,9 @@ Risks:
 - Secrets Manager values are not managed in Terraform state; ECS injects the tenant ingest token by ARN through task definition `secrets`.
 - PII denylist and high-cardinality rejection at telemetry boundary.
 
-### 7.4 AI auth status
+### 7.4 Ingest and AI auth status
+
+Ingest SigV4 is enforced at API Gateway HTTP API via `AWS_IAM`. Public producers/k6 sign `POST /v1/ingest` with service `execute-api` and send tenant token through `X-Tenant-Ingest-Token`. Unsigned or invalid SigV4 requests are rejected with `403` before reaching Telemetry API. Legacy `Authorization: Bearer <token>` remains local/internal fallback only.
 
 Worker → AI SigV4 is enforced at API Gateway HTTP API via `AWS_IAM` (Path A / ADR-013). Worker private subnet → NAT → public execute-api endpoint → VPC Link → internal ALB `:80` → AI Engine `:8080`. Unsigned or invalid SigV4 requests are rejected with `403` at API Gateway before reaching AI Engine.
 
@@ -883,16 +908,20 @@ AI Engine app itself does not enforce SigV4 at the application layer -- this rem
 
 ### 8.1 Final evidence command set
 
-Final evidence was collected with direct focused commands, not full all-in-one matrix runner:
+Final evidence was collected with direct focused commands, not full all-in-one matrix runner. Current target is API Gateway HTTP API execute-api endpoint (`api_gateway_base_url`); ingest requires SigV4 credentials plus `TENANT_INGEST_TOKEN`:
 
 ```bash
 export TENANT_INGEST_TOKEN="$(terraform -chdir=infra/terraform output -raw tenant_ingest_token)"
 
 k6 run tests/k6/acceptance_ingest.js \
-  -e TELEMETRY_API_HOST=https://xbrain26hackathon269.software \
+  -e TELEMETRY_API_HOST=<api_gateway_base_url> \
   -e TENANT_ID=demo-tenant-001 \
   -e SERVICE_IDS=ledger,payment-gw,fraud-detector \
   -e TENANT_INGEST_TOKEN="$TENANT_INGEST_TOKEN" \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+  -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+  -e AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" \
   -e RATE=50 \
   -e DURATION=3h \
   --summary-export evidence/logs/acceptance-50rps-3h-final-summary.json
@@ -973,9 +1002,9 @@ Additional pass criteria:
 `scripts/post_apply_smoke.sh`:
 
 - Wait ECS services stable.
-- Health check `/health`.
-- Ingest smoke `/v1/ingest`, expect 201/202.
-- Verify `/metrics` not public, expect 404/403.
+- Health check `/health` via API Gateway `api_gateway_base_url`.
+- Ingest smoke `/v1/ingest`: unsigned request expects 403; signed SigV4 request with `X-Tenant-Ingest-Token` expects 201/202.
+- Verify `/metrics` not public via API Gateway, expect 404/403.
 - Optional AMP query endpoint check.
 - ECS service state active/running desired.
 - SQS queue depth below max.
@@ -1113,8 +1142,8 @@ DRY_RUN=false
 
 | ID | Area | Drift | Impact | Fix direction |
 |---|---|---|---|---|
-| SYS-01 | Edge security | Docs require HTTPS/TLS, Terraform can run HTTP/sandbox and ALB HTTP behavior varies by `enable_https` | Public posture mismatch | Make HTTPS final explicit; sandbox exception documented; enforce redirect when cert ready |
-| SYS-02 | Ingress CIDR | ALB CIDR can be `0.0.0.0/0`, docs want explicit allowed CIDRs | Accidental public exposure | Require `allowed_ingress_cidrs` var per env |
+| SYS-01 | Edge security | Docs previously required HTTPS/TLS on public ALB; current architecture uses API Gateway HTTP API as public front door with internal ALB behind VPC Link | Public posture resolved | API Gateway HTTP API is public edge; ACM cert kept for future custom domain; HTTPS enforced at API Gateway when custom domain is attached |
+| SYS-02 | Ingress CIDR | Previously public ALB with `0.0.0.0/0` CIDR; ALB is now internal/private subnets only, no public ingress | Accidental public exposure resolved | API Gateway HTTP API is the sole public entry point; internal ALB only receives traffic from VPC Link ENIs |
 | SYS-03 | Terraform backend | Docs/workflow mention `-lock=false`, backend supports lockfile | State race risk | Remove `-lock=false`, document S3 lockfile |
 | SYS-05 | CI/CD | QA notes auto-approve and weak smoke in older flow | False green deploy | Gate apply with real smoke/evidence |
 | SYS-08 | AI runtime | Previous QA suspected placeholder AI runtime | Live audit now proves `AI_ENGINE` + `complete_window` + `ai_status_code=200` | Resolved for demo evidence; keep verifying image provenance in CI |
@@ -1164,12 +1193,12 @@ DRY_RUN=false
 
 1. Terraform apply with lock enabled.
 2. ECS services stable:
-   - telemetry-api desired/running 2.
+   - telemetry-api desired/running 1.
    - prediction-worker desired/running 1.
    - ai-engine desired/running 2.
-3. ALB `/health` returns success.
-4. `/v1/ingest` returns 201/202 for valid payload.
-5. `/metrics` is not public through ALB.
+3. API Gateway `/health` returns success (verify via `api_gateway_base_url`).
+4. `/v1/ingest` returns 403 unsigned and 201/202 for valid SigV4 payload with `X-Tenant-Ingest-Token`.
+5. `/metrics` is not public through API Gateway.
 6. ADOT has no remote_write errors in logs.
 7. AMP query returns recent samples.
 8. EventBridge schedules enabled.
@@ -1260,7 +1289,7 @@ Use `DRY_RUN=true` for breaker test.
 - Contracts with AI team are mostly explicit.
 - Unit test coverage exists across telemetry, worker, AI, cost breaker.
 - Final live evidence now shows 3-service ingest, AMP/Worker/AI path and audit records.
-- 3h 50 RPS run sustained target load over custom HTTPS domain with p95 257 ms.
+- 3h 50 RPS run sustained target load over API Gateway HTTP API execute-api endpoint with p95 257 ms.
 
 ### 13.2 Remaining caveats before production-like claim
 
@@ -1315,7 +1344,7 @@ Use this priority when docs conflict:
 
 ## 16. Final state statement
 
-Hệ thống CDO-04 hiện là **DEMO PASS with documented caveats**. Control plane pieces exist and live evidence proves the core path: custom HTTPS ingest, ADOT-to-AMP telemetry, scheduled Worker jobs, AI Engine calls, DynamoDB audit records, SNS alert path and 3-service coverage.
+Hệ thống CDO-04 hiện là **DEMO PASS with documented caveats**. Control plane pieces exist and live evidence proves the core path: API Gateway HTTP API ingest, ADOT-to-AMP telemetry, scheduled Worker jobs, AI Engine calls via API Gateway `AWS_IAM` → VPC Link → internal ALB, DynamoDB audit records, SNS alert path and 3-service coverage.
 
 Status nên trình bày là:
 

@@ -40,10 +40,13 @@ async def ingest_telemetry(request: Request) -> JSONResponse:
 
     settings = get_settings(request)
     if settings.tenant_ingest_token:
-        auth_header = request.headers.get("Authorization", "")
-        bearer_prefix = "Bearer "
-        token = auth_header[len(bearer_prefix):] if auth_header.startswith(bearer_prefix) else ""
-        if not hmac.compare_digest(token, settings.tenant_ingest_token):
+        # X-Tenant-Ingest-Token takes precedence over Authorization: Bearer
+        ingest_token = request.headers.get("X-Tenant-Ingest-Token")
+        if ingest_token is None:
+            auth_header = request.headers.get("Authorization", "")
+            bearer_prefix = "Bearer "
+            ingest_token = auth_header[len(bearer_prefix):] if auth_header.startswith(bearer_prefix) else ""
+        if not hmac.compare_digest(ingest_token, settings.tenant_ingest_token):
             raise BadRequestError("Invalid or missing ingest token", reason="invalid_ingest_token")
 
     # 2. Đọc và parse JSON body

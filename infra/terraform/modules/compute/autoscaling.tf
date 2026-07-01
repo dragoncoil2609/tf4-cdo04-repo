@@ -1,16 +1,16 @@
 # -----------------------------------------------------------------------------
 # ECS Autoscaling -- CPOA-50
 #
-# Telemetry API:    min=2  max=5  cpu70% target tracking + ALB p99 step policy
+# Telemetry API:    min=1  max=1  (single-writer MVP; policies retained but bounded)
 # Prediction Worker: min=1  max=5  step scaling policies (scale out / scale in)
 # AI Engine:        min=2  max=4  cpu70% target tracking + latency step policy
 # -----------------------------------------------------------------------------
 
-# ── Telemetry API autoscaling ─────────────────────────────────────────────────
+# ── Telemetry API autoscaling (MVP single writer: min=max=1) ──────────────────
 
 resource "aws_appautoscaling_target" "telemetry_api" {
-  max_capacity       = 5
-  min_capacity       = 2
+  max_capacity       = 1
+  min_capacity       = 1
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.telemetry_api.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"

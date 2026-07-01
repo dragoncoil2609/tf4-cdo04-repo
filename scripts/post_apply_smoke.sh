@@ -46,7 +46,7 @@ require PREDICTION_QUEUE_DLQ_URL
 BASE_URL="$(resolve_api_gateway_base_url)"
 INGEST_AUTH_HEADER=()
 if [[ -n "${TENANT_INGEST_TOKEN:-}" ]]; then
-  INGEST_AUTH_HEADER=(-H "Authorization: Bearer ${TENANT_INGEST_TOKEN}")
+  INGEST_AUTH_HEADER=(-H "X-Tenant-Ingest-Token: ${TENANT_INGEST_TOKEN}")
 fi
 
 # Terraform returns after ECS service update starts; wait so API Gateway does not
@@ -83,27 +83,48 @@ for attempt in $(seq 1 15); do
   sleep 10
 done
 
-echo "Checking ${BASE_URL}/v1/ingest"
-for attempt in $(seq 1 15); do
-  ingest_status=$(http_code \
-    -X POST "${BASE_URL}/v1/ingest" \
-    -H "Content-Type: application/json" \
-    -H "X-Tenant-Id: smoke-test" \
-    -H "X-Correlation-Id: smoke-test" \
-    "${INGEST_AUTH_HEADER[@]}" \
-    -d '{"ts":"2026-06-29T00:00:00Z","tenant_id":"smoke-test","service_id":"payment-gw","metric_type":"api_latency_ms","value":1,"labels":{"region":"us-east-1","environment":"smoke"}}' || true)
-  if [[ "${ingest_status}" == "201" || "${ingest_status}" == "202" ]]; then
-    echo "Ingest smoke passed"
-    break
-  fi
-  if [[ "${attempt}" == "15" ]]; then
-    echo "Ingest smoke failed: HTTP ${ingest_status}" >&2
-    cat /tmp/smoke-response.txt >&2 || true
-    exit 1
-  fi
-  echo "Ingest attempt ${attempt}/15 got HTTP ${ingest_status}; retrying"
-  sleep 10
-done
+echo "Checking unsigned POST ${BASE_URL}/v1/ingest returns 403 (IAM auth)"
+ingest_unsigned_status=$(http_code -X POST "${BASE_URL}/v1/ingest" \
+  -H "Content-Type: application/json" \
+  -d '{"ts":"2026-06-29T00:00:00Z","tenant_id":"smoke-test","service_id":"payment-gw","metric_type":"api_latency_ms","value":1,"labels":{"region":"us-east-1","environment":"smoke"}}' || true)
+if [[ "${ingest_unsigned_status}" != "403" ]]; then
+  echo "Unsigned POST /v1/ingest returned HTTP ${ingest_unsigned_status}; expected 403 (API Gateway IAM auth)" >&2
+  cat /tmp/smoke-response.txt >&2 || true
+  exit 1
+fi
+echo "Unsigned POST /v1/ingest blocked as expected: HTTP ${ingest_unsigned_status}"
+
+echo "Checking signed POST ${BASE_URL}/v1/ingest via SigV4"
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+  echo "Skipping signed ingest check: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY not exported for curl SigV4"
+elif curl --help all 2>/dev/null | grep -q -- "--aws-sigv4"; then
+  for attempt in $(seq 1 15); do
+    ingest_signed_status=$(curl -sS -o /tmp/signed-ingest-response.txt -w "%{http_code}" \
+      --aws-sigv4 "aws:amz:${AWS_REGION:-us-east-1}:execute-api" \
+      --user "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}" \
+      -H "x-amz-security-token: ${AWS_SESSION_TOKEN:-}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "X-Tenant-Id: smoke-test" \
+      -H "X-Correlation-Id: smoke-test" \
+      "${INGEST_AUTH_HEADER[@]}" \
+      -d '{"ts":"2026-06-29T00:00:00Z","tenant_id":"smoke-test","service_id":"payment-gw","metric_type":"api_latency_ms","value":1,"labels":{"region":"us-east-1","environment":"smoke"}}' \
+      "${BASE_URL}/v1/ingest" || true)
+    if [[ "${ingest_signed_status}" == "201" || "${ingest_signed_status}" == "202" ]]; then
+      echo "Signed POST /v1/ingest passed: HTTP ${ingest_signed_status}"
+      break
+    fi
+    if [[ "${attempt}" == "15" ]]; then
+      echo "Signed POST /v1/ingest failed: HTTP ${ingest_signed_status}" >&2
+      cat /tmp/signed-ingest-response.txt >&2 || true
+      exit 1
+    fi
+    echo "Signed ingest attempt ${attempt}/15 got HTTP ${ingest_signed_status}; retrying"
+    sleep 10
+  done
+else
+  echo "Skipping signed ingest check: curl lacks --aws-sigv4"
+fi
 
 echo "Checking ${BASE_URL}/metrics is not public"
 metrics_status=$(http_code "${BASE_URL}/metrics" || true)

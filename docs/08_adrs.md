@@ -964,7 +964,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   | Receiver | `prometheus` receiver scrape `localhost:8080/metrics` (Prometheus text format) |
   | Auth | `sigv4auth` extension, `service=aps`, region theo `var.aws_region` |
   | App direct delivery | `AMP_DELIVERY_ENABLED=false` trong AWS (tắt `AmpDeliveryAdapter.deliver()`) |
-  | Task sizing | Giữ nguyên 512/1024 (không upsize), ADOT dùng chung tài nguyên task |
+  | Task sizing | 1024/2048 (upsized from 512/1024 for single-writer MVP), ADOT dùng chung tài nguyên task |
   | Logging | ADOT logs ghi vào CloudWatch Log Group `/ecs/telemetry-api` với stream prefix `adot-collector` |
   | IAM | Dùng chung task role (`aps:RemoteWrite` đã có sẵn) |
   | Standalone ADOT service | Deferred post-MVP |
@@ -988,7 +988,7 @@ Telemetry frequency và prediction cadence là hai nhịp khác nhau: Telemetry 
   * ✅ Dùng ảnh public ADOT, không cần ECR repo mới, không cần CI build pipeline mới.
   * ✅ Config nhúng trong Terraform locals (`AOT_CONFIG_CONTENT`), không cần SSM parameter.
   * ✅ Ingest API trả `201 Accepted` thay vì `202 Buffered` khi ADOT hoạt động bình thường.
-  * ✅ Task sizing giữ nguyên 512/1024, không ảnh hưởng cost model.
+  * ✅ Task sizing tăng lên 1024/2048 để bù single-writer loss, cost model không đổi (1×1vCPU/2GB = 2×0.5vCPU/1GB).
   * ⚠️ Không có S3 failure buffer cho ADOT remote_write failure — ADOT dùng bounded retry/queue nội bộ (không durable). S3 buffer chỉ cover app-direct/local replay path.
   * ⚠️ Đường evidence khác với docs cũ: cần kiểm tra CloudWatch logs ADOT (`adot-collector` stream) + AMP query thay vì app-direct logs.
   * ⚠️ Nếu ADOT container crash, toàn bộ telemetry pipeline mất metrics (không có fallback collector).
