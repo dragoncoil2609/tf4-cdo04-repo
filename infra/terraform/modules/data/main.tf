@@ -99,6 +99,10 @@ resource "aws_dynamodb_table_item" "policy_ledger" {
     service_name     = { S = "ledger" }
     static_threshold = { N = "85.0" }
   })
+
+  lifecycle {
+    ignore_changes = [item]
+  }
 }
 
 resource "aws_dynamodb_table_item" "policy_payment_gw" {
@@ -111,6 +115,10 @@ resource "aws_dynamodb_table_item" "policy_payment_gw" {
     service_name     = { S = "payment-gw" }
     static_threshold = { N = "85.0" }
   })
+
+  lifecycle {
+    ignore_changes = [item]
+  }
 }
 
 resource "aws_dynamodb_table_item" "policy_fraud_detector" {
@@ -123,6 +131,10 @@ resource "aws_dynamodb_table_item" "policy_fraud_detector" {
     service_name     = { S = "fraud-detector" }
     static_threshold = { N = "85.0" }
   })
+
+  lifecycle {
+    ignore_changes = [item]
+  }
 }
 
 resource "aws_sqs_queue" "prediction_dlq" {
