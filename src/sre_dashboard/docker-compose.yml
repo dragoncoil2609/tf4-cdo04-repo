@@ -1,0 +1,24 @@
+services:
+  sre-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cdo-sre-dashboard
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      # Mount AWS config read-only so the container can use SSO profiles
+      - ~/.aws:/home/appuser/.aws:ro
+      # Mount terraform directory read-only for infrastructure discovery
+      - ../../infra/terraform:/terraform:ro
+    environment:
+      - APP_NAME=sre-dashboard
+      - APP_VERSION=0.1.0
+      - LOG_LEVEL=INFO
+      - HOST=0.0.0.0
+      - PORT=8001
+      - AWS_REGION=us-east-1
+      - TERRAFORM_OUTPUT_DIR=/terraform
+      - DYNAMODB_AUDIT_TABLE=cdo04-audit-logs
+      - DYNAMODB_POLICY_TABLE=cdo04-service-policies
+    restart: unless-stopped
